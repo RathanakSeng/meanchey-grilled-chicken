@@ -2,7 +2,7 @@
 
 Backend and Telegram bot for the Mean Chey Grilled Chicken system.
 
-**Phase 1** covers authentication (PC password login + Telegram Mini App), user management by role hierarchy, and a generic, extensible permission system. No business features yet.
+**Phase 1** covers authentication (PC password login + Telegram Mini App), user management by role hierarchy, and a generic, extensible permission system. The first business features are the **suppliers** and **customers** lists (`/suppliers`, `/customers`); see `docs/FEATURES.md` §11.
 
 📄 Detailed docs: [docs/FEATURES.md](docs/FEATURES.md) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
@@ -32,7 +32,7 @@ The `api` startup sequence is:
 
 With `TELEGRAM_BOT_TOKEN` set and `BOT_MODE=webhook` (the default), `TELEGRAM_WEBHOOK_URL` and `TELEGRAM_WEBHOOK_SECRET` are **required**: the api refuses to start without valid values. Without a tunnel, use `BOT_MODE=polling` (see below) or `BOT_MODE=off`.
 
-- OpenAPI docs: http://localhost:8000/docs
+- OpenAPI docs: http://localhost:8000/docs (development only; see `API_DOCS_ENABLED`)
 - First login: username `superadmin`, password `superadmin`. The superadmin is **not** forced to change it; change it from *My profile* right away.
 
 > Port 5432 already in use (e.g. a local PostgreSQL)? Set `POSTGRES_HOST_PORT=5433` in `.env` and point `DATABASE_URL` / `TEST_DATABASE_URL` at `localhost:5433`.
@@ -60,6 +60,8 @@ The tests need PostgreSQL. `TEST_DATABASE_URL` (from the environment or `.env`) 
 
 | Variable | Default | Description |
 |---|---|---|
+| `ENVIRONMENT` | `development` | Set `production` in production. |
+| `API_DOCS_ENABLED` | unset | Force `/docs`, `/redoc`, `/openapi.json` on (`true`) or off (`false`). Unset: on only when `ENVIRONMENT=development`. |
 | `DATABASE_URL` | `postgresql+asyncpg://meanchey:meanchey@localhost:5432/meanchey` | Async SQLAlchemy URL. Compose overrides the host to `postgres`. |
 | `TEST_DATABASE_URL` | `…/meanchey_test` | Used only by `pytest`. It is wiped on every run. |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `meanchey` | Compose postgres credentials. |
@@ -77,6 +79,7 @@ The tests need PostgreSQL. `TEST_DATABASE_URL` (from the environment or `.env`) 
 | `TELEGRAM_WEBHOOK_SECRET` | empty | Webhook mode: 1–256 chars of `A-Z a-z 0-9 _ -`, checked against Telegram's `X-Telegram-Bot-Api-Secret-Token` header. Generate: `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `TELEGRAM_WEBHOOK_AUTO_SET` | `true` | Register or refresh the webhook on startup. It is skipped when already up to date. |
 | `TELEGRAM_DROP_PENDING_UPDATES` | `false` | Discard updates queued at Telegram when the webhook is (re)registered. |
+| `BUSINESS_TIMEZONE` | `Asia/Phnom_Penh` | IANA time zone for business calendars (e.g. "new this month" on suppliers/customers). Validated at startup. |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated. Not needed when the UI proxies `/api`. |
 
 ## Roles, scope and permissions
@@ -93,7 +96,7 @@ The tests need PostgreSQL. `TEST_DATABASE_URL` (from the environment or `.env`) 
 **Database-level invariants**
 
 - Only one superadmin and one *active* general manager may exist. Both are enforced by partial unique indexes.
-- A Telegram username (and a linked Telegram user id) is unique among *active* users. This lets a deactivated account's username be reused, since "deactivate and recreate" is how a role changes in Phase 1.
+- A Telegram username (and a linked Telegram user id) is unique among *active* users. This lets a deactivated account's username be reused.
 - `position` is set if and only if the role is `staff`. This is a check constraint. Position is a free-text job title (at most 50 characters) with **no effect on access**.
 
 **Telegram usernames**
@@ -119,32 +122,32 @@ The tests need PostgreSQL. `TEST_DATABASE_URL` (from the environment or `.env`) 
   - The superadmin goes back to `SUPERADMIN_INITIAL_PASSWORD` and is not forced to change it.
   - All of your own sessions are revoked.
 
-**Permissions** (Phase 1, module `users`)
+**Access levels (what the general manager uses)**
 
-| Code | Default for |
-|---|---|
-| `users.view` | GM, supervisor |
-| `users.create` | GM, supervisor |
-| `users.update` | GM, supervisor |
-| `users.delete` | GM (deactivate / reactivate) |
-| `users.reset_password` | GM |
-| `permissions.grant` | GM |
+The general manager gives access per feature: **Off**, **View only** or **Full access** (`/users/{id}/features`). Detailed permissions stay underneath and are visible only to the superadmin. See `docs/FEATURES.md` §12.
 
-**Default grants**
+| Feature | For | View only | Full access | Default |
+|---|---|---|---|---|
+| Suppliers | supervisor, staff | `suppliers.view` | + create, update, delete | supervisor: Full · staff: Off |
+| Customers | supervisor, staff | `customers.view` | + create, update, delete | supervisor: Full · staff: Off |
+| Staff management | supervisor | `users.view` | + create, update | supervisor: Full |
+
+**General-manager-only permissions** (no feature; managed by the superadmin as detailed permissions): `users.delete` (deactivate / reactivate), `users.reset_password`, `permissions.grant` (set access levels). Supervisors never deactivate users and never grant access.
+
+**Defaults**
 
 - The superadmin implicitly holds every permission; these are not stored.
-- A new GM is granted all Phase 1 permissions.
-- A new supervisor gets the defaults above, limited to what their creator holds.
-- Staff have no permissions.
+- A new GM gets every `users` and partner permission.
+- A new supervisor gets every feature at Full access, limited to what their creator holds; staff get everything Off.
+- When a release adds a permission with role defaults, existing active users of those roles receive it on the next start (a one-time backfill, audited as `default_backfill`).
 
-**Grant rules**
+**Detailed permissions (superadmin only)**
 
-- The grantor needs `permissions.grant`.
-- The target must be in the grantor's scope.
-- The grantor can only grant or revoke permissions they hold.
-- A permission can only be granted to roles in its `assignable_to`.
+- `GET /permissions`, `GET /users/{id}/permissions`, `PUT` / `DELETE /users/{id}/permissions/{code}`: anyone else gets `403 FORBIDDEN_ROLE`.
+- A permission can only be granted to roles in its `assignable_to`. The `grantable_by` mechanism exists but no permission uses it.
+- **Revoking doesn't cascade.** The `permission.revoke` audit entry lists the grants of that permission the user had made to others (`downstream_grants`).
 
-**Revoking doesn't cascade.** When a permission is revoked, the `permission.revoke` audit entry lists the grants of that same permission that the user had made to others (`downstream_grants`). The UI audit log highlights them.
+**The superadmin is hidden** from everyone else: references to it read "System", looking it up by id is `404`, and the general manager's audit log leaves out its entries and all detailed-permission entries. See `docs/FEATURES.md` §13.
 
 ## Authentication flows
 
@@ -186,6 +189,7 @@ The `code` is stable and the UI translates it. Codes are listed in `app/core/err
 | `GET /users/positions` | `users.view`, scoped (distinct positions for suggestions) |
 | `POST /users` | `users.create`, and the role must be manageable |
 | `GET /users/{id}` · `PATCH /users/{id}` | `users.view` · `users.update`, plus scope |
+| `POST /users/{id}/role` | Promote / demote (`users.update`). GM: staff ↔ supervisor; superadmin: GM / supervisor / staff. Access resets to the new role's defaults. |
 | `POST /users/{id}/deactivate` · `/reactivate` | `users.delete`, plus scope |
 | `POST /users/{id}/reset-password` | `users.reset_password`, plus scope |
 | `GET /permissions` | signed in (catalog grouped by module) |
@@ -196,7 +200,7 @@ The `code` is stable and the UI translates it. Codes are listed in `app/core/err
 Audited actions:
 
 - Authentication: `auth.login`, `auth.login_failed`, `auth.locked`, `auth.logout`, `auth.password_changed`, `auth.telegram_bound`
-- User changes: `user.create`, `user.update`, `user.deactivate`, `user.reactivate`, `user.password_reset`, `user.password_self_reset`
+- User changes: `user.create`, `user.update`, `user.role_change`, `user.deactivate`, `user.reactivate`, `user.password_reset`, `user.password_self_reset`
 - Permissions and profile: `permission.grant`, `permission.revoke`, `profile.update`
 
 ## Telegram setup

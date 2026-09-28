@@ -234,6 +234,16 @@ export function PageHeader({
   )
 }
 
+/** Call `onClose` on Escape while `open` (dialogs, sheets). */
+export function useEscapeKey(open: boolean, onClose: () => void) {
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+}
+
 interface ConfirmDialogProps {
   open: boolean
   title: string
@@ -258,12 +268,7 @@ export function ConfirmDialog({
   onClose,
 }: ConfirmDialogProps) {
   const { t } = useTranslation()
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  useEscapeKey(open, onClose)
 
   if (!open) return null
   return (

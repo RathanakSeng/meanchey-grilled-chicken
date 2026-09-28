@@ -24,6 +24,8 @@ async def world(superadmin, make_user) -> dict:
 
 
 OK, SCOPE, PERM = 200, "FORBIDDEN_SCOPE", "MISSING_PERMISSION"
+# The superadmin is hidden from everyone else: looking it up is "not found", not "forbidden".
+HIDDEN = "USER_NOT_FOUND"
 
 VIEW_MATRIX = [
     # superadmin manages everyone below it
@@ -32,12 +34,12 @@ VIEW_MATRIX = [
     ("superadmin", "sup1", OK),
     ("superadmin", "staff1", OK),
     # general manager manages supervisors and staff
-    ("gm", "superadmin", SCOPE),
+    ("gm", "superadmin", HIDDEN),
     ("gm", "gm", SCOPE),
     ("gm", "sup1", OK),
     ("gm", "staff1", OK),
     # supervisor manages staff only
-    ("sup1", "superadmin", SCOPE),
+    ("sup1", "superadmin", HIDDEN),
     ("sup1", "gm", SCOPE),
     ("sup1", "sup1", SCOPE),
     ("sup1", "sup2", SCOPE),
@@ -57,7 +59,7 @@ async def test_view_scope(client, world, actor, target, expected) -> None:
     if expected == OK:
         assert r.status_code == 200, r.text
     else:
-        assert_error(r, 403, expected)
+        assert_error(r, 404 if expected == HIDDEN else 403, expected)
 
 
 @pytest.mark.parametrize(("actor", "target", "expected"), VIEW_MATRIX)
@@ -68,7 +70,7 @@ async def test_update_scope(client, world, actor, target, expected) -> None:
     if expected == OK:
         assert r.status_code == 200, r.text
     else:
-        assert_error(r, 403, expected)
+        assert_error(r, 404 if expected == HIDDEN else 403, expected)
 
 
 @pytest.mark.parametrize(
@@ -130,11 +132,10 @@ async def test_supervisor_cannot_deactivate_without_permission(client, world) ->
     assert_error(r, 403, PERM)
 
 
-async def test_supervisor_with_permission_can_deactivate_staff_only(
-    client, world, make_user
-) -> None:
+async def test_supervisor_can_never_deactivate_users(client, world, make_user) -> None:
+    # users.delete is general-manager only: a stored grant on a supervisor has no effect.
     sup = await make_user(Role.SUPERVISOR, "sup_deleter", perms=["users.view", "users.delete"])
     r = await client.post(f"/users/{world['staff1'].id}/deactivate", headers=auth(sup))
-    assert r.status_code == 200
-    r = await client.post(f"/users/{world['sup2'].id}/deactivate", headers=auth(sup))
-    assert_error(r, 403, SCOPE)
+    assert_error(r, 403, PERM)
+    me = (await client.get("/auth/me", headers=auth(sup))).json()
+    assert "users.delete" not in me["permissions"]

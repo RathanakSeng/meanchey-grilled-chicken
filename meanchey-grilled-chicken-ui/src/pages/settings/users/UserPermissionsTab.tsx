@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { usePermission } from '@/auth/usePermission'
+import { Icon } from '@/components/icons'
 import { Alert, Card, EmptyState, Spinner, cx } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useErrorMessage } from '@/lib/errors'
@@ -48,10 +49,30 @@ export function UserPermissionsTab({ userId }: { userId: string }) {
   }
 
   const anyEditable = modules.some((m) => m.permissions.some((p) => p.can_edit))
+  // Why a checkbox is locked, from the API's `reason` (an error code) → errors.<CODE>.
+  const lockReason = (p: UserPermission) =>
+    p.can_edit
+      ? undefined
+      : p.reason
+        ? t(`errors.${p.reason}`, { defaultValue: t('permissions.notEditable') })
+        : t('permissions.notEditable')
+  // Reasons specific to one item are shown inline too (tooltips don't exist on touch screens);
+  // the others (no grant permission, out of scope, user deactivated) apply to every item, so
+  // the notice above the list states them once.
+  const INLINE_REASONS = ['PERMISSION_GRANT_RESTRICTED', 'PERMISSION_NOT_HELD']
+  const tabReason = modules
+    .flatMap((m) => m.permissions)
+    .map((p) => p.reason)
+    .find((r) => r && !INLINE_REASONS.includes(r))
 
   return (
     <div className="space-y-4">
-      {(!canGrant || !anyEditable) && <Alert tone="info">{t('permissions.readOnlyNotice')}</Alert>}
+      {(!canGrant || !anyEditable) && (
+        <Alert tone="info">
+          {t('permissions.readOnlyNotice')}
+          {tabReason && ` ${t(`errors.${tabReason}`, { defaultValue: '' })}`}
+        </Alert>
+      )}
       {toggle.isError && <Alert tone="error">{errorMessage(toggle.error)}</Alert>}
       {modules.map((m) => (
         <Card key={m.module} title={localized(m)}>
@@ -65,7 +86,7 @@ export function UserPermissionsTab({ userId }: { userId: string }) {
                       'flex items-start gap-3 rounded-lg p-2',
                       p.can_edit ? 'cursor-pointer hover:bg-stone-50' : 'cursor-not-allowed',
                     )}
-                    title={p.can_edit ? undefined : t('permissions.notEditable')}
+                    title={lockReason(p)}
                   >
                     <input
                       type="checkbox"
@@ -90,6 +111,12 @@ export function UserPermissionsTab({ userId }: { userId: string }) {
                         {localized(p, 'description')}
                       </span>
                       <code className="text-[11px] text-stone-400">{p.code}</code>
+                      {!p.can_edit && p.reason && INLINE_REASONS.includes(p.reason) && (
+                        <span className="mt-1 flex items-center gap-1 text-xs text-amber-700">
+                          <Icon name="lock" width={12} height={12} className="shrink-0" />
+                          {lockReason(p)}
+                        </span>
+                      )}
                     </span>
                   </label>
                 </li>

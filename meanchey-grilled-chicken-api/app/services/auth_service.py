@@ -325,4 +325,5 @@ async def build_me(session: AsyncSession, user: User) -> MeOut:
         permissions=sorted(perms),
         manageable_roles=manageable_roles(user.role),
         can_self_reset_password=user.role in SELF_RESET_ROLES and "users.reset_password" in perms,
+        can_manage_features="permissions.grant" in perms,
     )

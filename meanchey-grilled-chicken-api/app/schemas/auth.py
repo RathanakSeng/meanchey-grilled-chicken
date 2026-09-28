@@ -40,3 +40,5 @@ class MeOut(BaseModel):
     permissions: list[str]
     manageable_roles: list[Role]
     can_self_reset_password: bool
+    # Holds permissions.grant: may set feature access levels (Access tab).
+    can_manage_features: bool

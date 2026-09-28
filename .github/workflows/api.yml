@@ -109,3 +109,4 @@ jobs:
   #   `alembic upgrade head` + bootstrap (registry sync, superadmin seed, webhook registration).
   #   Secrets to add in the repo/environment settings: JWT_SECRET, TELEGRAM_BOT_TOKEN,
   #   TELEGRAM_WEBHOOK_SECRET, DATABASE_URL (+ TELEGRAM_WEBHOOK_URL, MINI_APP_URL as vars).
+  #   Set ENVIRONMENT=production so /docs and /openapi.json are not served.

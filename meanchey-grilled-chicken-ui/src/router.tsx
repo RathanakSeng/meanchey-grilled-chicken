@@ -2,9 +2,12 @@ import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom'
 import { PublicOnly, RequireAccess, RequireAuth } from '@/auth/guards'
 import { AppShell } from '@/layouts/AppShell'
 import { LEGACY_PREFIXES, paths } from '@/lib/paths'
+import { AUDIT_ROLES } from '@/lib/roles'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
 import { HomePage } from '@/pages/HomePage'
 import { LoginPage } from '@/pages/LoginPage'
+import { CUSTOMERS, SUPPLIERS } from '@/pages/production/partners/config'
+import { PartnerListPage } from '@/pages/production/partners/PartnerListPage'
 import { ProductionPage } from '@/pages/production/ProductionPage'
 import { AuditLogPage } from '@/pages/settings/AuditLogPage'
 import { ProfilePage } from '@/pages/settings/ProfilePage'
@@ -43,7 +46,28 @@ export const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <HomePage /> },
-          { path: paths.production, element: <ProductionPage /> },
+          {
+            path: paths.production,
+            children: [
+              { index: true, element: <ProductionPage /> },
+              {
+                path: 'suppliers',
+                element: (
+                  <RequireAccess permission="suppliers.view">
+                    <PartnerListPage key="suppliers" config={SUPPLIERS} />
+                  </RequireAccess>
+                ),
+              },
+              {
+                path: 'customers',
+                element: (
+                  <RequireAccess permission="customers.view">
+                    <PartnerListPage key="customers" config={CUSTOMERS} />
+                  </RequireAccess>
+                ),
+              },
+            ],
+          },
           {
             path: paths.settings,
             children: [
@@ -75,7 +99,7 @@ export const router = createBrowserRouter([
               {
                 path: 'audit-logs',
                 element: (
-                  <RequireAccess roles={['superadmin', 'general_manager']}>
+                  <RequireAccess roles={AUDIT_ROLES}>
                     <AuditLogPage />
                   </RequireAccess>
                 ),

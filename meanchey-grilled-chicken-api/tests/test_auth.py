@@ -1,4 +1,5 @@
 from app.models import Role
+from app.permissions.registry import PERMISSIONS
 from tests.conftest import DEFAULT_PASSWORD, assert_error, auth
 
 
@@ -20,14 +21,7 @@ async def test_superadmin_me_has_every_permission(client, superadmin) -> None:
     r = await client.get("/auth/me", headers=auth(superadmin))
     assert r.status_code == 200
     me = r.json()
-    assert set(me["permissions"]) == {
-        "users.view",
-        "users.create",
-        "users.update",
-        "users.delete",
-        "users.reset_password",
-        "permissions.grant",
-    }
+    assert set(me["permissions"]) == {p.code for p in PERMISSIONS}
     assert me["manageable_roles"] == ["general_manager", "supervisor", "staff"]
     assert me["can_self_reset_password"] is True
 

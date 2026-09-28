@@ -1,6 +1,7 @@
 import { useCanAccess, type AccessRule } from '@/auth/usePermission'
 import type { IconName } from '@/components/icons'
 import { paths } from '@/lib/paths'
+import { AUDIT_ROLES } from '@/lib/roles'
 
 export interface NavItem extends AccessRule {
   to: string
@@ -10,6 +11,11 @@ export interface NavItem extends AccessRule {
   icon: IconName
   /** Match only the exact path when highlighting (used for Home). */
   end?: boolean
+  /**
+   * Keep the section visible even when none of its children are visible, so its hub page can
+   * explain that nothing is available yet (Production for staff without partner permissions).
+   */
+  keepWhenEmpty?: boolean
   children?: NavItem[]
 }
 
@@ -28,7 +34,23 @@ export const NAV_ITEMS: NavItem[] = [
     labelKey: 'nav.production',
     descriptionKey: 'home.productionDescription',
     icon: 'flame',
-    children: [],
+    keepWhenEmpty: true,
+    children: [
+      {
+        to: paths.suppliers,
+        labelKey: 'nav.suppliers',
+        descriptionKey: 'suppliers.description',
+        icon: 'truck',
+        permission: 'suppliers.view',
+      },
+      {
+        to: paths.customers,
+        labelKey: 'nav.customers',
+        descriptionKey: 'customers.description',
+        icon: 'store',
+        permission: 'customers.view',
+      },
+    ],
   },
   {
     to: paths.settings,
@@ -48,7 +70,7 @@ export const NAV_ITEMS: NavItem[] = [
         labelKey: 'nav.audit',
         descriptionKey: 'settings.auditDescription',
         icon: 'audit',
-        roles: ['superadmin', 'general_manager'],
+        roles: AUDIT_ROLES,
       },
       {
         to: paths.profile,
@@ -62,15 +84,15 @@ export const NAV_ITEMS: NavItem[] = [
 
 /**
  * Top-level items the user may see, each with only its visible children.
- * An empty `children: []` (Production today) means "a section with nothing in it yet" and stays
- * visible; a section whose children are all filtered out is hidden.
+ * A section whose children are all filtered out is hidden, unless it is `keepWhenEmpty`
+ * (or declared with `children: []`, "nothing in it yet").
  */
 export function useNavItems(): NavItem[] {
   const canAccess = useCanAccess()
   return NAV_ITEMS.filter((item) => canAccess(item)).flatMap((item) => {
     if (!item.children || item.children.length === 0) return [item]
     const children = item.children.filter((child) => canAccess(child))
-    return children.length > 0 ? [{ ...item, children }] : []
+    return children.length > 0 || item.keepWhenEmpty ? [{ ...item, children }] : []
   })
 }
 

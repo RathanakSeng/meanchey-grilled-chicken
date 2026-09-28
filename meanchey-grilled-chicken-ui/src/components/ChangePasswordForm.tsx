@@ -4,6 +4,7 @@ import { useAuth } from '@/auth/AuthProvider'
 import { api } from '@/lib/api'
 import { ClientError, useErrorMessage } from '@/lib/errors'
 import { normalizeUsername } from '@/lib/format'
+import { isSuperadmin, SUPERADMIN_LOGIN } from '@/lib/roles'
 import { Alert, Button, Field, Input } from './ui'
 
 const MIN_LENGTH = 8
@@ -27,7 +28,7 @@ export function ChangePasswordForm({
 
   const validate = () => {
     if (next.length < MIN_LENGTH) throw new ClientError('PASSWORD_TOO_SHORT', { min_length: MIN_LENGTH })
-    const username = me?.user.role === 'superadmin' ? 'superadmin' : me?.user.telegram_username
+    const username = isSuperadmin(me?.user.role) ? SUPERADMIN_LOGIN : me?.user.telegram_username
     if (username && normalizeUsername(next) === username) {
       throw new ClientError('PASSWORD_EQUALS_USERNAME')
     }

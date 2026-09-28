@@ -30,6 +30,8 @@ class UserPermissionOut(PermissionOut):
     granted_by: uuid.UUID | None
     granted_at: datetime | None
     can_edit: bool
+    # Error code of the first rule blocking the actor from editing this item, or null.
+    reason: str | None
 
 
 class UserPermissionModuleOut(BaseModel):

@@ -47,7 +47,7 @@ async def test_supervisor_cannot_reset_passwords(client, make_user) -> None:
 async def test_gm_cannot_reset_superadmin(client, superadmin, make_user) -> None:
     gm = await make_user(Role.GENERAL_MANAGER)
     r = await client.post(f"/users/{superadmin.id}/reset-password", headers=auth(gm))
-    assert_error(r, 403, "FORBIDDEN_SCOPE")
+    assert_error(r, 404, "USER_NOT_FOUND")
 
 
 async def test_gm_self_reset(client, make_user) -> None:

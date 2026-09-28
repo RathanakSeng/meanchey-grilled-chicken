@@ -1,6 +1,6 @@
 # API Features — Phase 1
 
-What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 contains **only** authentication, user management and permission control. Business features (orders, stock, delivery, …) come in later phases and plug into the permission system described here.
+What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The first business features, **suppliers and customers** (§11), plug into the permission system described here, as will later ones (orders, stock, delivery, …).
 
 - [1. Authentication](#1-authentication)
 - [2. Password policy](#2-password-policy)
@@ -12,6 +12,9 @@ What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័�
 - [8. Internationalization](#8-internationalization)
 - [9. Error codes](#9-error-codes)
 - [10. Endpoint reference](#10-endpoint-reference)
+- [11. Suppliers & customers](#11-suppliers--customers)
+- [12. Feature access levels](#12-feature-access-levels)
+- [13. Visibility and redaction](#13-visibility-and-redaction)
 
 ---
 
@@ -163,6 +166,7 @@ This is enforced through the `users.reset_password` permission, whose `assignabl
 | View a user | `users.view` | yes | |
 | Create a user | `users.create` | Role must be manageable | Default permissions are granted automatically (§5.3) |
 | Edit a user | `users.update` | yes | Name, phone, language, position (staff, free text), Telegram username. Changing the username unbinds the Telegram account. |
+| Change role (promote / demote) | `users.update` | current **and** new role manageable | `POST /users/{id}/role` `{role, position?}`. The actor must manage both the current and the new role: the **general manager** moves users between **staff and supervisor**; the **superadmin** between **general manager, supervisor and staff**. Supervisors can't change roles, and nobody changes their own. The new role's default access **replaces** the old one (supervisor: every feature Full; staff: every feature Off; general manager: all GM permissions); adjust it afterwards with feature levels. Demoting to staff needs a `position`; promoting clears it (`POSITION_REQUIRED` / `POSITION_NOT_ALLOWED`). Only one active general manager (`GM_ALREADY_EXISTS`). Same role again: no-op. The username, password and Telegram link are kept. |
 | Deactivate / reactivate | `users.delete` | yes | Soft delete: `is_active=false`, `deleted_at`. Reactivation re-checks the single-GM and username uniqueness rules. |
 | Reset password | `users.reset_password` | yes | §2 |
 | Edit own profile | signed in | self | `PATCH /me`: name, phone, language |
@@ -170,6 +174,11 @@ This is enforced through the `users.reset_password` permission, whose `assignabl
 ---
 
 ## 5. Permission system
+
+Access has two layers:
+
+- **Detailed permissions** (this section) are the underlying mechanism. Only the **superadmin** sees and edits them.
+- **Feature access levels** (§12) sit on top. The general manager sets *Off / View only / Full access* per feature for supervisors and staff and never sees a permission code.
 
 ### 5.1 Registry (code is the source of truth)
 
@@ -179,76 +188,104 @@ Permissions are declared in `app/permissions/registry.py`. Each entry has:
 - `name_en`, `name_km`
 - `description_en`, `description_km`
 - `assignable_to`: the roles that may ever hold it.
+- `grantable_by` (optional): for a target role, the only grantor roles that may grant or revoke it. Target roles not listed follow the normal rules (§5.4). **No permission uses it today**; the mechanism is kept for later. A permission with `grantable_by` can't be part of a feature (startup validation), because feature levels don't apply per-permission grant rules.
 
 On every startup the registry is **synced** into the `permissions` table:
 
 - new entries are inserted;
-- names, descriptions and `assignable_to` are updated;
+- names, descriptions, `assignable_to` and `grantable_by` are updated;
 - entries removed from the registry are marked `is_active = false` and never deleted, so the grant history stays intact.
 
 Inactive permissions are ignored everywhere: effective permissions, catalog, grants.
 
-### 5.2 Phase 1 permissions (module `users`)
+**Defaults for new permissions are backfilled.** Role defaults (§5.3) are normally applied only when a user is created. So that a newly added feature isn't invisible to every existing manager, the sync also grants each **newly inserted** permission to every **active** user whose role has it in `DEFAULT_PERMISSIONS`:
 
-| Code | Meaning | Assignable to |
-|---|---|---|
-| `users.view` | View users in own scope | GM, supervisor |
-| `users.create` | Create users in own scope | GM, supervisor |
-| `users.update` | Edit users in own scope | GM, supervisor |
-| `users.delete` | Deactivate / reactivate users in own scope | GM, supervisor |
-| `users.reset_password` | Reset passwords (others in scope, and self) | GM only |
-| `permissions.grant` | Grant / revoke permissions in own scope | GM, supervisor |
+- the grant is made by the system (`granted_by = NULL`);
+- each grant writes a `permission.grant` audit entry with `actor = null` and `details.source = "default_backfill"`;
+- it runs once per permission (only codes inserted by this run), inside the bootstrap advisory lock. A later start grants nothing, so a deliberate revoke sticks;
+- inactive users and roles without the default get nothing.
 
-No Phase 1 permission is assignable to staff.
+### 5.2 Permissions
+
+**Module `users`**
+
+| Code | Meaning | Assignable to | In feature |
+|---|---|---|---|
+| `users.view` | View users in own scope | GM, supervisor | Staff management |
+| `users.create` | Create users in own scope | GM, supervisor | Staff management |
+| `users.update` | Edit users in own scope | GM, supervisor | Staff management |
+| `users.delete` | Deactivate / reactivate users in own scope | **GM only** | — |
+| `users.reset_password` | Reset passwords (others in scope, and self) | GM only | — |
+| `permissions.grant` | Set feature access levels (GM); grant / revoke detailed permissions (superadmin only, §5.4) | **GM only** | — |
+
+- **Supervisors never deactivate users and never grant access.** `users.delete` and `permissions.grant` are no longer assignable to supervisors. Rows stored before this change stay in the table but have no effect: effective permissions filter on `assignable_to` at read time (§5.5).
+- No `users` permission is assignable to staff.
+
+**Module `partners`** (§11)
+
+| Code | Meaning | Assignable to | In feature |
+|---|---|---|---|
+| `suppliers.view` | View suppliers and their figures | GM, supervisor, staff | Suppliers |
+| `suppliers.create` / `.update` / `.delete` | Add / edit / deactivate suppliers | GM, supervisor, staff | Suppliers |
+| `customers.view` | View customers and their figures | GM, supervisor, staff | Customers |
+| `customers.create` / `.update` / `.delete` | Add / edit / deactivate customers | GM, supervisor, staff | Customers |
+
+The general manager can give any of these to supervisors **and staff** through feature levels.
 
 ### 5.3 Defaults
 
 | Role | On creation |
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
-| General manager | All six Phase 1 permissions. |
-| Supervisor | `users.view`, `users.create`, `users.update`, limited to what the creator holds. |
-| Staff | None. |
+| General manager | All `users` permissions (incl. `users.delete`, `users.reset_password`, `permissions.grant`) and all partner permissions. |
+| Supervisor | Every feature at **Full access**: Suppliers, Customers, Staff management (= `users.view/create/update`). Limited to what the creator holds. |
+| Staff | Every feature **Off** (no permissions). |
 
-### 5.4 Grant rules
+`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart.
 
-`PUT /users/{id}/permissions/{code}` grants a permission; `DELETE /users/{id}/permissions/{code}` revokes it. Checks, in order:
+### 5.4 Detailed grant rules (superadmin only)
 
-1. The actor holds `permissions.grant`. Otherwise → `MISSING_PERMISSION`.
-2. The target is in the actor's scope. Otherwise → `FORBIDDEN_SCOPE`.
-3. The permission exists and is active. Otherwise → `PERMISSION_NOT_FOUND`.
-4. The actor holds that permission themselves, for grant **and** revoke. Otherwise → `PERMISSION_NOT_HELD`.
-5. For grants, two more checks:
-   - the target is active. Otherwise → `USER_INACTIVE`.
-   - the target's role is in `assignable_to`. Otherwise → `PERMISSION_NOT_ASSIGNABLE`.
+`GET /permissions`, `GET /users/{id}/permissions`, `PUT` and `DELETE /users/{id}/permissions/{code}` are guarded by `require_role(superadmin)`. Anyone else gets `403 FORBIDDEN_ROLE` (with no list of allowed roles).
+
+For the superadmin, grant (`PUT`) and revoke (`DELETE`) check, in order:
+
+1. The target is in scope (not the superadmin itself). Otherwise → `FORBIDDEN_SCOPE`.
+2. The permission exists and is active. Otherwise → `PERMISSION_NOT_FOUND`.
+3. For grants: the target is active → `USER_INACTIVE`, and the target's role is in `assignable_to` → `PERMISSION_NOT_ASSIGNABLE`.
+
+(The full rule list in `permissions.service.block_reason`, including `PERMISSION_NOT_HELD` and `grantable_by` → `PERMISSION_GRANT_RESTRICTED`, still applies; the superadmin holds everything and is exempt from `grantable_by`.)
 
 Grant and revoke are idempotent.
 
-**Revoking doesn't cascade.** When permission *P* is revoked from user *U*, any grants of *P* that *U* made to others stay in place. The `permission.revoke` audit entry lists them in `details.downstream_grants`, and the UI highlights them for follow-up.
+**Revoking doesn't cascade.** When permission *P* is revoked from user *U*, any grants of *P* that *U* made to others (for example through feature levels) stay in place. The `permission.revoke` audit entry lists them in `details.downstream_grants`, and the audit log highlights them for follow-up.
 
 ### 5.5 Effective permissions
 
-`GET /auth/me` returns `permissions`: the user's effective codes, meaning active permissions that are granted to them and still assignable to their role. It also returns `manageable_roles` and `can_self_reset_password`, so the UI can build menus and forms.
+`GET /auth/me` returns:
 
-`GET /users/{id}/permissions` returns every permission assignable to the target's role, grouped by module. Each item has:
+- `permissions`: the user's effective codes, meaning active permissions that are granted to them and still assignable to their role. The UI builds menus from them;
+- `manageable_roles`, `can_self_reset_password`;
+- `can_manage_features`: holds `permissions.grant`, i.e. may set feature levels (the Access tab).
 
-- `granted`, `granted_by`, `granted_at`;
-- `can_edit`: true when the actor could change this permission on this user, per the rules in §5.4.
+`GET /users/{id}/permissions` (superadmin only) returns every permission assignable to the target's role, grouped by module. Each item has `granted`, `granted_by`, `granted_at`, `can_edit` and `reason` (the error code of the first rule that blocks editing, or `null`).
 
 ---
 
 ## 6. Audit log
 
-Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `target_user_id`, `details` JSONB, `created_at`):
+Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `target_user_id`, `entity_type`, `entity_id`, `details` JSONB, `created_at`). `entity_type` / `entity_id` reference a non-user record (`supplier`, `customer`); they're null for user and auth actions.
 
 | Area | Actions |
 |---|---|
 | Authentication | `auth.login` (method: password / telegram), `auth.login_failed` (with reason), `auth.locked`, `auth.logout`, `auth.password_changed`, `auth.telegram_bound` |
-| Users | `user.create` (includes default permissions), `user.update` (field diff), `user.deactivate`, `user.reactivate`, `user.password_reset`, `user.password_self_reset` |
-| Permissions | `permission.grant`, `permission.revoke` (includes `downstream_grants`) |
+| Users | `user.create` (includes default permissions), `user.update` (field diff), `user.role_change` (`from`, `to`, `position_from`, `position_to`, `permissions_added`, `permissions_removed`), `user.deactivate`, `user.reactivate`, `user.password_reset`, `user.password_self_reset` |
+| Permissions | `permission.grant` (`details.source = "default_backfill"` and no actor when granted by the startup backfill), `permission.revoke` (includes `downstream_grants`). **Superadmin only.** |
+| Access | `feature.set`: one entry per change, `details = {feature, from, to, added, removed}` (`from` may be `custom`). No individual `permission.*` entries are written for it. |
+| Suppliers | `supplier.create`, `supplier.update` (field diff), `supplier.deactivate`, `supplier.reactivate`. `details.name` holds the record's name. |
+| Customers | `customer.create`, `customer.update` (field diff), `customer.deactivate`, `customer.reactivate`. `details.name` holds the record's name. |
 | Profile | `profile.update` |
 
-`GET /audit-logs` is available to the **superadmin and general manager only**. This is a role check, not a permission. It supports filters (`action`, `actor_id`, `target_user_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references.
+`GET /audit-logs` is available to the **superadmin and general manager only** (§13 for what the general manager doesn't see). This is a role check, not a permission. It supports filters (`action`, `actor_id`, `target_user_id`, `entity_type`, `entity_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references, and `entity: {type, id, name}` for supplier / customer entries (the record's current name, falling back to the logged one).
 
 ---
 
@@ -328,8 +365,10 @@ Every error has the same shape:
 | Authentication | `NOT_AUTHENTICATED`, `INVALID_TOKEN`, `TOKEN_EXPIRED`, `INVALID_REFRESH_TOKEN`, `INVALID_CREDENTIALS`, `ACCOUNT_LOCKED`, `ACCOUNT_DISABLED`, `PASSWORD_CHANGE_REQUIRED` |
 | Passwords | `WRONG_CURRENT_PASSWORD`, `PASSWORD_TOO_SHORT`, `PASSWORD_EQUALS_USERNAME` |
 | Telegram | `TELEGRAM_NOT_CONFIGURED`, `INVALID_TELEGRAM_DATA`, `TELEGRAM_DATA_EXPIRED`, `USER_NOT_REGISTERED` |
-| Authorization | `FORBIDDEN_SCOPE`, `FORBIDDEN_ROLE`, `MISSING_PERMISSION`, `PERMISSION_NOT_HELD`, `PERMISSION_NOT_ASSIGNABLE`, `PERMISSION_NOT_FOUND` |
+| Authorization | `FORBIDDEN_SCOPE`, `FORBIDDEN_ROLE`, `MISSING_PERMISSION`, `PERMISSION_NOT_HELD`, `PERMISSION_NOT_ASSIGNABLE`, `PERMISSION_NOT_FOUND`, `PERMISSION_GRANT_RESTRICTED` (kept; never reachable by non-superadmins today) |
+| Access levels | `FEATURE_NOT_FOUND` (404), `FEATURE_NOT_APPLICABLE` (422) |
 | Users | `USER_NOT_FOUND`, `USER_INACTIVE`, `INVALID_TELEGRAM_USERNAME`, `DUPLICATE_TELEGRAM_USERNAME`, `GM_ALREADY_EXISTS`, `POSITION_REQUIRED`, `POSITION_NOT_ALLOWED` |
+| Suppliers & customers | `SUPPLIER_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `DUPLICATE_PHONE` (409), `INVALID_PHONE` (422, `details.min_digits` / `max_digits`) |
 | Generic | `VALIDATION_ERROR` (with `details.fields`), `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `HTTP_ERROR` |
 
 Codes are defined in `app/core/errors.py`. **Never rename a code:** the UI depends on them.
@@ -355,12 +394,131 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | POST | `/users` | `users.create` + manageable role |
 | GET | `/users/{id}` | `users.view` + scope |
 | PATCH | `/users/{id}` | `users.update` + scope |
+| POST | `/users/{id}/role` | `users.update` + current and new role manageable |
 | POST | `/users/{id}/deactivate` | `users.delete` + scope |
 | POST | `/users/{id}/reactivate` | `users.delete` + scope |
 | POST | `/users/{id}/reset-password` | `users.reset_password` + scope |
-| GET | `/permissions` | signed in |
-| GET | `/users/{id}/permissions` | `users.view` + scope |
-| PUT | `/users/{id}/permissions/{code}` | `permissions.grant` + grant rules |
-| DELETE | `/users/{id}/permissions/{code}` | `permissions.grant` + grant rules |
+| GET | `/permissions` | role: superadmin |
+| GET | `/users/{id}/permissions` | role: superadmin |
+| PUT | `/users/{id}/permissions/{code}` | role: superadmin + grant rules |
+| DELETE | `/users/{id}/permissions/{code}` | role: superadmin + grant rules |
+| GET | `/users/{id}/features` | `permissions.grant` + scope |
+| PUT | `/users/{id}/features/{feature}` | `permissions.grant` + scope + level rules (§12) |
 | GET | `/audit-logs` | role: superadmin or general manager |
+| GET | `/suppliers` | `suppliers.view` |
+| GET | `/suppliers/stats` | `suppliers.view` |
+| POST | `/suppliers` | `suppliers.create` |
+| GET | `/suppliers/{id}` | `suppliers.view` |
+| PATCH | `/suppliers/{id}` | `suppliers.update` |
+| POST | `/suppliers/{id}/deactivate` | `suppliers.delete` |
+| POST | `/suppliers/{id}/reactivate` | `suppliers.delete` |
+| GET, POST, PATCH | `/customers…` | same seven routes, guarded by `customers.*` |
 | GET | `/health` (no prefix) | public |
+| GET | `/docs`, `/redoc`, `/openapi.json` (no prefix) | only when API docs are enabled (development by default, §13) |
+
+---
+
+## 11. Suppliers & customers
+
+Two lists with the same shape and rules, kept in separate tables (`suppliers`, `customers`). Both appear under **Production** in the UI.
+
+### 11.1 Fields
+
+| Field | Rules |
+|---|---|
+| `name` | Required, at most 150 characters. Trimmed, with internal whitespace collapsed. Empty after trimming → `VALIDATION_ERROR`. Khmer is kept as typed. |
+| `location` | Optional free text, at most 255 characters. Trimmed; empty → `null`. |
+| `phone` | Optional. Normalized (below); empty → `null`. |
+| `is_active`, `deleted_at` | Soft delete, as for users. |
+| `created_by`, `updated_by`, `created_at`, `updated_at` | Returned as compact user references `{id, full_name}`. |
+
+**Phone numbers** (`core/phones.py`):
+
+- Spaces, dashes, dots and parentheses are stripped and an optional leading `+` is kept. The result must be 8–15 digits, otherwise `INVALID_PHONE`.
+- The normalized value is stored, e.g. `012 345 678` → `012345678`, `+855 12-345-678` → `+85512345678`. Local and international forms are **not** converted into each other.
+- Responses also carry `phone_display`, a readable form: `012 345 678`, `+855 12 345 678`.
+- **One active record per phone number, per list.** A partial unique index (`uq_<table>_active_phone`, `WHERE is_active AND phone IS NOT NULL`) backs a friendly pre-check → `409 DUPLICATE_PHONE`. It applies on create, on update and on reactivation. A deactivated record's number can be reused. The same number may appear once in suppliers and once in customers.
+
+### 11.2 Access
+
+- Permissions alone decide access (§5.2). There is **no role-scope check**: partners are not users.
+- Staff have nothing by default. The general manager sets the Suppliers / Customers feature: **View only** lets them list and open records; **Full access** also lets them add, edit and deactivate (§12).
+
+### 11.3 List, search and figures
+
+`GET /suppliers` (and `/customers`):
+
+| Parameter | Values |
+|---|---|
+| `q` | Case-insensitive match on name or location, or on the phone's digits (`012 345` finds `012345678`; `+855 97` finds `+85597…`). |
+| `status` | `active` (default), `inactive`, `all` |
+| `sort` | `name` (default, case-insensitive), `-name`, `created_at`, `-created_at` |
+| `page`, `page_size` | Default 20, maximum 100 |
+
+`GET /suppliers/stats` returns `{ total_active, new_this_month, inactive }`:
+
+- `new_this_month` counts records **added** since the start of the current calendar month in `BUSINESS_TIMEZONE` (default `Asia/Phnom_Penh`, UTC+7), whatever their status now. For example, at 2026-09-30 18:00 UTC it is already October in Phnom Penh.
+
+### 11.4 Changes
+
+- `PATCH` applies only the fields present in the body. `null` or `""` clears `location` / `phone`; `name` can't be cleared.
+- An update that changes nothing writes no audit entry.
+- Deactivating an inactive record, or reactivating an active one, is idempotent: `200` with the record, no audit entry.
+- Every change sets `updated_by` / `updated_at` and writes an audit entry (§6) with `entity_type` / `entity_id`.
+
+---
+
+## 12. Feature access levels
+
+The general manager's way to give access. Each feature switches a group of detailed permissions at once: **Off**, **View only** or **Full access**.
+
+### 12.1 Registry
+
+`FEATURES` in `app/permissions/registry.py`. Each feature has `code`, `menu` (`production` | `settings`), names and descriptions in Khmer and English, `applies_to` (roles it can be set for) and `levels`: an ordered mapping level → the exact permission codes of that level, always starting with `off` → none.
+
+| Feature | Menu | Applies to | View only | Full access |
+|---|---|---|---|---|
+| `suppliers` | production | supervisor, staff | `suppliers.view` | `suppliers.view/create/update/delete` |
+| `customers` | production | supervisor, staff | `customers.view` | `customers.view/create/update/delete` |
+| `staff_management` | settings | supervisor | `users.view` | `users.view/create/update` |
+
+- `users.delete`, `users.reset_password` and `permissions.grant` belong to **no** feature: they stay general-manager-only and are managed as detailed permissions by the superadmin.
+- **Startup validation** (`validate_features`, at import and in bootstrap): every code a feature uses exists, is assignable to every role in `applies_to`, and has no `grantable_by`; the first level is `off` with no codes; level names are `off` / `view` / `full`. A mismatch stops the API from starting.
+
+### 12.2 Current level
+
+A user's level for a feature is the level whose code set **exactly equals** the user's effective permissions restricted to that feature's codes. No exact match (e.g. only `suppliers.view` + `suppliers.update`, set by the superadmin) → `custom`.
+
+### 12.3 Endpoints
+
+**The general manager can set any level of any feature** that applies to a supervisor or staff member. Unlike detailed grants, the GM's own feature permissions don't matter here: the Access layer is theirs. (Detailed permissions, §5.4, stay superadmin-only.)
+
+`GET /users/{id}/features` (`permissions.grant` + scope) returns the features that apply to the target's role, grouped by menu (production first, then settings; empty menus omitted). Each feature: `code`, `menu`, names/descriptions, `levels` (in order), `current_level` (`off` / `view` / `full` / `custom`) and `can_edit` (the actor manages access and the target, and the target is active).
+
+`PUT /users/{id}/features/{feature}` with `{ "level": "off" | "view" | "full" }` checks, in order:
+
+1. `permissions.grant` (route guard) → `MISSING_PERMISSION`
+2. the target exists and is visible to the actor (§13) → `USER_NOT_FOUND`; the target is in scope → `FORBIDDEN_SCOPE`
+3. the feature exists → `FEATURE_NOT_FOUND`
+4. it applies to the target's role → `FEATURE_NOT_APPLICABLE`
+5. the level exists for the feature → `VALIDATION_ERROR`
+6. the target is active → `USER_INACTIVE`
+
+It then applies a **diff within the feature's codes only** (grants the missing codes with `granted_by` = actor, revokes the extra ones) in one transaction; the user's other permissions are untouched. Setting `custom` → a level overwrites it. Setting the current level again is a no-op: `200`, nothing written. Each change writes one `feature.set` audit entry (§6).
+
+The superadmin can use these endpoints too.
+
+---
+
+## 13. Visibility and redaction
+
+**The superadmin is invisible to everyone else.** Nothing the general manager, supervisors or staff can reach reveals the superadmin's id, login name, full name or role.
+
+- **User references** in every response use one schema (`schemas.common.UserRef`: `id`, `full_name`, `role`, `telegram_username`, `is_system`). For a viewer who isn't the superadmin, a reference to the superadmin serializes as `{ "id": null, "full_name": "System", "role": null, "telegram_username": null, "is_system": true }`. This covers `created_by` on users (including the GM's own record in `/auth/me`) and on suppliers/customers, `updated_by`, and the audit log's `actor` / `target`. It is applied at serialization time (`services/redaction.py`), so new endpoints are covered as long as they use `UserRef`. Without a known viewer it fails closed (hidden).
+- **Lookups by id:** every per-user endpoint (`GET/PATCH /users/{id}`, deactivate, reactivate, reset-password, features, …) answers `404 USER_NOT_FOUND` when a non-superadmin asks for the superadmin, not `403 FORBIDDEN_SCOPE`, which would confirm it exists.
+- **Audit log for the general manager:** left out are every entry **made by** the superadmin, every entry whose **target** is the superadmin (e.g. its sign-ins), and all `permission.grant` / `permission.revoke` entries (incl. `default_backfill`); the GM sees `feature.set` instead. Entries without an actor (failed sign-ins, lockouts) stay. The `actor_id` / `target_user_id` filters never match the superadmin.
+- **Wording:** no error message, detail or schema text reachable by non-superadmins names the superadmin or lists roles. `FORBIDDEN_ROLE` carries no `allowed_roles`; `FORBIDDEN_SCOPE` doesn't name the role; `422` messages for enum/literal fields don't list the allowed values.
+- **API docs** (`/docs`, `/redoc`, `/openapi.json`) describe every role, so they are served only when `API_DOCS_ENABLED=true`, or when it is unset and `ENVIRONMENT=development` (the default). Set `ENVIRONMENT=production` in production.
+- **UI:** one build for everyone. The superadmin's role label is "System" / "ប្រព័ន្ធ", like the API's redacted references; its extra screens are runtime checks. Their code is in the bundle (visible in browser dev tools), but they never receive superadmin data because the API redacts it.
+- **Tests:** `tests/test_redaction.py` calls every GET route (from the OpenAPI schema) plus key mutations as a GM, a supervisor and staff, over data the superadmin created, and fails if a body contains the superadmin's id, name or the word "superadmin".
+- **Not covered (known):** five wrong passwords for the login name `superadmin` on the login page return "account locked", which reveals that the account exists.

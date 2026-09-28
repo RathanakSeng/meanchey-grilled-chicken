@@ -12,6 +12,7 @@ from app.bot.webhook import router as telegram_webhook_router
 from app.config import get_settings
 from app.core.errors import install_error_handlers
 from app.db import SessionLocal, engine
+from app.services.redaction import ViewerContextMiddleware
 
 logging.basicConfig(level=logging.INFO)
 
@@ -39,6 +40,10 @@ def create_app() -> FastAPI:
         description="មាន់អាំងមានជ័យ — authentication, users and permissions (Phase 1).",
         version="0.1.0",
         lifespan=lifespan,
+        # Interactive docs describe every role, so they are off outside development.
+        docs_url="/docs" if settings.api_docs else None,
+        redoc_url="/redoc" if settings.api_docs else None,
+        openapi_url="/openapi.json" if settings.api_docs else None,
     )
     app.add_middleware(
         CORSMiddleware,
@@ -47,6 +52,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(ViewerContextMiddleware)
     install_error_handlers(app)
     app.state.telegram = None  # set by the lifespan in webhook mode
     app.include_router(api_router)

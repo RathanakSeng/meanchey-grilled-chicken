@@ -23,5 +23,5 @@ async def self_reset_password(
     user: Annotated[User, Depends(require_permission("users.reset_password"))],
     session: SessionDep,
 ) -> None:
-    """Superadmin / general manager: reset own password to the default and end all sessions."""
+    """Reset own password to the default and end all sessions (roles allowed to self-reset)."""
     await user_service.self_reset_password(session, user)

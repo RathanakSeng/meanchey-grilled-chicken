@@ -14,3 +14,13 @@ body {
   line-height: 1.6;
   -webkit-tap-highlight-color: transparent;
 }
+
+@layer utilities {
+  /* Horizontal scrollers (e.g. KPI cards on mobile): swipeable, no visible scrollbar. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

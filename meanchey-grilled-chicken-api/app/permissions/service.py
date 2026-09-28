@@ -51,6 +51,8 @@ class PermissionState:
     granted_by: uuid.UUID | None = None
     granted_at: datetime | None = None
     can_edit: bool = False
+    # First rule that blocks the actor from changing it (an ErrorCode), or None.
+    reason: ErrorCode | None = None
 
 
 @dataclass
@@ -101,18 +103,19 @@ async def user_permission_matrix(
         )
     }
     actor_perms = await effective_permissions(session, actor)
-    may_edit = target.is_active and can_manage(actor, target) and GRANT_PERMISSION in actor_perms
 
     states = []
     for p in perms:
         g = grants.get(p.code)
+        reason = block_reason(actor, actor_perms, target, p)
         states.append(
             PermissionState(
                 permission=p,
                 granted=g is not None,
                 granted_by=g.granted_by if g else None,
                 granted_at=g.granted_at if g else None,
-                can_edit=may_edit and p.code in actor_perms,
+                can_edit=reason is None,
+                reason=reason,
             )
         )
     return group_by_module(states, lambda s: s.permission)
@@ -136,6 +139,72 @@ async def grant_defaults(session: AsyncSession, actor: User, target: User) -> li
     return codes
 
 
+def grant_restricted(actor: User, target: User, perm: Permission) -> bool:
+    """`grantable_by`: for this target role, only the listed grantor roles may grant/revoke."""
+    if actor.role == Role.SUPERADMIN or not perm.grantable_by:
+        return False
+    allowed = perm.grantable_by.get(target.role.value)
+    return allowed is not None and actor.role.value not in allowed
+
+
+def block_reason(
+    actor: User, actor_perms: set[str], target: User, perm: Permission
+) -> ErrorCode | None:
+    """First grant rule (§5.4 order) that stops `actor` changing `perm` on `target`, or None.
+
+    Shared by the grant/revoke endpoints and the permission matrix so `can_edit` never drifts
+    from what the endpoints enforce. USER_INACTIVE is last: revoking from an inactive user is
+    allowed by the API, but the UI treats inactive users as read-only.
+    """
+    if GRANT_PERMISSION not in actor_perms:
+        return ErrorCode.MISSING_PERMISSION
+    if not can_manage(actor, target):
+        return ErrorCode.FORBIDDEN_SCOPE
+    if perm.code not in actor_perms:
+        return ErrorCode.PERMISSION_NOT_HELD
+    if grant_restricted(actor, target, perm):
+        return ErrorCode.PERMISSION_GRANT_RESTRICTED
+    if not target.is_active:
+        return ErrorCode.USER_INACTIVE
+    return None
+
+
+async def reset_to_role_defaults(
+    session: AsyncSession, actor: User, target: User
+) -> tuple[list[str], list[str]]:
+    """Replace all of `target`'s grants with the defaults of its (new) role.
+
+    Used when the role changes. Unlike `grant_defaults` this isn't limited to what the actor
+    holds: access for supervisors and staff is the general manager's to decide (feature levels).
+    Returns (added, removed) codes. Does not commit.
+    """
+    defaults = DEFAULT_PERMISSIONS.get(target.role, frozenset())
+    assignable = set(
+        await session.scalars(
+            select(Permission.code).where(Permission.is_active, _assignable_to(target.role))
+        )
+    )
+    wanted = defaults & assignable
+    stored = set(
+        await session.scalars(
+            select(UserPermission.permission_code).where(UserPermission.user_id == target.id)
+        )
+    )
+    removed = sorted(stored - wanted, key=lambda c: PERMISSION_ORDER.get(c, 999))
+    added = sorted(wanted - stored, key=lambda c: PERMISSION_ORDER.get(c, 999))
+    if removed:
+        await session.execute(
+            delete(UserPermission).where(
+                UserPermission.user_id == target.id,
+                UserPermission.permission_code.in_(removed),
+            )
+        )
+    for code in added:
+        session.add(UserPermission(user_id=target.id, permission_code=code, granted_by=actor.id))
+    await session.flush()
+    return added, removed
+
+
 async def _check_grant(session: AsyncSession, actor: User, target: User, code: str) -> Permission:
     ensure_can_manage(actor, target)
     perm = await session.get(Permission, code)
@@ -144,6 +213,13 @@ async def _check_grant(session: AsyncSession, actor: User, target: User, code: s
     if code not in await effective_permissions(session, actor):
         raise AppError(
             403, ErrorCode.PERMISSION_NOT_HELD, "You can only grant or revoke permissions you hold"
+        )
+    if grant_restricted(actor, target, perm):
+        raise AppError(
+            403,
+            ErrorCode.PERMISSION_GRANT_RESTRICTED,
+            f"Your role cannot grant or revoke {code} for role {target.role}",
+            {"allowed_roles": perm.grantable_by.get(target.role.value, [])},
         )
     return perm
 

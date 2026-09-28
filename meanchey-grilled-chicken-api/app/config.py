@@ -2,8 +2,9 @@ import re
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BotMode = Literal["webhook", "polling", "off"]
@@ -37,6 +38,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     environment: str = "development"
+    # Serve /docs, /redoc and /openapi.json. Unset: only when ENVIRONMENT=development.
+    api_docs_enabled: bool | None = None
 
     database_url: str = "postgresql+asyncpg://meanchey:meanchey@localhost:5432/meanchey"
     # Use a NullPool (no connection reuse). Handy for tests and one-off scripts.
@@ -63,6 +66,9 @@ class Settings(BaseSettings):
     telegram_webhook_auto_set: bool = True
     telegram_drop_pending_updates: bool = False
 
+    # IANA time zone for business calendars (e.g. "new this month" figures).
+    business_timezone: str = "Asia/Phnom_Penh"
+
     # Comma-separated list of allowed browser origins.
     cors_origins: str = "http://localhost:5173"
 
@@ -74,6 +80,25 @@ class Settings(BaseSettings):
     def webhook_enabled(self) -> bool:
         """The API serves the Telegram webhook (webhook mode and a bot token is configured)."""
         return self.bot_mode == "webhook" and bool(self.telegram_bot_token)
+
+    @property
+    def api_docs(self) -> bool:
+        if self.api_docs_enabled is not None:
+            return self.api_docs_enabled
+        return self.environment == "development"
+
+    @property
+    def business_tz(self) -> ZoneInfo:
+        return ZoneInfo(self.business_timezone)
+
+    @field_validator("business_timezone")
+    @classmethod
+    def _check_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as e:
+            raise ValueError(f"BUSINESS_TIMEZONE is not a known time zone: {value!r}") from e
+        return value
 
     @model_validator(mode="after")
     def _check_webhook_settings(self) -> "Settings":

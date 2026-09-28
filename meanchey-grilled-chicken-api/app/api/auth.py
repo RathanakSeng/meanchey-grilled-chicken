@@ -17,7 +17,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/login", response_model=TokenOut)
 async def login(body: LoginIn, session: SessionDep) -> TokenOut:
-    """Password login. The superadmin uses `superadmin`; others use their Telegram username."""
+    """Password login with the account's login name (the Telegram username for staff accounts)."""
     return await auth_service.login_with_password(session, body.username, body.password)
 
 

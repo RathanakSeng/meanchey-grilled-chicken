@@ -80,16 +80,19 @@ src/
 │   ├── format.ts          # dates, localized names, initials, username normalize
 │   ├── telegram.ts        # telegram handle, isTelegramMiniApp, initTelegram
 │   ├── paths.ts           # app routes (paths.users, paths.user(id)…), legacy prefixes, parentPath, isUnder
+│   ├── roles.ts           # isSuperadmin, AUDIT_ROLES, SUPERADMIN_LOGIN: superadmin checks in one place
 │   ├── types.ts           # API types (mirror of the API schemas)
 │   ├── usePositions.ts    # ['user-positions'] query
 │   └── useDebounced.ts
 ├── i18n/                  # i18next init + locales/{km,en}.json
 ├── layouts/               # AppShell → DesktopLayout | MobileLayout, nav.ts (menu tree), Brand
-├── components/            # ui.tsx kit, icons, badges, NavTile, LanguageSwitcher, ProfileMenu, ChangePasswordForm
+├── components/            # ui.tsx kit, Sheet, ActionMenu, SegmentedControl, icons, badges, NavTile, LanguageSwitcher, ProfileMenu,
+│                          #   ChangePasswordForm
 ├── pages/
 │   ├── HomePage.tsx, LoginPage.tsx, ChangePasswordPage.tsx, StatusPages.tsx, AuthLayout.tsx
-│   ├── production/        # ProductionPage (empty for now)
-│   └── settings/          # SettingsPage (hub), AuditLogPage, ProfilePage, users/*
+│   ├── production/        # ProductionPage (hub) + partners/ (generic Suppliers/Customers list: config,
+│   │                      #   PartnerListPage, KpiCards, PartnerFormSheet, validation)
+│   └── settings/          # SettingsPage (hub), AuditLogPage, ProfilePage, users/* (incl. UserAccessTab, UserPermissionsTab, RoleChangeSheet)
 └── types/telegram.d.ts    # minimal Telegram.WebApp typings
 ```
 
@@ -200,7 +203,10 @@ sequenceDiagram
   /change-password                   (standalone, AuthLayout)
   <AppShell>
     /                                Home (Production + Settings tiles)
-    /production                      ProductionPage
+    /production
+      index                          ProductionPage (hub: cards from the nav tree, or "no access yet")
+      suppliers                      RequireAccess suppliers.view → PartnerListPage(SUPPLIERS)
+      customers                      RequireAccess customers.view → PartnerListPage(CUSTOMERS)
     /settings
       index                          SettingsPage (hub: cards from the nav tree)
       users                          RequireAccess users.view
@@ -208,7 +214,7 @@ sequenceDiagram
         new                          RequireAccess users.create → UserForm(create)
         :id                          UserDetail (?tab=permissions)
         :id/edit                     RequireAccess users.update → UserForm(edit)
-      audit-logs                     RequireAccess roles=[superadmin, general_manager]
+      audit-logs                     RequireAccess roles=AUDIT_ROLES (superadmin, general manager)
       profile                        Profile
     /users, /users/*                 LegacyRedirect → /settings/users…
     /audit-logs, /audit-logs/*       LegacyRedirect → /settings/audit-logs…
@@ -216,7 +222,7 @@ sequenceDiagram
     *                                NotFound
 ```
 
-**Paths.** Every frontend URL comes from `lib/paths.ts` (`paths.users`, `paths.user(id)`, `paths.editUser(id)`, …). Components never write route literals, so moving a page is a one-file change. API URLs such as `api.get('/users')` are unrelated and stay literal.
+**Paths.** Every frontend URL comes from `lib/paths.ts` (`paths.users`, `paths.user(id)`, `paths.editUser(id)`, `paths.suppliers`, `paths.customers`, …). Components never write route literals, so moving a page is a one-file change. API URLs such as `api.get('/users')` are unrelated and stay literal.
 
 **Legacy redirects.** `LegacyRedirect` swaps the old prefix (from `LEGACY_PREFIXES`) for the new one and keeps the rest of the path, the query string and the hash, e.g. `/users/<id>/edit?x=1#a` → `/settings/users/<id>/edit?x=1#a`.
 
@@ -228,6 +234,8 @@ sequenceDiagram
 | `RequireAuth` | See the list below. |
 | `PublicOnly` | For `/login`. Sends signed-in users to their original destination (`location.state.from`) or to `/`. |
 | `RequireAccess` | Takes `permission` and/or `roles`. Renders `ForbiddenPage` if denied. Works as a layout route (`<Outlet/>`) or as a wrapper around children. |
+
+The two `PartnerListPage` routes get distinct React `key`s, so switching between Suppliers and Customers remounts the page instead of carrying state (search text, open panel) across.
 
 `RequireAuth` in detail:
 
@@ -253,33 +261,39 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 - **Menu tree.** `layouts/nav.ts` declares `NAV_ITEMS` as a tree:
 
   ```ts
-  { to, labelKey, descriptionKey?, icon, permission?, roles?, end?, children? }
+  { to, labelKey, descriptionKey?, icon, permission?, roles?, end?, keepWhenEmpty?, children? }
   ```
 
   - **Top level:** Home, Production, Settings.
+  - **Production's `children`:** Suppliers (`suppliers.view`, icon `truck`) and Customers (`customers.view`, icon `store`).
   - **Settings' `children`:** Users (`users.view`), Audit log (roles `superadmin`, `general_manager`) and My profile. These carry the same rules as before.
 - **`useNavItems()`** returns the visible top-level items, each with only its visible children.
-  - A section whose children are **all** filtered out is hidden.
-  - A section declared with `children: []`, such as Production today, is a real but empty section and stays visible.
+  - A section whose children are **all** filtered out is hidden, unless it has `keepWhenEmpty`.
+  - **Production is `keepWhenEmpty`**: staff without partner permissions still get the Production tab, and its hub explains that nothing is available yet.
+  - A section declared with `children: []` is a real but empty section and also stays visible.
   - `useNavChildren(to)` returns one section's visible children.
 - **Consumers,** all reading the same tree:
   - the desktop sidebar: top level plus the nested children of the current section;
   - the mobile bottom nav: top level only;
   - the Home tiles: top-level sections, via `NavTile`;
-  - the Settings hub: `useNavChildren(paths.settings)`, via `NavTile`.
+  - the Production and Settings hubs: `useNavChildren(paths.production | paths.settings)`, via `NavTile`.
 - **Staff** see only My profile under Settings purely because of these rules. There is no role-specific UI code.
-- **Freshness.** Home and the Settings hub call `useRefreshMeWhenStale()`, which adds a `['me']` observer that refetches if the cached copy is more than 60 s old. Combined with the 403 → `auth:refresh-me` rule (§6), a revoked permission disappears from the menus without a reload.
+- **Freshness.** Home and the Production and Settings hubs call `useRefreshMeWhenStale()`, which adds a `['me']` observer that refetches if the cached copy is more than 60 s old. Combined with the 403 → `auth:refresh-me` rule (§6), a revoked permission disappears from the menus without a reload.
 - **Per-object decisions come from the API.**
-  - The Permissions tab uses `can_edit` from `GET /users/{id}/permissions`, rather than re-implementing the grant rules in the client.
-  - The Create User form offers `me.manageable_roles`.
+  - **Access tab** (`UserAccessTab`): shown when `me.can_manage_features` and `GET /users/{id}/features` returns at least one menu. The server decides which features apply (`applies_to`), the current level (`off` / `view` / `full` / `custom`) and `can_edit`; the client only renders them. Each segment click `PUT`s the level optimistically (rolled back on error) and invalidates `['user-features', id]`, plus `['me']` when editing oneself.
+  - **Permissions (advanced)** (`UserPermissionsTab`, superadmin only) uses `can_edit` / `reason` from `GET /users/{id}/permissions`; `reason` is translated through `errors.<CODE>`.
+  - `UserDetailPage` builds the tab list from these rules; an unknown or unavailable `?tab=` falls back to Details.
+  - The Create User form offers `me.manageable_roles`; **Change role** offers the manageable roles other than the user's current one, and is shown only with `users.update` when there is at least one (so never to supervisors).
 - **Security boundary:** the API. UI checks only avoid showing dead-end actions.
+- **System references.** Every user reference from the API is a `UserRef` with `is_system`; render `is_system` (or a null `id`) as "System" without a link. The API uses it for actions by the system and to hide the superadmin from everyone else.
+- **The superadmin in the UI.** Superadmin checks go through `lib/roles.ts` (`isSuperadmin`, `AUDIT_ROLES`, `SUPERADMIN_LOGIN`). Its role label (`roles.superadmin`) is "System" / "ប្រព័ន្ធ", the same word the API uses when it hides the superadmin from others. The code is a single bundle; the superadmin-only screens are ordinary runtime checks.
 
 ## 9. Layouts and Telegram integration
 
 - **Layout choice:** `AppShell` picks `MobileLayout` when `isTelegramMiniApp || matchMedia('(max-width: 767px)')`, and `DesktopLayout` otherwise.
 - **Desktop:** a sticky 256 px sidebar and a top bar with `LanguageSwitcher` and `ProfileMenu`.
   - The sidebar lists the top-level items.
-  - When the route is under a section (`isUnder(pathname, '/settings')`), that section's visible children appear indented below it.
+  - When the route is under a section (`isUnder(pathname, '/production')`, `'/settings'`), that section's visible children appear indented below it.
   - The section's own page (`/settings`) is filled; on a child page, the parent keeps the brand color and only the child is filled.
 - **Mobile:** a sticky top bar and a fixed bottom nav with exactly the top-level items (Home · Production · Settings). It uses `env(safe-area-inset-bottom)` padding, and the main content reserves space for the nav.
   - The Settings tab is a non-`end` `NavLink`, so it stays active on every `/settings/*` route.
@@ -287,7 +301,7 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
   - `isTelegramMiniApp = Boolean(Telegram.WebApp.initData)`. The script also loads in normal browsers, so the presence of `initData` is the real signal.
   - `initTelegram()` calls `ready()` and `expand()` and sets the header and background colors to match the brand.
   - `MobileLayout` wires Telegram's **BackButton**: hidden on `/`, shown elsewhere.
-    - On click it navigates to `parentPath(pathname)`, i.e. the path with its last segment dropped: `/settings/users/:id/edit` → `/settings/users/:id` → `/settings/users` → `/settings` → `/`, and `/production` → `/`.
+    - On click it navigates to `parentPath(pathname)`, i.e. the path with its last segment dropped: `/settings/users/:id/edit` → `/settings/users/:id` → `/settings/users` → `/settings` → `/`, and `/production/suppliers` → `/production` → `/`.
     - It uses the route tree, not history (`navigate(-1)`), so a deep link opened directly in the Mini App still goes somewhere sensible.
     - In-page `PageHeader` back buttons follow the same parent targets.
 - **Auth pages** (login, change password, Telegram error, offline) use `AuthLayout`: a centered card with the brand and language switcher.
@@ -299,11 +313,16 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 | `['me']` | `GET /auth/me` (staleTime 60 s) |
 | `['users', params]` | `GET /users` (`keepPreviousData` for smooth paging and filtering) |
 | `['user', id]` | `GET /users/{id}` |
-| `['user-permissions', id]` | `GET /users/{id}/permissions` |
+| `['user-permissions', id]` | `GET /users/{id}/permissions` (superadmin only) |
+| `['user-features', id]` | `GET /users/{id}/features` (enabled with `me.can_manage_features`) |
 | `['user-positions']` | `GET /users/positions`, via `usePositions()` in `lib/usePositions.ts`. Enabled with `users.view`, staleTime 60 s. Feeds the position `<datalist>` suggestions in the user form and the position filter on the users list. |
 | `['audit-logs', params]` | `GET /audit-logs` |
+| `['suppliers', params]` / `['customers', params]` | `GET /suppliers` / `GET /customers` (`keepPreviousData`; the previous page stays visible, dimmed, while the next loads) |
+| `['suppliers-stats']` / `['customers-stats']` | `GET /suppliers/stats` / `GET /customers/stats` (KPI cards) |
+| `['supplier', id]` / `['customer', id]` | Single record; written with `setQueryData` from mutation responses |
 
-- Mutations use `useMutation`. After a change they either write the response straight into the cache (`setQueryData`, e.g. after editing a user or the profile) or invalidate the affected keys: `users`, `user`, `user-permissions`. Creating or editing a user also invalidates `user-positions`, so a newly typed position shows up in the suggestions and filter.
+- Mutations use `useMutation`. After a change they either write the response straight into the cache (`setQueryData`, e.g. after editing a user or the profile) or invalidate the affected keys: `users`, `user`, `user-permissions`. Creating or editing a user also invalidates `user-positions`, so a newly typed position shows up in the suggestions and filter. A role change (`RoleChangeSheet`, `POST /users/{id}/role`) writes the returned user into `['user', id]` and invalidates `users`, `user-features`, `user-permissions` and `user-positions`.
+- Supplier / customer mutations (create, edit, deactivate, reactivate) write the returned record into `[entity, id]` and invalidate both the list prefix (`[resource]`) and the stats key, so the table and the KPI cards update together. The keys are built by `partnerKeys(config)`.
 - Defaults: `retry: 1`, `refetchOnWindowFocus: false`. The Telegram WebView focuses and blurs often, so refetching on focus would be noisy.
 
 ## 11. Internationalization
@@ -320,11 +339,14 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
   |---|---|
   | `roles.*`, `languages.*` | Enum labels. Positions are free text from the user record and are never translated. |
   | `errors.<API_CODE>` | One key per API error code, plus client codes (`PASSWORDS_DO_NOT_MATCH`, `NETWORK_ERROR`, `UNKNOWN`) |
-  | `audit.actions.<action with . replaced by _>` | Audit action labels |
+  | `audit.actions.<action with . replaced by _>` | Audit action labels (including `supplier_*`, `customer_*`) |
+  | `partners.*` | Shared supplier/customer texts: field labels and hints, KPI labels, status and sort options, list actions |
+  | `suppliers.*`, `customers.*` | Per-list texts: title, description, buttons, empty states, confirmations, success messages (`{{name}}`) |
 
 - **Server-provided bilingual text** (permission and module names and descriptions) goes through `useLocalized()`, which picks `*_km` or `*_en` with an English fallback.
 - **Dates** use `Intl.DateTimeFormat` with the `km-KH` or `en-GB` locale, via `useFormatDate()`.
 - **Key parity:** `npm run check:i18n` fails the build step if the two locale files have different keys.
+- Access tab strings live under `access.*` (level labels, legend, menus, feature names for the audit log); feature names and descriptions on the tab itself come from the API (`useLocalized`).
 
 ## 12. Error handling
 
@@ -340,7 +362,8 @@ useErrorMessage()(err) → t(`errors.${code}`, { ...details, time, min })
 
 - Details are turned into readable interpolation values. For example, `locked_until` becomes a localized `time`.
 - Forms keep the raw error and translate it at render time, so switching language re-translates an error that is already on screen.
-- **Client-side validation** throws `ClientError` with the same codes the server uses, for example `PASSWORD_TOO_SHORT`, so messages are identical whichever side caught the problem.
+- **Client-side validation** throws `ClientError` with the same codes the server uses, for example `PASSWORD_TOO_SHORT` or `INVALID_PHONE` (with the same `min_digits` / `max_digits` details), so messages are identical whichever side caught the problem. Where the server only says `VALIDATION_ERROR`, the client uses field-specific codes (`NAME_REQUIRED`, `FIELD_TOO_LONG`).
+- **Field-level server errors.** The partner form maps an error to its field: `DUPLICATE_PHONE` / `INVALID_PHONE` → phone; `VALIDATION_ERROR` → the field in `details.fields[].loc`; anything else → an alert above the form.
 
 ## 13. Styling and components
 
@@ -349,8 +372,13 @@ useErrorMessage()(err) → t(`errors.${code}`, { ...details, time, min })
   - `Button` (primary / secondary / danger / ghost, loading state);
   - form controls: `Input`, `Select`, and `Field`, which generates the id and renders the label and hint;
   - containers and feedback: `Card`, `Badge`, `Alert`, `Spinner`, `EmptyState`;
-  - page structure: `PageHeader` (optional back button), and `ConfirmDialog` (bottom sheet on mobile, centered on desktop, Escape to close).
+  - page structure: `PageHeader` (optional back button), and `ConfirmDialog` (bottom sheet on mobile, centered on desktop, Escape to close);
+  - `useEscapeKey(open, onClose)`, shared by the dialogs.
+- **`components/Sheet.tsx`** extends the `ConfirmDialog` pattern for forms and longer content: a full-height **side drawer** on desktop and a **bottom sheet** (max 90 % height, grab handle, safe-area padding) on mobile, chosen with `useIsMobileLayout()`. It has a title bar with a close button, a scrollable body and an optional sticky footer. Escape and backdrop clicks close it unless `busy`, and page scrolling is locked while it's open. The footer's submit button targets the form with `form="<id>"`.
+- **`components/SegmentedControl.tsx`:** a radio group of buttons (`role="radiogroup"`), full width on phones with 40 px touch targets. `value` may match no segment (the *Custom* state). `suggested` adds a dashed outline as a hint only.
+- **`components/ActionMenu.tsx`:** a **⋮** button with a small menu of `{label, icon, tone, onSelect}` items. It uses fixed positioning, so it isn't clipped by tables or scroll containers, and it opens upwards near the bottom of the screen. It renders nothing when there are no items, so permission-filtered item lists need no extra check.
 - **Icons:** inline SVG paths in `components/icons.tsx`, with no icon dependency.
+- **`scrollbar-none`** (in `index.css`): horizontal scrollers such as the mobile KPI row swipe without a visible scrollbar.
 - **Accessibility:**
   - labelled controls;
   - `role="alert"` on errors;
@@ -392,12 +420,24 @@ Then:
 4. **Route:** nest it under `/production` (or `/settings`) in `router.tsx`, wrapped in `<RequireAccess permission="orders.view">`.
 5. **Navigation:** add a child to the section's `children` in `NAV_ITEMS`, with `permission: 'orders.view'`, an icon, `labelKey` and `descriptionKey`. What follows from that:
    - It appears automatically in the sidebar (nested) and, for Settings, as a hub card.
-   - Production's page is still a static empty state. When its first child is added, turn `ProductionPage` into a hub like `SettingsPage` (`useNavChildren(paths.production)` + `NavTile`).
+   - It also appears on the Production or Settings hub page as a card.
    - For a **new top-level section**, add a top-level entry instead. It needs `children` if it has sub-pages, a hub page if it has children, and a `descriptionKey` for its Home tile.
 6. **Actions:** wrap them in `<Can permission="orders.create">`.
 7. **Strings:** add them to `km.json` **and** `en.json` (label, description, page texts, any new API error codes). Run `npm run check:i18n`.
 
-The Permissions tab and the Telegram back button need no changes. New permissions come from the API, and the back target follows the path structure.
+The Access tab, the Permissions (advanced) tab and the Telegram back button need no changes. A feature added to the API's `FEATURES` registry appears on the Access tab automatically, in its menu group, with names from the API; only its audit label needs an `access.featureNames.<code>` translation. The back target follows the path structure.
+
+**Pattern: generic list page.** Suppliers and Customers are one page, `pages/production/partners/PartnerListPage.tsx`, configured by a `PartnerConfig` (`config.ts`):
+
+```ts
+{ resource: 'suppliers', entity: 'supplier', path: paths.suppliers, icon: 'truck' }
+```
+
+- `resource` is the API path (`/suppliers`), the permission prefix (`suppliers.create`) and the i18n namespace (`suppliers.title`).
+- `entity` is the single-record query key and the audit `entity_type`.
+- `partnerKeys(config)` builds the query keys; `permission(config, action)` the permission codes; `partnerSearchLink(config, q)` the audit log's deep link.
+
+The page brings the KPI cards, URL-driven filters (`?q&status&sort&page`), table/card list, `ActionMenu`, the `PartnerFormSheet` and confirm dialogs. Another list with the same fields needs a config, a route, a nav child and its `<resource>.*` translations.
 
 ## 16. Design decisions
 
@@ -412,4 +452,10 @@ The Permissions tab and the Telegram back button need no changes. New permission
 | No component library | Small bundle, full control over Khmer typography, and a consistent mobile/desktop look. |
 | Khmer default, English fallback | Matches the primary audience. A missing Khmer string still shows readable English. |
 | Two sections (Production, Settings) and a nav tree | Business work and administration are kept apart. The bottom bar stays at three items as features grow, and one tree drives the sidebar, bottom nav, Home tiles and Settings hub. |
+| One generic list page for suppliers and customers | The two lists have identical fields and rules; one implementation keeps them from drifting and makes the next similar list cheap. |
+| List filters in the URL | Links (e.g. from the audit log) can open a prefilled search, and Back or a refresh keeps the filters. |
+| Lock reasons from the server (`reason`) | Explains a locked permission without duplicating the grant rules, including `grantable_by`, in the client. |
+| Drawer on desktop, bottom sheet on mobile | Keeps the list visible beside the form on a PC, and is thumb-friendly in the Mini App. |
+| Access tab with levels, detailed permissions superadmin-only | Managers pick Off / View only / Full access per feature instead of permission codes; the server owns the mapping, so the UI renders whatever features exist. |
+| One bundle; the superadmin labelled "System" | A separate admin build was considered and dropped as too complex. The API is the boundary: it never returns superadmin data to anyone else, and the UI's own label for the role reads "System". The bundle still contains the superadmin-only screens' code. |
 | Back = parent route, not history | Mini App sessions often start from a deep link with no history. The route structure always gives a meaningful "up". |

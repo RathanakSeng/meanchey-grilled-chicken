@@ -3,17 +3,19 @@ import type { Role, User } from '@/lib/types'
 import { Badge } from './ui'
 import { Icon } from './icons'
 
-const roleTones = {
-  superadmin: 'red',
+type Tone = 'red' | 'brand' | 'blue' | 'neutral'
+
+const roleTones: Partial<Record<Role, Tone>> = {
+  superadmin: 'neutral',
   general_manager: 'brand',
   supervisor: 'blue',
   staff: 'neutral',
-} as const
+}
 
 export function RoleBadge({ role, position }: { role: Role; position?: string | null }) {
   const { t } = useTranslation()
   return (
-    <Badge tone={roleTones[role]}>
+    <Badge tone={roleTones[role] ?? 'neutral'}>
       {t(`roles.${role}`)}
       {/* Free-text job title, shown exactly as entered (never translated). */}
       {position && ` · ${position}`}

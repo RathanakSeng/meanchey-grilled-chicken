@@ -2,6 +2,8 @@
 export const paths = {
   home: '/',
   production: '/production',
+  suppliers: '/production/suppliers',
+  customers: '/production/customers',
   settings: '/settings',
   users: '/settings/users',
   newUser: '/settings/users/new',
@@ -23,6 +25,7 @@ export const LEGACY_PREFIXES: Record<string, string> = {
  *   /settings/users/:id/edit → /settings/users/:id
  *   /settings/users/:id      → /settings/users
  *   /settings/users          → /settings
+ *   /production/suppliers    → /production
  *   /production              → /
  */
 export function parentPath(pathname: string): string {

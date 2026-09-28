@@ -7,7 +7,7 @@ from app.deps import SessionDep, require_permission
 from app.models import Role, User
 from app.models.user import POSITION_MAX_LENGTH
 from app.permissions.hierarchy import ensure_can_manage
-from app.schemas.user import UserCreate, UserOut, UserPage, UserStatus, UserUpdate
+from app.schemas.user import RoleChange, UserCreate, UserOut, UserPage, UserStatus, UserUpdate
 from app.services import user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -67,7 +67,7 @@ async def create_user(body: UserCreate, actor: CanCreate, session: SessionDep) -
 
 @router.get("/{user_id}", response_model=UserOut)
 async def get_user(user_id: uuid.UUID, actor: CanView, session: SessionDep) -> User:
-    target = await user_service.get_user_or_404(session, user_id)
+    target = await user_service.get_user_or_404(session, user_id, actor)
     ensure_can_manage(actor, target)
     return target
 
@@ -76,24 +76,33 @@ async def get_user(user_id: uuid.UUID, actor: CanView, session: SessionDep) -> U
 async def update_user(
     user_id: uuid.UUID, body: UserUpdate, actor: CanUpdate, session: SessionDep
 ) -> User:
-    target = await user_service.get_user_or_404(session, user_id)
+    target = await user_service.get_user_or_404(session, user_id, actor)
     return await user_service.update_user(session, actor, target, body)
+
+
+@router.post("/{user_id}/role", response_model=UserOut)
+async def change_role(
+    user_id: uuid.UUID, body: RoleChange, actor: CanUpdate, session: SessionDep
+) -> User:
+    """Promote / demote to another role the actor manages. Access resets to the role's defaults."""
+    target = await user_service.get_user_or_404(session, user_id, actor)
+    return await user_service.change_role(session, actor, target, body)
 
 
 @router.post("/{user_id}/deactivate", response_model=UserOut)
 async def deactivate_user(user_id: uuid.UUID, actor: CanDelete, session: SessionDep) -> User:
-    target = await user_service.get_user_or_404(session, user_id)
+    target = await user_service.get_user_or_404(session, user_id, actor)
     return await user_service.deactivate_user(session, actor, target)
 
 
 @router.post("/{user_id}/reactivate", response_model=UserOut)
 async def reactivate_user(user_id: uuid.UUID, actor: CanDelete, session: SessionDep) -> User:
-    target = await user_service.get_user_or_404(session, user_id)
+    target = await user_service.get_user_or_404(session, user_id, actor)
     return await user_service.reactivate_user(session, actor, target)
 
 
 @router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
 async def reset_password(user_id: uuid.UUID, actor: CanResetPassword, session: SessionDep) -> None:
     """Password becomes the Telegram username; the user must change it at next login."""
-    target = await user_service.get_user_or_404(session, user_id)
+    target = await user_service.get_user_or_404(session, user_id, actor)
     await user_service.reset_password(session, actor, target)

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, String, func, text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, utcnow
 from app.models.enums import Language, Role, language_type, role_type
@@ -72,6 +72,11 @@ class User(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_login_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Loaded eagerly (one extra SELECT per query) so `UserOut.created_by` can be a UserRef.
+    creator: Mapped["User | None"] = relationship(
+        remote_side=[id], foreign_keys=[created_by], lazy="selectin", join_depth=1
+    )
 
     @property
     def telegram_linked(self) -> bool:

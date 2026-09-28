@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useAuth } from '@/auth/AuthProvider'
 import { Can } from '@/auth/Can'
+import { usePermission } from '@/auth/usePermission'
 import { isLocked, RoleBadge, UserStatusBadges } from '@/components/badges'
 import { Icon } from '@/components/icons'
 import { Avatar } from '@/components/ProfileMenu'
@@ -20,10 +22,14 @@ import { api } from '@/lib/api'
 import { paths } from '@/lib/paths'
 import { useErrorMessage } from '@/lib/errors'
 import { useFormatDate } from '@/lib/format'
-import type { User } from '@/lib/types'
+import { isSuperadmin } from '@/lib/roles'
+import type { User, UserFeatures } from '@/lib/types'
+import { RoleChangeSheet } from './RoleChangeSheet'
+import { UserAccessTab, userFeaturesKey } from './UserAccessTab'
 import { UserPermissionsTab } from './UserPermissionsTab'
 
 type Action = 'reset' | 'deactivate' | 'reactivate'
+type Tab = 'info' | 'access' | 'permissions'
 
 export function UserDetailPage() {
   const { id = '' } = useParams()
@@ -34,16 +40,35 @@ export function UserDetailPage() {
   const queryClient = useQueryClient()
   const errorMessage = useErrorMessage()
   const formatDate = useFormatDate()
-  const tab = searchParams.get('tab') === 'permissions' ? 'permissions' : 'info'
+  const { me } = useAuth()
   const createdUsername = (location.state as { created?: string } | null)?.created
 
   const [pending, setPending] = useState<Action | null>(null)
+  const [roleSheet, setRoleSheet] = useState(false)
+  const canUpdate = usePermission('users.update')
   const [notice, setNotice] = useState<string | null>(null)
 
   const query = useQuery({
     queryKey: ['user', id],
     queryFn: async () => (await api.get<User>(`/users/${id}`)).data,
   })
+  // Access levels: only for viewers who manage features, and only shown when some apply.
+  const features = useQuery({
+    queryKey: userFeaturesKey(id),
+    queryFn: async () => (await api.get<UserFeatures>(`/users/${id}/features`)).data,
+    enabled: Boolean(me?.can_manage_features),
+  })
+
+  // Details for everyone; Access with can_manage_features; Permissions (advanced) only for the
+  // superadmin.
+  const tabs: Tab[] = [
+    'info',
+    ...(features.data && features.data.menus.length > 0 ? (['access'] as const) : []),
+    ...(isSuperadmin(me?.user.role) ? (['permissions'] as const) : []),
+  ]
+  const requested = searchParams.get('tab') as Tab | null
+  // An unknown or unavailable ?tab= falls back to Details.
+  const tab: Tab = requested && tabs.includes(requested) ? requested : 'info'
 
   const action = useMutation({
     mutationFn: async (a: Action) => {
@@ -55,6 +80,7 @@ export function UserDetailPage() {
       else void queryClient.invalidateQueries({ queryKey: ['user', id] })
       void queryClient.invalidateQueries({ queryKey: ['users'] })
       void queryClient.invalidateQueries({ queryKey: ['user-permissions', id] })
+      void queryClient.invalidateQueries({ queryKey: userFeaturesKey(id) })
       setNotice(
         t(
           a === 'reset'
@@ -79,6 +105,10 @@ export function UserDetailPage() {
   }
 
   const user = query.data
+  // Promote / demote: to any other role the viewer manages (GM: supervisor <-> staff).
+  const roleOptions = (me?.manageable_roles ?? []).filter((r) => r !== user.role)
+  const canChangeRole =
+    canUpdate && roleOptions.length > 0 && (me?.manageable_roles ?? []).includes(user.role)
   const dialog: Record<Action, { title: string; body: string; label: string }> = {
     reset: {
       title: t('userDetail.confirmResetTitle'),
@@ -124,6 +154,12 @@ export function UserDetailPage() {
                 {t('common.edit')}
               </Button>
             </Can>
+            {canChangeRole && (
+              <Button variant="secondary" onClick={() => setRoleSheet(true)}>
+                <Icon name="users" width={16} height={16} />
+                {t('roleChange.button')}
+              </Button>
+            )}
             {user.is_active && (
               <Can permission="users.reset_password">
                 <Button variant="secondary" onClick={() => setPending('reset')}>
@@ -157,7 +193,7 @@ export function UserDetailPage() {
       )}
 
       <div className="mb-4 flex gap-1 border-b border-stone-200">
-        {(['info', 'permissions'] as const).map((key) => (
+        {tabs.map((key) => (
           <button
             key={key}
             type="button"
@@ -202,8 +238,23 @@ export function UserDetailPage() {
             )}
           </dl>
         </Card>
-      ) : (
+      ) : tab === 'access' && features.data ? (
+        <UserAccessTab userId={user.id} data={features.data} />
+      ) : tab === 'permissions' ? (
         <UserPermissionsTab userId={user.id} />
+      ) : null}
+
+      {canChangeRole && (
+        <RoleChangeSheet
+          user={user}
+          roles={roleOptions}
+          open={roleSheet}
+          onClose={() => setRoleSheet(false)}
+          onChanged={(updated) => {
+            setRoleSheet(false)
+            setNotice(t('roleChange.done', { name: updated.full_name, role: t(`roles.${updated.role}`) }))
+          }}
+        />
       )}
 
       {pending && (

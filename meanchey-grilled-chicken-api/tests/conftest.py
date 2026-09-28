@@ -77,7 +77,7 @@ async def _clean_database() -> None:
         await conn.execute(
             text(
                 "TRUNCATE audit_logs, refresh_tokens, user_permissions, permissions, users, "
-                "bot_prefs, app_settings RESTART IDENTITY CASCADE"
+                "bot_prefs, app_settings, suppliers, customers RESTART IDENTITY CASCADE"
             )
         )
     async with SessionLocal() as session:

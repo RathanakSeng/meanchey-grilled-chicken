@@ -78,19 +78,25 @@ app/
 │   ├── errors.py        # ErrorCode enum, AppError, exception handlers
 │   ├── security.py      # argon2, JWT encode/decode, refresh token generation/hashing
 │   ├── telegram_auth.py # initData HMAC validation
-│   └── usernames.py     # Telegram username normalization/validation
-├── models/              # SQLAlchemy ORM (User, Permission, UserPermission, RefreshToken, AuditLog, BotPref, AppSetting)
-├── schemas/             # Pydantic request/response models
+│   ├── usernames.py     # Telegram username normalization/validation
+│   └── phones.py        # phone normalization (storage) + formatting (phone_display)
+├── models/              # SQLAlchemy ORM (User, Permission, UserPermission, RefreshToken, AuditLog, BotPref, AppSetting,
+│                        #   Supplier + Customer via PartnerMixin)
+├── schemas/             # Pydantic request/response models; common.UserRef = the only user-reference shape
 ├── permissions/
-│   ├── registry.py      # PERMISSIONS, MODULES, DEFAULT_PERMISSIONS  ← feature authors edit this
-│   ├── sync.py          # registry → DB sync
+│   ├── registry.py      # PERMISSIONS, MODULES, FEATURES, DEFAULT_PERMISSIONS  ← feature authors edit this
+│   ├── features.py      # feature access levels: current level, matrix, set_level (diff + feature.set audit)
+│   ├── sync.py          # registry → DB sync + default backfill for new permissions
 │   ├── hierarchy.py     # role scope: MANAGEABLE_ROLES, can_manage, ensure_can_manage
 │   └── service.py       # effective permissions, grant/revoke rules, defaults, permission matrix
 ├── services/
 │   ├── auth_service.py  # login (password/Telegram), tokens, change/reset password, /me
 │   ├── user_service.py  # user CRUD, activation, resets, profile
-│   └── audit_service.py # record() + listing
-├── api/                 # thin routers: auth, me, users, permissions, audit
+│   ├── partner_service.py # generic supplier/customer CRUD, search, stats (PartnerKind)
+│   ├── audit_service.py # record() + listing (viewer-aware filters)
+│   └── redaction.py     # hides the superadmin from other viewers: viewer context, hides(), middleware
+├── api/                 # thin routers: auth, me, users, permissions (superadmin), features, audit,
+│                        #   partners (build_router(kind) → /suppliers, /customers)
 └── bot/
     ├── setup.py         # create_bot(), create_dispatcher(): the one place handlers are registered
     ├── handlers.py      # /start, /lang (create_router())
@@ -122,6 +128,7 @@ flowchart TD
 - **Services** hold the business rules and own the transaction: they call `session.commit()`. Audit entries are added through `record()` inside the same transaction, so an action and its audit row commit or roll back together.
 - **Guards** in `deps.py` and `permissions/hierarchy.py` are pure checks that raise `AppError`.
 - **`core/`** has no dependency on models or services, apart from `errors`.
+- **Redaction** sits at the serialization edge: `deps.get_current_user_allow_pending` records the viewer in a context variable (reset per request by `ViewerContextMiddleware`), and `UserRef`'s serializer hides the superadmin for any other viewer. Services never special-case it, except lookups (`get_user_or_404(..., viewer)`) and the audit filters.
 
 ## 4. Request lifecycle
 
@@ -165,6 +172,10 @@ erDiagram
     users ||--o{ audit_logs : "actor"
     users ||--o{ audit_logs : "target"
     users ||--o{ users : "created_by"
+    users ||--o{ suppliers : "created_by / updated_by"
+    users ||--o{ customers : "created_by / updated_by"
+    suppliers ||..o{ audit_logs : "entity (no FK)"
+    customers ||..o{ audit_logs : "entity (no FK)"
 
     users {
         uuid id PK
@@ -193,6 +204,7 @@ erDiagram
         text description_en
         text description_km
         varchar_array assignable_to
+        jsonb grantable_by "target role → grantor roles"
         bool is_active
     }
     user_permissions {
@@ -214,8 +226,34 @@ erDiagram
         uuid actor_id FK
         varchar action
         uuid target_user_id FK
+        varchar entity_type "supplier | customer"
+        uuid entity_id "no FK"
         jsonb details
         timestamptz created_at
+    }
+    suppliers {
+        uuid id PK
+        varchar150 name
+        varchar255 location
+        varchar20 phone "normalized, unique among active"
+        bool is_active
+        timestamptz deleted_at
+        uuid created_by FK
+        uuid updated_by FK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    customers {
+        uuid id PK
+        varchar150 name
+        varchar255 location
+        varchar20 phone "normalized, unique among active"
+        bool is_active
+        timestamptz deleted_at
+        uuid created_by FK
+        uuid updated_by FK
+        timestamptz created_at
+        timestamptz updated_at
     }
     bot_prefs {
         bigint telegram_user_id PK
@@ -235,12 +273,17 @@ erDiagram
 - **Partial unique indexes** enforce the business invariants. See FEATURES §3.
 - **Uniqueness only counts active users,** so a deactivated user's username can be reused; that's how roles change in Phase 1.
 - **`permissions` rows are never deleted.** Removing a permission from the registry flips `is_active`.
+- **`suppliers` / `customers`** share their columns and indexes through `PartnerMixin` (`models/partner.py`), migration `0004`:
+  - `ix_<table>_name_lower` on `lower(name)` for case-insensitive sorting and search;
+  - `uq_<table>_active_phone`, a partial unique index on `phone` `WHERE is_active AND phone IS NOT NULL`: one active record per normalized number, per table;
+  - `phone` stores the normalized form (digits, optional leading `+`); `phone_display` is computed on output.
+- **`audit_logs.entity_type` / `entity_id`** (indexed together as `ix_audit_logs_entity`) reference non-user records. There is no foreign key because one column pair points into several tables; the audit listing resolves current names with one query per entity type.
 - **Constraint naming.** All constraints follow a naming convention (`ix_`, `uq_`, `ck_`, `fk_`, `pk_`), which keeps Alembic autogenerate deterministic.
 - **Timestamps** are `timestamptz`. The app sets them in Python (UTC) and also has server defaults. Setting them in Python avoids lazy loads after `commit` under asyncio (`expire_on_commit=False`).
 
 ## 6. Authorization model
 
-Authorization combines **two independent axes**:
+Authorization combines **two independent axes**, plus a **feature layer** on top of permissions for the general manager:
 
 ```mermaid
 flowchart LR
@@ -257,7 +300,9 @@ flowchart LR
 | `require_role(*roles)` | `deps.py` | Coarse role gate, e.g. the audit log |
 | `ensure_can_manage(actor, target)` | `permissions/hierarchy.py` | Is the target strictly below the actor? |
 | `ensure_can_manage_role(actor, role)` | `permissions/hierarchy.py` | Can the actor create or filter this role? |
-| Grant rules | `permissions/service.py` | Held-by-grantor, `assignable_to`, target active |
+| Detailed grant rules | `permissions/service.py` | Superadmin only (`require_role`). Held-by-grantor, `grantable_by`, target active, `assignable_to` |
+| Feature levels | `permissions/features.py` | GM (and superadmin): set Off / View only / Full access; diff within the feature's codes |
+| Redaction | `services/redaction.py`, `schemas/common.py` | Hides the superadmin from every other viewer |
 
 ### How effective permissions are computed
 
@@ -271,7 +316,41 @@ WHERE up.user_id = :uid
 
 The superadmin short-circuits to "all active permissions".
 
-The query filters on `is_active` and `assignable_to` **at read time**, not only when a grant is made. So if a registry change deactivates a permission or narrows its `assignable_to`, existing grants stop working immediately, with no data migration.
+### Grant rule order
+
+Detailed permissions are the superadmin's tool: the four endpoints are guarded by `require_role(superadmin)`. Behind that guard, `block_reason(actor, actor_perms, target, perm)` returns the first failing rule, and both the grant/revoke endpoints and the permission matrix (`can_edit` + `reason`) use it:
+
+| # | Rule | Error |
+|---|---|---|
+| 1 | Actor holds `permissions.grant` (route guard) | `MISSING_PERMISSION` |
+| 2 | Target is in the actor's scope | `FORBIDDEN_SCOPE` |
+| 3 | Permission exists and is active (endpoints only) | `PERMISSION_NOT_FOUND` |
+| 4 | Actor holds the permission (grant and revoke) | `PERMISSION_NOT_HELD` |
+| 5 | `grantable_by[target.role]`, if present, lists the actor's role (grant and revoke; superadmin exempt) | `PERMISSION_GRANT_RESTRICTED` |
+| 6 | Grant only: target is active | `USER_INACTIVE` |
+| 7 | Grant only: target's role is in `assignable_to` | `PERMISSION_NOT_ASSIGNABLE` |
+
+`grantable_by` refines *who may hand out* a permission for particular target roles, without touching the role hierarchy. No permission uses it now (it used to keep partner permissions away from staff unless the superadmin granted them); the mechanism stays. Features can't contain such permissions (startup validation), because a level change doesn't apply per-permission grant rules.
+
+### Feature layer
+
+```mermaid
+flowchart LR
+    GM[General manager<br/>Access tab] -->|PUT /users/{id}/features/{f}| F[features.set_level]
+    SA[Superadmin<br/>Permissions (advanced)] -->|PUT/DELETE /users/{id}/permissions/{code}| G[service.grant / revoke]
+    F -->|diff: insert / delete<br/>only the feature's codes| UP[(user_permissions)]
+    G --> UP
+    UP -->|effective permissions| ME[/auth/me → menus, guards/]
+```
+
+- A feature (`registry.FEATURES`) maps each level to an exact set of codes. `current_level` = the level whose set equals the user's effective codes within the feature, else `custom`.
+- `set_level` checks, in order: scope (`FORBIDDEN_SCOPE`; the hidden account is already `USER_NOT_FOUND`), `FEATURE_NOT_FOUND`, `FEATURE_NOT_APPLICABLE`, unknown level (`VALIDATION_ERROR`), target active (`USER_INACTIVE`). The level is a plain string in the body so this order holds.
+- Unlike detailed grants there is **no held-by-grantor rule**: whoever holds `permissions.grant` (the general manager) can set any level of any applicable feature. Detailed permissions keep `PERMISSION_NOT_HELD` and are superadmin-only anyway.
+- **Role changes** (`user_service.change_role`) call `service.reset_to_role_defaults`: all grants are replaced by `DEFAULT_PERMISSIONS[new role]` (not limited to what the actor holds), in the same transaction as the role update and the `user.role_change` audit entry.
+- The diff touches only the feature's codes, in one transaction, with one `feature.set` audit entry and no `permission.*` entries. Re-setting the current level writes nothing.
+- `DEFAULT_PERMISSIONS` for supervisors and staff is computed from feature levels (supervisor: all Full; staff: all Off).
+
+The query filters on `is_active` and `assignable_to` **at read time**, not only when a grant is made. So if a registry change deactivates a permission or narrows its `assignable_to`, existing grants stop working immediately, with no data migration. That's how supervisors lost `permissions.grant` and `users.delete`: the rows remain, the effect is gone.
 
 ## 7. Authentication internals
 
@@ -327,12 +406,13 @@ flowchart LR
     D --> E[lifespan: bootstrap again<br/>idempotent]
 ```
 
-`bootstrap()` does four things:
+`bootstrap()` does five things:
 
 1. `SELECT pg_advisory_xact_lock(815001)`: serializes concurrent starts, for example several workers or replicas, or the api and a migration job.
-2. `sync_registry()`: upserts the registry and deactivates entries that were removed.
-3. `seed_superadmin()`: creates the superadmin if none exists, with `must_change_password = false`.
-4. **Webhook registration**, only when `BOT_MODE=webhook`, a token is set and `TELEGRAM_WEBHOOK_AUTO_SET=true`. `ensure_webhook()`:
+2. `validate_features()` (also at import) and `sync_registry()`: checks FEATURES against PERMISSIONS, then upserts the registry (including `grantable_by`) and deactivates entries that were removed. It returns the codes it **inserted**.
+3. `backfill_defaults(new_codes)`: grants each newly inserted permission to every active user whose role has it in `DEFAULT_PERMISSIONS` (`granted_by = NULL`, `INSERT … ON CONFLICT DO NOTHING`), with a `permission.grant` audit entry per grant (`details.source = "default_backfill"`). Because it only sees codes inserted by this run, it grants nothing on later starts, and a manual revoke stays revoked.
+4. `seed_superadmin()`: creates the superadmin if none exists, with `must_change_password = false`.
+5. **Webhook registration**, only when `BOT_MODE=webhook`, a token is set and `TELEGRAM_WEBHOOK_AUTO_SET=true`. `ensure_webhook()`:
    1. calls `getWebhookInfo`;
    2. calls `setWebhook(url, secret_token, allowed_updates=dp.resolve_used_update_types(), drop_pending_updates)` and `setMyCommands` only if **any** of these differ:
       - the URL;
@@ -420,6 +500,19 @@ In webhook mode the API can run **multiple uvicorn workers or replicas**.
 - **Required:** `JWT_SECRET`. In webhook mode with a bot token, also `TELEGRAM_WEBHOOK_URL` and `TELEGRAM_WEBHOOK_SECRET`.
 - **Full list:** in the README.
 
+**API docs**
+
+| Setting | Default | Notes |
+|---|---|---|
+| `ENVIRONMENT` | `development` | Set `production` in production. |
+| `API_DOCS_ENABLED` | unset | `true` / `false` forces `/docs`, `/redoc`, `/openapi.json` on or off. Unset: on only when `ENVIRONMENT=development`. The schema lists every role, so it stays off in production. |
+
+**Business settings**
+
+| Setting | Default | Notes |
+|---|---|---|
+| `BUSINESS_TIMEZONE` | `Asia/Phnom_Penh` | IANA zone for business calendars, e.g. the "new this month" figure on suppliers and customers. Validated at startup. Zone data comes from the `tzdata` package, so it works on Windows and slim images too. |
+
 **Telegram bot settings**
 
 | Setting | Default | Notes |
@@ -448,7 +541,7 @@ Settings are read at import time by `app.db` to build the engine. Tests therefor
 | Engine | `DB_NULL_POOL=true` avoids connection reuse across pytest-asyncio event loops. |
 | HTTP | `httpx.AsyncClient` over `ASGITransport(app)`: in-process, no server. |
 | Auth in tests | `auth(user)` mints an access token directly. Login flows have their own tests. |
-| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation. |
+| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation; default backfill, `grantable_by` and `reason`; suppliers/customers CRUD, validation, phone rules, duplicates, search/sort/paging, stats month boundary, audit entities (parametrized over both lists); feature levels (mapping, diffs, check order, defaults, startup validation); detailed permissions superadmin-only; **superadmin invisibility sweep** over every GET route from the OpenAPI schema plus key mutations, as GM / supervisor / staff. |
 | Telegram | Never contacted. `tests/telegram_fakes.RecordingSession` is an aiogram `BaseSession` that records Bot API calls (`SendMessage`, `SetWebhook`, …) and returns canned responses, or simulates an outage. `BOT_MODE=off` by default; webhook tests put their own `TelegramRuntime` on `app.state`. |
 
 Run:
@@ -483,13 +576,24 @@ uv run ruff check . && uv run ruff format --check .
 
 To add a business feature, for example `orders`:
 
-1. **Registry:** add a `ModuleDef` and `PermissionDef`s (with `assignable_to`) to `permissions/registry.py`, and optionally `DEFAULT_PERMISSIONS`. There is no migration for permissions.
+1. **Registry:** add a `ModuleDef` and `PermissionDef`s (with `assignable_to`) to `permissions/registry.py`, **and a `FeatureDef`** in `FEATURES` (menu, `applies_to`, levels `off` / `view` / `full` → codes) so the general manager can switch it on the Access tab. Startup validation checks the feature against the permissions. Update `DEFAULT_PERMISSIONS` (supervisor/staff defaults are built from feature levels). There is no migration for permissions.
 2. **Models and migration:** add the feature's tables in `models/`, then:
    ```bash
    uv run alembic revision --autogenerate -m "orders"
    ```
-3. **Service and router:** add the service in `services/` and the router in `api/`. Guard the routes with `require_permission("orders.view")`. Call `ensure_can_manage` whenever acting on another user's data. Record audit entries for sensitive actions.
+3. **Service and router:** add the service in `services/` and the router in `api/`. Every user reference in a response must be a `schemas.common.UserRef`, and per-user lookups must pass the viewer (`get_user_or_404(session, id, actor)`), so the superadmin stays hidden (the redaction sweep test will catch misses). Guard the routes with `require_permission("orders.view")`. Call `ensure_can_manage` whenever acting on another user's data. Record audit entries for sensitive actions.
+   - **New permissions reach existing users automatically** when you list them in `DEFAULT_PERMISSIONS`: the next start backfills them (§8).
+   - To keep a permission away from some roles unless a specific role grants it, set `grantable_by`.
 4. **Tests:** permission denied, scope, and the happy path.
+
+**Pattern: several lists with the same shape.** Suppliers and customers are one implementation:
+
+- `models/partner.py`: `PartnerMixin` declares the columns and per-table indexes; `Supplier` and `Customer` only set `__tablename__`.
+- `services/partner_service.py`: every rule takes a `PartnerKind(model, entity, prefix, not_found)`.
+- `api/partners.py`: `build_router(kind)` creates the seven routes, guarded by `<prefix>.view|create|update|delete`.
+- `tests/test_partners.py` runs every test against both kinds.
+
+A third list with the same fields needs a model class, a `PartnerKind`, a router mount, the registry entries, a migration and translations.
 5. **UI:** route guard, menu entry, `<Can>`, translations. See the UI's ARCHITECTURE.md.
 
 ## 15. Design decisions
@@ -500,6 +604,7 @@ To add a business feature, for example `orders`:
 | Role hierarchy separate from permissions | Keeps "who" (organizational structure) and "what" (features) orthogonal, so each can change independently. |
 | Invariants in database indexes, not only in code | Race-proof: two concurrent "create GM" requests cannot both succeed. |
 | Uniqueness only among active users | Supports "deactivate and recreate" without renaming old records. |
+| Role change resets access to the new role's defaults | A promoted or demoted user never keeps access meant for the old role (leftover rows would silently come back if the role changed again). The general manager fine-tunes afterwards with feature levels. |
 | Reload the user on every request | Deactivation and forced password change take effect instantly. The cost is one primary-key lookup. |
 | Opaque, hashed, rotating refresh tokens | A database leak doesn't expose usable tokens, and each token can be revoked individually. |
 | No cascade on revoke | Predictable behavior. Follow-up is surfaced through the audit log instead of silently removing other people's access. |
@@ -508,4 +613,11 @@ To add a business feature, for example `orders`:
 | One image for api and bot | Shared models and config, with no version drift between the API and the optional polling process. |
 | Webhook in FastAPI instead of a polling process | One process fewer to deploy and monitor. It scales with the API's workers and replicas, where polling allows only one instance. Updates arrive over the same HTTPS domain as the UI and API. Telegram pushes updates instead of the bot holding a long poll open. Polling stays available as a local-dev fallback, using the same dispatcher setup. |
 | Webhook fingerprint stored in the database | `getWebhookInfo` can't reveal the secret. A SHA-256 fingerprint in `app_settings` detects secret changes without calling `setWebhook` on every start. |
+| Feature levels for managers, detailed permissions for the superadmin | Managers think in "who can use Suppliers, and how much", not in permission codes. Levels are exact code sets over the same `user_permissions` table, so nothing else changes and the superadmin can still fine-tune (shown as `custom`). |
+| Superadmin redacted for all other viewers | The superadmin is an operator account, not part of the business. Hiding it at the serialization edge (one `UserRef` schema, one lookup helper, fail-closed) covers new endpoints by default, and a route-walking test guards against regressions. |
+| Supervisors never deactivate users or grant access | Keeps people decisions with the general manager. Enforced by `assignable_to`, so older grants lose their effect without a data migration. |
+| Backfill role defaults only for newly inserted permissions | New features reach existing managers on deploy with no manual grants, and it runs exactly once per permission, so a later deliberate revoke is never undone by a restart. |
+| `grantable_by` on the permission, not a new role rule | Keeps the hierarchy (who manages whom) unchanged, and restricts only the permissions that need it, per target role. The superadmin is exempt, matching "implicit-all". Unused today; kept for later. |
+| Separate `suppliers` and `customers` tables, one generic implementation | Each list gets its own ids, indexes and future columns, while the code and tests are written once. |
+| Phones stored normalized, displayed formatted | Search and the uniqueness index work on one canonical form, whatever separators people type. |
 | Always `200` once the secret is valid | Telegram retries non-2xx responses, so a failing handler would otherwise replay the same update in a loop. Failures are logged instead. |

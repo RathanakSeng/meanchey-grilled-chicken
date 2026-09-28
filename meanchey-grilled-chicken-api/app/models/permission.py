@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func, text
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, utcnow
@@ -20,6 +20,8 @@ class Permission(Base):
     description_en: Mapped[str] = mapped_column(Text)
     description_km: Mapped[str] = mapped_column(Text)
     assignable_to: Mapped[list[str]] = mapped_column(ARRAY(String(32)))
+    # {target_role: [grantor_role, ...]}: restricts who may grant/revoke it for that target role.
+    grantable_by: Mapped[dict[str, list[str]] | None] = mapped_column(JSONB)
     is_active: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
 
 

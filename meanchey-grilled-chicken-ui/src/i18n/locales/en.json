@@ -28,6 +28,8 @@
   "nav": {
     "home": "Home",
     "production": "Production",
+    "suppliers": "Suppliers",
+    "customers": "Customers",
     "settings": "Settings",
     "users": "Users",
     "audit": "Audit log",
@@ -36,7 +38,7 @@
     "menu": "Menu"
   },
   "roles": {
-    "superadmin": "Super admin",
+    "superadmin": "System",
     "general_manager": "General manager",
     "supervisor": "Supervisor",
     "staff": "Staff"
@@ -128,7 +130,8 @@
   "userDetail": {
     "tabs": {
       "info": "Details",
-      "permissions": "Permissions"
+      "access": "Access",
+      "permissions": "Permissions (advanced)"
     },
     "createdAt": "Created",
     "updatedAt": "Last updated",
@@ -148,12 +151,38 @@
     "deactivated": "Account deactivated",
     "reactivated": "Account reactivated"
   },
-  "permissions": {
-    "readOnlyNotice": "You can view these permissions. Only permissions you hold can be changed.",
-    "noneAssignable": "No permissions can be assigned to this role yet.",
-    "notEditable": "You can't change this permission",
-    "granted": "Permission granted",
-    "revoked": "Permission revoked"
+  "roleChange": {
+    "button": "Change role",
+    "title": "Change {{name}}'s role",
+    "current": "Current role: {{role}}",
+    "newRole": "New role",
+    "positionHint": "Staff need a position (e.g. Grill cook).",
+    "accessReset": "Access will be reset to the new role's defaults. You can adjust it afterwards on the Access tab.",
+    "submit": "Change role",
+    "done": "{{name}} is now {{role}}."
+  },
+  "access": {
+    "legendTitle": "Access levels",
+    "legendView": "View only: can see the list.",
+    "legendFull": "Full access: can add, edit and deactivate.",
+    "levels": {
+      "off": "Off",
+      "view": "View only",
+      "full": "Full access",
+      "custom": "Custom"
+    },
+    "suggested": "Suggested",
+    "empty": "No features can be set for this user.",
+    "saved": "Saved",
+    "menus": {
+      "production": "Production",
+      "settings": "Settings"
+    },
+    "featureNames": {
+      "suppliers": "Suppliers",
+      "customers": "Customers",
+      "staff_management": "Staff management"
+    }
   },
   "audit": {
     "title": "Audit log",
@@ -166,6 +195,13 @@
     "system": "System",
     "empty": "No entries",
     "downstreamWarning": "Revoking does not cascade: {{count}} grant(s) this user made are still in place.",
+    "entityType": "Record type",
+    "allEntities": "All record types",
+    "entityTypes": {
+      "supplier": "Supplier",
+      "customer": "Customer"
+    },
+    "defaultBackfill": "Granted automatically (role default)",
     "actions": {
       "auth_login": "Signed in",
       "auth_login_failed": "Failed sign-in",
@@ -181,8 +217,20 @@
       "user_password_self_reset": "Reset own password",
       "permission_grant": "Granted permission",
       "permission_revoke": "Revoked permission",
-      "profile_update": "Updated profile"
-    }
+      "profile_update": "Updated profile",
+      "supplier_create": "Added supplier",
+      "supplier_update": "Edited supplier",
+      "supplier_deactivate": "Deactivated supplier",
+      "supplier_reactivate": "Reactivated supplier",
+      "customer_create": "Added customer",
+      "customer_update": "Edited customer",
+      "customer_deactivate": "Deactivated customer",
+      "customer_reactivate": "Reactivated customer",
+      "feature_set": "Changed access",
+      "user_role_change": "Changed role"
+    },
+    "featureChange": "{{feature}}: {{from}} → {{to}}",
+    "roleChange": "{{from}} → {{to}}"
   },
   "profile": {
     "title": "My profile",
@@ -198,8 +246,92 @@
     "defaultSuperadmin": "\"superadmin\""
   },
   "production": {
-    "emptyTitle": "Production features are coming soon.",
-    "emptyBody": "This section will hold day-to-day production work once those features are ready."
+    "noAccessTitle": "You don't have access to any production features yet.",
+    "noAccessBody": "Ask your manager if you need to use them."
+  },
+  "partners": {
+    "fields": {
+      "name": "Name",
+      "location": "Location",
+      "phone": "Phone"
+    },
+    "hints": {
+      "optional": "Optional",
+      "locationPlaceholder": "e.g. Doeum Kor Market, Phnom Penh",
+      "phone": "Optional. e.g. 012 345 678 or +855 12 345 678"
+    },
+    "kpi": {
+      "active": "Active",
+      "newThisMonth": "New this month",
+      "inactive": "Deactivated"
+    },
+    "filterStatus": "Status",
+    "status": {
+      "active": "Active",
+      "inactive": "Deactivated",
+      "all": "All"
+    },
+    "sort": {
+      "label": "Sort",
+      "nameAsc": "Name (A–Z)",
+      "nameDesc": "Name (Z–A)",
+      "newest": "Newest first",
+      "oldest": "Oldest first"
+    },
+    "columns": {
+      "added": "Added",
+      "status": "Status"
+    },
+    "actions": "Actions",
+    "call": "Call",
+    "deactivate": "Deactivate",
+    "reactivate": "Reactivate",
+    "deactivatedBadge": "Deactivated",
+    "noResults": "Nothing matches your search",
+    "clearFilters": "Clear filters",
+    "showDeactivated": "Show deactivated"
+  },
+  "suppliers": {
+    "title": "Suppliers",
+    "description": "Where the shop buys chicken, ingredients and supplies",
+    "new": "New supplier",
+    "newTitle": "New supplier",
+    "editTitle": "Edit supplier",
+    "namePlaceholder": "e.g. Sokha Poultry Farm",
+    "searchPlaceholder": "Search name, location or phone",
+    "emptyTitle": "No suppliers yet",
+    "emptyBody": "Add your first supplier to keep their location and phone number in one place.",
+    "emptyBodyReadOnly": "Suppliers will appear here once they are added.",
+    "noActive": "No active suppliers",
+    "deactivateTitle": "Deactivate this supplier?",
+    "deactivateBody": "{{name}} will no longer appear in the active list. You can reactivate them later.",
+    "reactivateTitle": "Reactivate this supplier?",
+    "reactivateBody": "{{name}} will be back in the active list.",
+    "created": "{{name}} added.",
+    "updated": "Changes to {{name}} saved.",
+    "deactivated": "{{name}} deactivated.",
+    "reactivated": "{{name}} reactivated."
+  },
+  "customers": {
+    "title": "Customers",
+    "description": "Who buys from the shop, with their location and phone",
+    "new": "New customer",
+    "newTitle": "New customer",
+    "editTitle": "Edit customer",
+    "namePlaceholder": "e.g. Dara Restaurant",
+    "searchPlaceholder": "Search name, location or phone",
+    "emptyTitle": "No customers yet",
+    "emptyBody": "Add your first customer to keep their location and phone number in one place.",
+    "emptyBodyReadOnly": "Customers will appear here once they are added.",
+    "noActive": "No active customers",
+    "deactivateTitle": "Deactivate this customer?",
+    "deactivateBody": "{{name}} will no longer appear in the active list. You can reactivate them later.",
+    "reactivateTitle": "Reactivate this customer?",
+    "reactivateBody": "{{name}} will be back in the active list.",
+    "created": "{{name}} added.",
+    "updated": "Changes to {{name}} saved.",
+    "deactivated": "{{name}} deactivated.",
+    "reactivated": "{{name}} reactivated."
   },
   "settings": {
     "usersDescription": "Create and edit users and manage their permissions.",
@@ -237,6 +369,8 @@
     "PERMISSION_NOT_HELD": "You can only grant or revoke permissions you hold yourself.",
     "PERMISSION_NOT_ASSIGNABLE": "This permission can't be given to this role.",
     "PERMISSION_NOT_FOUND": "Permission not found.",
+    "FEATURE_NOT_FOUND": "This feature doesn't exist.",
+    "FEATURE_NOT_APPLICABLE": "This feature can't be set for this user.",
     "USER_NOT_FOUND": "User not found.",
     "USER_INACTIVE": "This user is deactivated.",
     "INVALID_TELEGRAM_USERNAME": "Telegram username must be 5–32 characters: a–z, 0–9 or _.",
@@ -244,11 +378,25 @@
     "GM_ALREADY_EXISTS": "There is already an active general manager.",
     "POSITION_REQUIRED": "Staff must have a position.",
     "POSITION_NOT_ALLOWED": "Only staff have a position.",
+    "SUPPLIER_NOT_FOUND": "Supplier not found.",
+    "CUSTOMER_NOT_FOUND": "Customer not found.",
+    "DUPLICATE_PHONE": "This phone number is already in use.",
+    "INVALID_PHONE": "Phone number must have {{min_digits}}–{{max_digits}} digits (it may start with +).",
+    "NAME_REQUIRED": "Please enter a name.",
+    "FIELD_TOO_LONG": "At most {{max}} characters.",
     "VALIDATION_ERROR": "Some of the information entered is invalid.",
     "NOT_FOUND": "Not found.",
     "METHOD_NOT_ALLOWED": "Something went wrong.",
     "HTTP_ERROR": "Something went wrong.",
     "NETWORK_ERROR": "Can't reach the server. Check your connection.",
-    "UNKNOWN": "Something unexpected happened. Please try again."
+    "UNKNOWN": "Something unexpected happened. Please try again.",
+    "PERMISSION_GRANT_RESTRICTED": "Your role can't grant this permission to this user."
+  },
+  "permissions": {
+    "readOnlyNotice": "You can view these permissions, but you can't change them here.",
+    "noneAssignable": "No permissions can be assigned to this role yet.",
+    "notEditable": "You can't change this permission",
+    "granted": "Permission granted",
+    "revoked": "Permission revoked"
   }
 }

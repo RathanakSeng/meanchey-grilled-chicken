@@ -1,21 +1,9 @@
-<INIT><BOTH><MONOREPO>: set up monorepo with Phase 1 API and UI
+<ADD><BOTH><ACCESS-CONTROL>: add suppliers/customers, feature access levels, hidden superadmin and role changes
 
-API (meanchey-grilled-chicken-api):
-- FastAPI + PostgreSQL + Alembic (migrations 0001-0003)
-- Auth: password + Telegram Mini App login, rotating refresh tokens, lockout, forced first-login password change (superadmin exempt)
-- Role hierarchy (superadmin > GM > supervisor > staff) + code-defined permission registry synced to DB
-- User management: CRUD, soft delete, password reset (superadmin/GM, incl. self), free-text staff position, audit log
-- Telegram bot via webhook in FastAPI (secret-token check, auto-registration with fingerprint); polling mode as dev fallback
-- 199 tests, ruff clean
-
-UI (meanchey-grilled-chicken-ui):
-- React + Vite + TS + Tailwind, TanStack Query, axios token refresh
-- Khmer (default) / English i18n, including translated API error codes
-- Desktop dashboard + Telegram Mini App layouts
-- Navigation: Home -> Production (empty) / Settings (Users, Audit log, My profile), driven by permissions
-- Permission-driven menus, route guards, <Can>, legacy URL redirects
-
-Repo:
-- Root .gitignore, per-project .gitignore/.gitattributes
-- Draft CI workflows (.github/workflows/api.yml, ui.yml): lint, tests, alembic check, builds; no deploy
-- Docs: README + docs/FEATURES.md + docs/ARCHITECTURE.md per project
+- Production: suppliers and customers (model, migration 0004, CRUD endpoints, list pages with KPI cards, Sheet form, phone normalization)
+- Permissions: grantable_by, reason on locked permissions, one-time backfill of defaults for new permissions
+- Access layer: GM sets Off / View only / Full per feature for supervisors and staff; detailed permissions are superadmin-only; only GM and superadmin can delete users
+- Superadmin hidden from other roles: shown as "System", 404 on lookup, left out of the GM's audit log, no role names in errors; API docs off outside development
+- Role changes: GM promotes/demotes staff and supervisor, superadmin changes any lower role; access resets to the new role's defaults (user.role_change audit)
+- UI: Access tab, Change role sheet, SegmentedControl/Sheet/ActionMenu, audit labels, km/en strings
+- Docs and tests updated (338 passing)

@@ -10,9 +10,10 @@ from app.core.security import hash_password
 from app.core.usernames import normalize_telegram_username
 from app.models import Role, User, utcnow
 from app.permissions.hierarchy import MANAGEABLE_ROLES, ensure_can_manage, ensure_can_manage_role
-from app.permissions.service import grant_defaults
+from app.permissions.service import grant_defaults, reset_to_role_defaults
 from app.schemas.user import (
     ProfileUpdate,
+    RoleChange,
     UserCreate,
     UserStatus,
     UserUpdate,
@@ -20,6 +21,7 @@ from app.schemas.user import (
 )
 from app.services.audit_service import record
 from app.services.auth_service import SELF_RESET_ROLES, reset_to_default_password, revoke_all_tokens
+from app.services.redaction import hides_user
 
 
 def _gm_exists_error() -> AppError:
@@ -46,9 +48,16 @@ async def _flush_or_conflict(session: AsyncSession) -> None:
         raise
 
 
-async def get_user_or_404(session: AsyncSession, user_id: uuid.UUID) -> User:
+async def get_user_or_404(
+    session: AsyncSession, user_id: uuid.UUID, viewer: User | None = None
+) -> User:
+    """Load a user. Hidden accounts (see services/redaction.py) are "not found" for `viewer`.
+
+    Pass the acting user as `viewer` on every per-user endpoint, so a lookup by id can't be used
+    to confirm that a hidden account exists (a 403 FORBIDDEN_SCOPE would).
+    """
     user = await session.get(User, user_id)
-    if user is None:
+    if user is None or (viewer is not None and hides_user(user, viewer)):
         raise AppError(404, ErrorCode.USER_NOT_FOUND, "User not found")
     return user
 
@@ -167,7 +176,7 @@ async def create_user(session: AsyncSession, actor: User, data: UserCreate) -> U
         password_hash=hash_password(username),
         must_change_password=True,
         language=data.language,
-        created_by=actor.id,
+        creator=actor,
     )
     session.add(user)
     await _flush_or_conflict(session)
@@ -230,6 +239,53 @@ async def update_user(session: AsyncSession, actor: User, target: User, data: Us
     return target
 
 
+async def change_role(session: AsyncSession, actor: User, target: User, data: RoleChange) -> User:
+    """Promote or demote `target` to another role the actor manages.
+
+    The actor must manage both the current and the new role (general manager: supervisor <-> staff;
+    superadmin: general manager / supervisor / staff), so supervisors can't change roles and nobody
+    changes their own. The user's access is replaced by the new role's defaults; the general
+    manager can adjust it afterwards with feature levels.
+    """
+    ensure_can_manage(actor, target)
+    ensure_can_manage_role(actor, data.role)
+    if data.role == target.role:
+        if data.position is not None and data.position != target.position:
+            raise AppError(
+                422, ErrorCode.VALIDATION_ERROR, "Use the user edit to change the position"
+            )
+        return target
+    _check_position(data.role, data.position)
+    if (
+        data.role == Role.GENERAL_MANAGER
+        and target.is_active
+        and await _active_gm_exists(session, exclude_id=target.id)
+    ):
+        raise _gm_exists_error()
+
+    old_role, old_position = target.role, target.position
+    target.role = data.role
+    target.position = data.position
+    await _flush_or_conflict(session)
+    added, removed = await reset_to_role_defaults(session, actor, target)
+    record(
+        session,
+        "user.role_change",
+        actor_id=actor.id,
+        target_user_id=target.id,
+        details={
+            "from": old_role.value,
+            "to": target.role.value,
+            "position_from": old_position,
+            "position_to": target.position,
+            "permissions_added": added,
+            "permissions_removed": removed,
+        },
+    )
+    await session.commit()
+    return target
+
+
 async def deactivate_user(session: AsyncSession, actor: User, target: User) -> User:
     ensure_can_manage(actor, target)
     if not target.is_active:
@@ -285,9 +341,7 @@ async def reset_password(session: AsyncSession, actor: User, target: User) -> No
 
 async def self_reset_password(session: AsyncSession, user: User) -> None:
     if user.role not in SELF_RESET_ROLES:
-        raise AppError(
-            403, ErrorCode.FORBIDDEN_ROLE, "Only the superadmin or general manager can do this"
-        )
+        raise AppError(403, ErrorCode.FORBIDDEN_ROLE, "Your role cannot do this")
     await reset_to_default_password(session, user)
     record(session, "user.password_self_reset", actor_id=user.id, target_user_id=user.id)
     await session.commit()

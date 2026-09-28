@@ -34,6 +34,9 @@ class ErrorCode(StrEnum):
     PERMISSION_NOT_HELD = "PERMISSION_NOT_HELD"
     PERMISSION_NOT_ASSIGNABLE = "PERMISSION_NOT_ASSIGNABLE"
     PERMISSION_NOT_FOUND = "PERMISSION_NOT_FOUND"
+    PERMISSION_GRANT_RESTRICTED = "PERMISSION_GRANT_RESTRICTED"
+    FEATURE_NOT_FOUND = "FEATURE_NOT_FOUND"
+    FEATURE_NOT_APPLICABLE = "FEATURE_NOT_APPLICABLE"
     # Users
     USER_NOT_FOUND = "USER_NOT_FOUND"
     USER_INACTIVE = "USER_INACTIVE"
@@ -42,6 +45,11 @@ class ErrorCode(StrEnum):
     GM_ALREADY_EXISTS = "GM_ALREADY_EXISTS"
     POSITION_REQUIRED = "POSITION_REQUIRED"
     POSITION_NOT_ALLOWED = "POSITION_NOT_ALLOWED"
+    # Partners (suppliers, customers)
+    SUPPLIER_NOT_FOUND = "SUPPLIER_NOT_FOUND"
+    CUSTOMER_NOT_FOUND = "CUSTOMER_NOT_FOUND"
+    DUPLICATE_PHONE = "DUPLICATE_PHONE"
+    INVALID_PHONE = "INVALID_PHONE"
     # Generic
     VALIDATION_ERROR = "VALIDATION_ERROR"
     NOT_FOUND = "NOT_FOUND"
@@ -71,6 +79,17 @@ def _error_body(code: str, message: str, details: Any = None) -> dict[str, Any]:
     return {"error": body}
 
 
+# Pydantic lists every allowed value for enums/literals ("Input should be 'superadmin', ...").
+# That would reveal roles to people who can't see them, so those messages are replaced.
+_ENUM_ERROR_TYPES = frozenset({"enum", "literal_error"})
+
+
+def _safe_msg(error: dict[str, Any]) -> str:
+    if error["type"] in _ENUM_ERROR_TYPES:
+        return "Input is not one of the allowed values"
+    return str(error["msg"])
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def _app_error(_: Request, exc: AppError) -> JSONResponse:
@@ -82,7 +101,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
         fields = [
-            {"loc": [str(p) for p in e["loc"]], "type": e["type"], "msg": e["msg"]}
+            {"loc": [str(p) for p in e["loc"]], "type": e["type"], "msg": _safe_msg(e)}
             for e in exc.errors()
         ]
         return JSONResponse(

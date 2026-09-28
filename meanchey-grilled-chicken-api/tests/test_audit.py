@@ -11,12 +11,17 @@ async def test_audit_log_visible_to_superadmin_and_gm_only(client, superadmin, m
         headers=auth(superadmin),
     )
 
-    for actor in (superadmin, gm):
-        r = await client.get("/audit-logs", headers=auth(actor))
-        assert r.status_code == 200, r.text
-        entry = next(i for i in r.json()["items"] if i["action"] == "user.create")
-        assert entry["actor"]["role"] == "superadmin"
-        assert entry["target"]["telegram_username"] == "audited_sup"
+    # The superadmin sees its own actions.
+    r = await client.get("/audit-logs", headers=auth(superadmin))
+    assert r.status_code == 200, r.text
+    entry = next(i for i in r.json()["items"] if i["action"] == "user.create")
+    assert entry["actor"]["role"] == "superadmin"
+    assert entry["target"]["telegram_username"] == "audited_sup"
+
+    # The general manager can open the log but doesn't see what the superadmin did.
+    r = await client.get("/audit-logs", headers=auth(gm))
+    assert r.status_code == 200, r.text
+    assert not any(i["action"] == "user.create" for i in r.json()["items"])
 
     assert_error(await client.get("/audit-logs", headers=auth(sup)), 403, "FORBIDDEN_ROLE")
 

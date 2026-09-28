@@ -2,7 +2,7 @@
 
 What the Mean Chey Grilled Chicken UI (មាន់អាំងមានជ័យ) offers today. One React app serves both the **PC dashboard** and the **Telegram Mini App**.
 
-Phase 1 covers sign-in, user management and permission control only.
+Phase 1 covers sign-in, user management and access control (feature access levels), plus the first production features: **Suppliers** and **Customers**.
 
 > The UI hides what a user can't do, for a cleaner experience. **The API enforces every rule**, so hiding things in the UI is never the security boundary.
 
@@ -15,7 +15,7 @@ Phase 1 covers sign-in, user management and permission control only.
 - [7. Settings](#7-settings)
 - [8. Users](#8-users)
 - [9. User detail](#9-user-detail)
-- [10. Permissions tab](#10-permissions-tab)
+- [10. Access tab and Permissions (advanced)](#10-access-tab-and-permissions-advanced)
 - [11. Audit log](#11-audit-log)
 - [12. My profile](#12-my-profile)
 - [13. Language (Khmer / English)](#13-language-khmer--english)
@@ -37,6 +37,7 @@ Phase 1 covers sign-in, user management and permission control only.
 
 - The mobile layout is used inside Telegram, **or** on any screen narrower than 768 px.
 - A phone browser gets the same experience as the Mini App, minus the automatic sign-in.
+- **The superadmin** uses the same app. Its extra screens (Permissions (advanced), detailed permission entries in the audit log) are shown only when signed in as the superadmin. Everyone else sees the superadmin only as **System** (ប្រព័ន្ធ), which is also its role label.
 
 ## 2. Sign-in
 
@@ -91,6 +92,8 @@ The app is organized in two sections under Home:
 ```
 Home                      everyone
 ├── Production            everyone          /production
+│   ├── Suppliers         suppliers.view    /production/suppliers
+│   └── Customers         customers.view    /production/customers
 └── Settings              everyone          /settings
     ├── Users             users.view        /settings/users
     ├── Audit log         superadmin, GM    /settings/audit-logs
@@ -99,15 +102,16 @@ Home                      everyone
 
 - **Each item appears only when the user is allowed to open it.** The rules are unchanged from before: Users needs `users.view`, and Audit log is for the superadmin and general manager.
 - **Settings is always shown,** because everyone can open My profile.
-- **Staff** see Home, Production and Settings. Inside Settings they see only My profile, which follows from the permissions with no special handling.
+- **Production is always shown,** even when none of its pages are visible, so its hub can explain that nothing is available yet.
+- **Staff** see Home, Production and Settings. Production shows the "no access yet" message and Settings only My profile, which follows from the permissions with no special handling. Once the general manager sets e.g. Suppliers to *View only* on the Access tab, Suppliers appears for that staff member.
 - **Desktop sidebar:** Home, Production and Settings.
-  - While you're anywhere under Settings, its visible sub-pages are listed indented below it.
+  - While you're anywhere under Production or Settings, that section's visible sub-pages are listed indented below it.
   - The current page and its section are highlighted.
 - **Mobile / Telegram bottom bar:** exactly three buttons, Home · Production · Settings. Settings stays highlighted on every Settings page.
-- **Back buttons,** both in-page and Telegram's native one, go to the **parent screen**, not the browser history. For example: user details → Users → Settings → Home. A deep link opened straight into the Mini App therefore still has a sensible way back.
+- **Back buttons,** both in-page and Telegram's native one, go to the **parent screen**, not the browser history. For example: user details → Users → Settings → Home, and Suppliers → Production → Home. A deep link opened straight into the Mini App therefore still has a sensible way back.
 - **Header:** language switcher (ខ្មែរ / EN) and an avatar menu.
 - **Avatar menu:** name, role, Telegram username, **My profile** and **Log out**.
-- **Permission changes show up quickly.** Menus refresh when Home or Settings is opened and the cached permissions are more than a minute old. They also refresh whenever the server answers "no permission", "wrong role" or "out of scope".
+- **Permission changes show up quickly.** Menus refresh when Home, Production or Settings is opened and the cached permissions are more than a minute old. They also refresh whenever the server answers "no permission", "wrong role" or "out of scope".
 - **Old links keep working.** Old addresses (`/users/…`, `/audit-logs`, `/profile`) redirect to their new place under `/settings`, keeping the rest of the address, for example `/users/<id>?tab=permissions`.
 
 ## 5. Home
@@ -121,7 +125,44 @@ Home                      everyone
 
 **Path:** `/production`. **Who can open it:** everyone.
 
-Phase 1 has no production features yet, so the page shows "Production features are coming soon". New production features will appear here as cards or sub-pages.
+A hub with one card per Production page the user may open, built from the same menu definition as the sidebar:
+
+| Card | Shown to |
+|---|---|
+| Suppliers | holders of `suppliers.view` |
+| Customers | holders of `customers.view` |
+
+With no visible cards (staff by default) it shows *"You don't have access to any production features yet"* with a hint to ask a manager.
+
+### 6.1 Suppliers and customers
+
+**Paths:** `/production/suppliers`, `/production/customers`. **Who can open them:** users whose Suppliers / Customers access is *View only* or *Full access* (§10): by default the general manager and supervisors; staff once the general manager turns it on. Both pages work the same way.
+
+Top to bottom:
+
+1. **Header:** title, total, and **New supplier** / **New customer** (with `*.create`).
+2. **Figures (KPI cards):** **Active**, **New this month** and **Deactivated**.
+   - Three in a row on desktop; a swipeable row on mobile. Grey placeholders while loading.
+   - Tapping **Active** or **Deactivated** filters the list; the selected card is outlined.
+   - "This month" follows the calendar month in Cambodia time.
+3. **Search and filters:** a search box (name, location or phone; `345 678` finds `012 345 678`), a status filter (Active · Deactivated · All) and a sort (Name A–Z, Name Z–A, Newest, Oldest).
+   - Filters are kept in the address (`?q=…&status=…&sort=…&page=…`), so Back and shared links keep them.
+4. **List,** 20 per page:
+   - **Desktop:** a table with Name, Location, Phone, Added, Status and a **⋮** menu.
+   - **Mobile / Mini App:** cards with name, location and phone, a large green **Call** button (opens the phone dialer) and a **⋮** menu.
+   - Phones are shown formatted (`012 345 678`, `+855 12 345 678`) and are tap-to-call on desktop too.
+   - Deactivated records are dimmed with a *Deactivated* badge.
+   - The **⋮** menu offers **Edit** (`*.update`) and **Deactivate** / **Reactivate** (`*.delete`); without either permission there is no menu.
+5. **Empty states:** *No suppliers yet* (with the create button when allowed); *Nothing matches your search* with **Clear filters**; or, when only deactivated records exist, **Show deactivated**.
+
+**Add / edit** opens a panel: a side drawer on desktop, a bottom sheet on mobile.
+
+- Fields: **Name** (required, up to 150 characters), **Location** (optional, up to 255), **Phone** (optional, numeric keypad).
+- Checked before sending, with the server's rules: name required, lengths, phone 8–15 digits (spaces, dashes, dots, brackets and a leading `+` are fine).
+- Server errors appear under the field they concern, e.g. *"This phone number is already in use"* under Phone. A phone number can belong to only one **active** supplier (and one active customer).
+- On success the panel closes, a confirmation appears above the list, and the list and figures refresh.
+
+**Deactivate / reactivate** asks for confirmation first. Deactivated records keep their history and can be reactivated; reactivation fails if another active record now has the same phone.
 
 ## 7. Settings
 
@@ -176,12 +217,12 @@ Phase 1 has no production features yet, so the page shows "Production features a
 
 **Edit a user** (`users.update`)
 
-- Same fields; the role is read-only. Staff can be given a new position at any time; it has no effect on their access.
+- Same fields; the role isn't edited here (see **Change role** on the user's page, §9). Staff can be given a new position at any time; it has no effect on their access.
 - If the user is linked to Telegram and you change their username, a warning says the link will be removed.
 
 ## 9. User detail
 
-**Path:** `/settings/users/<id>` (edit: `/settings/users/<id>/edit`, permissions tab: `?tab=permissions`).
+**Path:** `/settings/users/<id>` (edit: `/settings/users/<id>/edit`, tabs: `?tab=access`, `?tab=permissions`).
 
 - **Header:** name, `@telegram`, role/position badge, status badges.
 - **Actions**, each shown only with the matching permission. All destructive actions ask for confirmation in a dialog.
@@ -189,57 +230,72 @@ Phase 1 has no production features yet, so the page shows "Production features a
   | Action | Permission |
   |---|---|
   | **Edit** | `users.update` |
-  | **Reset password** | `users.reset_password` (superadmin and general manager only) |
-  | **Deactivate** / **Reactivate** | `users.delete` |
+  | **Reset password** | `users.reset_password` (general manager) |
+  | **Change role** | general manager (staff ↔ supervisor) and superadmin (general manager / supervisor / staff) |
+  | **Deactivate** / **Reactivate** | `users.delete` (general manager; supervisors never) |
 
   - Reset password sets the password back to the Telegram username. The dialog explains the user will be signed out everywhere and must choose a new password.
   - Deactivate / Reactivate is a soft on/off switch. A deactivated user is signed out immediately.
+  - **Change role** opens a panel (drawer on PC, bottom sheet on phones) listing the roles you can move this user to. Choosing *Staff* asks for a position (with suggestions). A note explains that access is reset to the new role's defaults, adjustable afterwards on the Access tab. Only one active general manager is allowed; otherwise a translated error is shown. The user stays signed in; their menus update at the next refresh.
 
 - **Details tab:**
   - full name, Telegram username and whether it's **linked** to a Telegram account;
   - role, position (shown exactly as entered, never translated), phone, language;
   - created, updated and deactivated dates;
   - locked-until time, if the account is locked.
-- **Permissions tab:** see §10.
+- **Tabs**, by viewer (§10):
+
+  | Viewer | Details | Access | Permissions (advanced) |
+  |---|---|---|---|
+  | General manager (supervisor / staff) | ✅ | ✅ | — |
+  | Supervisor (staff) | ✅ | — | — |
+  | Superadmin | ✅ | ✅ | ✅ |
+
+  A `?tab=` the viewer can't open falls back to Details.
 - Success and error messages are shown inline and are translated.
 
-## 10. Permissions tab
+## 10. Access tab and Permissions (advanced)
 
-Controls which features a user can access.
+### Access tab (ការចូលប្រើ)
 
-**Layout**
+How the general manager decides what supervisors and staff can use. Shown when the viewer may manage access (*can manage features*) and at least one feature applies to the user. The general manager can set **any level of any feature** available to that user's role; nothing here depends on the general manager's own permissions.
 
-- Permissions are **grouped by module**, for example *User management / គ្រប់គ្រងអ្នកប្រើប្រាស់*.
-- Each permission shows its localized name, description and code.
-- Only permissions that can be assigned to the user's role are listed.
-  - Staff have none in Phase 1, so an empty-state message is shown.
+- **Grouped by menu:** **Production** (Suppliers, Customers), then **Settings** (Staff management, supervisors only).
+- Each row: the feature's name and a one-line description (from the server, in the current language), and a segmented control **Off · View only · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · ពេញលេញ*).
+- A legend at the top: *View only* = can see the list; *Full access* = can add, edit and deactivate. For Staff management, Full access means add and edit staff: supervisors never deactivate people.
+- **Each click saves** immediately, with a spinner on that row. On error the previous level comes back and a translated message is shown.
+- From *Off*, *View only* has a dashed outline as the suggested next step; it still takes a click.
+- **Custom:** if a user's permissions match no level (only possible through the superadmin's detailed permissions), a neutral *Custom* badge is shown and no level is selected. Picking a level replaces it.
+- Rows are disabled only when the user is deactivated. No explanation mentions other roles.
+- Defaults: supervisors start with everything at **Full access**, staff with everything **Off**.
+- Changes take effect on the user's next menu refresh (within a minute, or at once on their next "no permission" answer). If you change your own access, your menus refresh immediately.
+- On phones and in the Mini App the control sits under the name, full width, with large touch targets.
 
-**Editing**
+### Permissions (advanced), superadmin only
 
-- Each permission has a checkbox. It is **editable only** when all of these hold:
-  - you hold *Grant permissions*;
-  - the user is in your scope;
-  - you hold that permission yourself.
-- Everything else is shown **read-only**, with a tooltip and an explanatory notice.
-- Clicking a checkbox grants or revokes the permission immediately, with a small spinner on that row.
-- Errors from the server are translated. Example: "You can only grant or revoke permissions you hold yourself".
+Only for the superadmin. Shows the detailed permissions under the feature levels: grouped by module, each with its localized name, description and code, a checkbox, and a lock reason from the server when it can't be changed (e.g. the user is deactivated). Clicking a checkbox grants or revokes that one permission immediately. General-manager-only permissions (deactivate users, reset passwords, manage access) are managed here.
+
+Supervisors and staff never see any permission or access information.
 
 ## 11. Audit log
 
-**Path:** `/settings/audit-logs`. **Who can open it:** the superadmin and the general manager.
+**Path:** `/settings/audit-logs`. **Who can open it:** the general manager and the superadmin. The general manager doesn't see entries made by the superadmin (nor detailed permission changes).
 
 - A chronological list of security events:
   - sign-ins and failed sign-ins;
   - lockouts;
   - password changes and resets;
-  - user creation, edits, deactivation and reactivation;
-  - permission grants and revokes;
-  - profile updates.
-- **Filter** by action type.
+  - user creation, edits, role changes (e.g. *"Staff → Supervisor"*), deactivation and reactivation;
+  - access changes (*Changed access*), shown as e.g. *"Suppliers: View only → Full access"*;
+  - detailed permission grants and revokes, including automatic ones on deploy: **superadmin only** (the general manager sees access changes instead);
+  - profile updates;
+  - suppliers and customers added, edited, deactivated and reactivated.
+- **Filters:** record type (All · Suppliers · Customers) and action type.
 - Each entry shows:
   - the time, in the current language's format;
   - the action, as a translated badge, red for failures and locks;
-  - **By** (actor) and **User** (target), linking to the user;
+  - **By** (actor) and **User** (target), linking to the user. Actions by the system show **System** (ប្រព័ន្ធ), without a link;
+  - for supplier / customer entries, the **record**: its type and current name, linking to the Suppliers / Customers page with that name already searched (including deactivated records);
   - details: the permission code, or an expandable JSON view.
 - **Revocations are highlighted.** When a revoked permission had been passed on to others by that user, an amber warning lists who still holds it, so managers can follow up (revoking does not cascade).
 - Pagination, with 50 per page.
@@ -256,21 +312,20 @@ Controls which features a user can access.
 **Account**
 
 - Shows your role and Telegram username, and whether Telegram is linked.
+- No permission or access information is shown, for any role.
 
 **Change password**
 
 - Current password, new password and confirmation, with the same rules as §3.
 
-**Reset my password** (superadmin and general manager only)
+**Reset my password** (general manager)
 
-- Returns your password to its default and signs you out on all devices.
-  - General manager: your Telegram username. You must change it at next sign-in.
-  - Superadmin: `superadmin`.
+- Returns your password to your Telegram username and signs you out on all devices. You must change it at next sign-in. (The superadmin's reset returns it to its initial password instead.)
 - After confirming, you're taken to the login page with a message telling you which password to use.
 
 ## 13. Language (Khmer / English)
 
-- **Khmer is the default.** English is fully supported: every label, message, role, audit action and error. Positions are free text and are shown as entered.
+- **Khmer is the default.** English is fully supported: every label, message, role, audit action and error, including the supplier / customer pages and their figures. Positions are free text and are shown as entered.
 - **Switching** from the header takes effect instantly.
   - **Signed in:** the choice is saved to your profile and follows you to other devices.
   - **Signed out, or password change pending:** it is remembered on this device.
@@ -296,15 +351,20 @@ Controls which features a user can access.
 |---|---|---|---|---|
 | Home, Production, Settings hub | ✅ | ✅ | ✅ | ✅ |
 | Settings → My profile | ✅ | ✅ | ✅ | ✅ |
-| Settings → Users (list / detail) | ✅ all below | ✅ supervisors, staff | ✅ staff (default) | ❌ |
-| Create user | ✅ GM, supervisor, staff | ✅ supervisor, staff | ✅ staff (default) | ❌ |
-| Edit user | ✅ | ✅ | ✅ (default) | ❌ |
-| Deactivate / reactivate | ✅ | ✅ | only if granted | ❌ |
+| Settings → Users (list / detail) | ✅ all below | ✅ supervisors, staff | Staff management ≥ View only (default Full): staff | ❌ |
+| Create / edit user | ✅ | ✅ | Staff management = Full (default) | ❌ |
+| Change role (promote / demote) | ✅ GM ↔ supervisor ↔ staff | ✅ supervisor ↔ staff | ❌ | ❌ |
+| Deactivate / reactivate users | ✅ | ✅ | ❌ never | ❌ |
 | Reset others' password | ✅ | ✅ | ❌ never | ❌ |
 | Reset own password | ✅ | ✅ | ❌ | ❌ |
-| Edit permissions | ✅ | ✅ (what they hold) | only if granted | ❌ |
-| Settings → Audit log | ✅ | ✅ | ❌ | ❌ |
+| User detail → Access tab | ✅ | ✅ (supervisors, staff) | ❌ | ❌ |
+| User detail → Permissions (advanced) | ✅ | ❌ | ❌ | ❌ |
+| Settings → Audit log | ✅ everything | ✅ without detailed permission entries | ❌ | ❌ |
+| Production → Suppliers (list, figures) | ✅ | ✅ | Suppliers ≥ View only (default Full) | Suppliers ≥ View only (default Off) |
+| Add / edit / deactivate suppliers | ✅ | ✅ | Suppliers = Full (default) | Suppliers = Full |
+| Production → Customers (list, figures) | ✅ | ✅ | Customers ≥ View only (default Full) | Customers ≥ View only (default Off) |
+| Add / edit / deactivate customers | ✅ | ✅ | Customers = Full (default) | Customers = Full |
 
-"(default)" means granted by default when the account is created. A manager can change these grants.
+"Suppliers = Full" etc. refers to the levels the general manager sets on the Access tab (§10). "(default)" is the level a new account starts with.
 
-This matrix depends **only on role and permissions**. A staff member's position (e.g. `Grill cook` or `អ្នកដឹកជញ្ជូន`) never changes it: two staff with the same grants see exactly the same menu and screens.
+This matrix depends **only on role and access levels**. A staff member's position (e.g. `Grill cook` or `អ្នកដឹកជញ្ជូន`) never changes it: two staff with the same levels see exactly the same menu and screens.

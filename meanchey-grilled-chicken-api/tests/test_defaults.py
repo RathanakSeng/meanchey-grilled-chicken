@@ -13,6 +13,11 @@ ALL_PHASE1 = {
     "users.reset_password",
     "permissions.grant",
 }
+PARTNERS = {
+    f"{entity}.{action}"
+    for entity in ("suppliers", "customers")
+    for action in ("view", "create", "update", "delete")
+}
 
 
 async def _create(client, actor, role: str, username: str) -> dict:
@@ -24,32 +29,41 @@ async def _create(client, actor, role: str, username: str) -> dict:
     return r.json()
 
 
-async def _perms_of(client, actor, user_id) -> set[str]:
-    r = await client.get(f"/users/{user_id}/permissions", headers=auth(actor))
+async def _perms_of(client, superadmin, user_id) -> set[str]:
+    """Stored grants, read through the superadmin-only detailed permission view."""
+    r = await client.get(f"/users/{user_id}/permissions", headers=auth(superadmin))
     return {p["code"] for m in r.json()["modules"] for p in m["permissions"] if p["granted"]}
 
 
-async def test_gm_gets_all_phase1_permissions(client, superadmin) -> None:
+async def test_gm_gets_all_phase1_and_partner_permissions(client, superadmin) -> None:
     gm = await _create(client, superadmin, "general_manager", "default_gm")
-    assert await _perms_of(client, superadmin, gm["id"]) == ALL_PHASE1
+    assert await _perms_of(client, superadmin, gm["id"]) == ALL_PHASE1 | PARTNERS
 
 
-async def test_supervisor_defaults(client, make_user) -> None:
+async def test_supervisor_defaults(client, superadmin, make_user) -> None:
+    """Every feature at full access; supervisors never get users.delete or permissions.grant."""
     gm = await make_user(Role.GENERAL_MANAGER)
     sup = await _create(client, gm, "supervisor", "default_sup")
-    assert await _perms_of(client, gm, sup["id"]) == {"users.view", "users.create", "users.update"}
+    assert await _perms_of(client, superadmin, sup["id"]) == {
+        "users.view",
+        "users.create",
+        "users.update",
+        *PARTNERS,
+    }
 
 
-async def test_supervisor_defaults_limited_to_creator_permissions(client, make_user) -> None:
+async def test_supervisor_defaults_limited_to_creator_permissions(
+    client, superadmin, make_user
+) -> None:
     gm = await make_user(Role.GENERAL_MANAGER, perms=["users.view", "users.create"])
     sup = await _create(client, gm, "supervisor", "limited_sup")
-    assert await _perms_of(client, gm, sup["id"]) == {"users.view", "users.create"}
+    assert await _perms_of(client, superadmin, sup["id"]) == {"users.view", "users.create"}
 
 
-async def test_staff_has_no_permissions(client, make_user) -> None:
+async def test_staff_has_no_permissions(client, superadmin, make_user) -> None:
     gm = await make_user(Role.GENERAL_MANAGER)
     staff = await _create(client, gm, "staff", "default_staff")
-    assert await _perms_of(client, gm, staff["id"]) == set()
+    assert await _perms_of(client, superadmin, staff["id"]) == set()
 
 
 async def test_registry_sync_marks_removed_permissions_inactive(session, monkeypatch) -> None:

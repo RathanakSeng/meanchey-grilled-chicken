@@ -3,10 +3,11 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field
 
 from app.models import Language, Role
 from app.models.user import POSITION_MAX_LENGTH
+from app.schemas.common import UserRef
 
 PHONE_PATTERN = r"^[0-9+()\-\s]{6,32}$"
 
@@ -42,7 +43,8 @@ class UserOut(BaseModel):
     language: Language
     is_active: bool
     must_change_password: bool
-    created_by: uuid.UUID | None
+    # Who created the account ("System" for hidden accounts, see services/redaction.py).
+    created_by: UserRef | None = Field(validation_alias=AliasChoices("creator", "created_by"))
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None
@@ -66,6 +68,13 @@ class UserUpdate(BaseModel):
     phone: str | None = Field(default=None, pattern=PHONE_PATTERN)
     position: PositionText = None
     language: Language | None = None
+
+
+class RoleChange(BaseModel):
+    """Promote / demote. `position` is required when the new role is staff, forbidden otherwise."""
+
+    role: Role
+    position: PositionText = None
 
 
 class ProfileUpdate(BaseModel):

@@ -8,7 +8,10 @@ import { api } from '@/lib/api'
 import { paths } from '@/lib/paths'
 import { useErrorMessage } from '@/lib/errors'
 import { useFormatDate } from '@/lib/format'
-import type { AuditLog, AuditUserRef, Page } from '@/lib/types'
+import { useAuth } from '@/auth/AuthProvider'
+import { isSuperadmin } from '@/lib/roles'
+import type { AuditEntityRef, AuditLog, Page, UserRef as UserRefData } from '@/lib/types'
+import { PARTNER_CONFIGS, partnerSearchLink } from '@/pages/production/partners/config'
 
 const ACTIONS = [
   'auth.login',
@@ -21,21 +24,30 @@ const ACTIONS = [
   'user.update',
   'user.deactivate',
   'user.reactivate',
+  'user.role_change',
   'user.password_reset',
   'user.password_self_reset',
-  'permission.grant',
-  'permission.revoke',
+  'feature.set',
   'profile.update',
+  ...(['supplier', 'customer'] as const).flatMap((e) =>
+    ['create', 'update', 'deactivate', 'reactivate'].map((a) => `${e}.${a}`),
+  ),
 ]
+// Detailed permission entries are listed by the API for the superadmin only.
+const PERMISSION_ACTIONS = ['permission.grant', 'permission.revoke']
+const ENTITY_TYPES = ['supplier', 'customer'] as const
 const PAGE_SIZE = 50
 
 function actionKey(action: string) {
   return `audit.actions.${action.replace(/\./g, '_')}`
 }
 
-function UserRef({ user }: { user: AuditUserRef | null }) {
+function UserRef({ user }: { user: UserRefData | null }) {
   const { t } = useTranslation()
-  if (!user) return <span className="text-stone-400">{t('audit.system')}</span>
+  // No user, or a system reference (`is_system`): "System", never a link.
+  if (!user || user.is_system || !user.id) {
+    return <span className="text-stone-400">{t('audit.system')}</span>
+  }
   return (
     <Link to={paths.user(user.id)} className="hover:underline" onClick={(e) => e.stopPropagation()}>
       <span className="font-medium text-stone-800">{user.full_name}</span>
@@ -46,17 +58,69 @@ function UserRef({ user }: { user: AuditUserRef | null }) {
   )
 }
 
+/** The supplier / customer an entry is about, linking to its list with the name searched. */
+function EntityRef({ entity }: { entity: AuditEntityRef }) {
+  const { t } = useTranslation()
+  const config = PARTNER_CONFIGS[entity.type as keyof typeof PARTNER_CONFIGS]
+  const name = entity.name ?? t('common.none')
+  return (
+    <span className="block">
+      <span className="block text-xs text-stone-400">{t(`audit.entityTypes.${entity.type}`, { defaultValue: entity.type })}</span>
+      {config && entity.name ? (
+        <Link to={partnerSearchLink(config, entity.name)} className="font-medium text-stone-800 hover:underline">
+          {name}
+        </Link>
+      ) : (
+        <span className="font-medium text-stone-800">{name}</span>
+      )}
+    </span>
+  )
+}
+
+/** "Suppliers: View only → Full access" for a feature.set entry. */
+function FeatureChange({ details }: { details: Record<string, unknown> }) {
+  const { t } = useTranslation()
+  const feature = String(details.feature ?? '')
+  const level = (value: unknown) =>
+    t(`access.levels.${String(value)}`, { defaultValue: String(value) })
+  return (
+    <span className="block text-sm text-stone-700">
+      {t('audit.featureChange', {
+        feature: t(`access.featureNames.${feature}`, { defaultValue: feature }),
+        from: level(details.from),
+        to: level(details.to),
+      })}
+    </span>
+  )
+}
+
 function Details({ log }: { log: AuditLog }) {
   const { t } = useTranslation()
   const d = log.details
+  if (log.action === 'feature.set') return <FeatureChange details={d} />
+  if (log.action === 'user.role_change') {
+    return (
+      <span className="block text-sm text-stone-700">
+        {t('audit.roleChange', {
+          from: t(`roles.${String(d.from)}`),
+          to: t(`roles.${String(d.to)}`),
+        })}
+      </span>
+    )
+  }
   const downstream = Array.isArray(d.downstream_grants)
     ? (d.downstream_grants as { full_name: string; telegram_username: string | null }[])
     : []
-  const entries = Object.entries(d).filter(([k]) => k !== 'downstream_grants')
+  const entries = Object.entries(d).filter(
+    ([k]) => k !== 'downstream_grants' && !(log.entity && k === 'name'),
+  )
 
   return (
     <div className="space-y-1">
       {typeof d.permission === 'string' && <code className="text-xs">{d.permission}</code>}
+      {d.source === 'default_backfill' && (
+        <span className="block text-xs text-stone-500">{t('audit.defaultBackfill')}</span>
+      )}
       {downstream.length > 0 && (
         <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-900 ring-1 ring-amber-200">
           <p className="flex items-center gap-1 font-medium">
@@ -82,12 +146,21 @@ function Details({ log }: { log: AuditLog }) {
 
 export function AuditLogPage() {
   const { t } = useTranslation()
+  const { me } = useAuth()
+  const actions =
+    isSuperadmin(me?.user.role) ? [...ACTIONS, ...PERMISSION_ACTIONS] : ACTIONS
   const formatDate = useFormatDate()
   const errorMessage = useErrorMessage()
   const [action, setAction] = useState('')
+  const [entityType, setEntityType] = useState('')
   const [page, setPage] = useState(1)
 
-  const params = { action: action || undefined, page, page_size: PAGE_SIZE }
+  const params = {
+    action: action || undefined,
+    entity_type: entityType || undefined,
+    page,
+    page_size: PAGE_SIZE,
+  }
   const query = useQuery({
     queryKey: ['audit-logs', params],
     queryFn: async () => (await api.get<Page<AuditLog>>('/audit-logs', { params })).data,
@@ -102,7 +175,22 @@ export function AuditLogPage() {
         title={t('audit.title')}
         subtitle={query.data && t('common.total', { count: query.data.total })}
       />
-      <div className="mb-4 max-w-xs">
+      <div className="mb-4 grid max-w-xl gap-2 sm:grid-cols-2">
+        <Select
+          aria-label={t('audit.entityType')}
+          value={entityType}
+          onChange={(e) => {
+            setEntityType(e.target.value)
+            setPage(1)
+          }}
+        >
+          <option value="">{t('audit.allEntities')}</option>
+          {ENTITY_TYPES.map((type) => (
+            <option key={type} value={type}>
+              {t(`audit.entityTypes.${type}`)}
+            </option>
+          ))}
+        </Select>
         <Select
           aria-label={t('audit.action')}
           value={action}
@@ -112,7 +200,7 @@ export function AuditLogPage() {
           }}
         >
           <option value="">{t('audit.allActions')}</option>
-          {ACTIONS.map((a) => (
+          {actions.map((a) => (
             <option key={a} value={a}>
               {t(actionKey(a))}
             </option>
@@ -155,6 +243,7 @@ export function AuditLogPage() {
                       <UserRef user={log.target} />
                     </>
                   )}
+                  {log.entity && <EntityRef entity={log.entity} />}
                   <Details log={log} />
                 </span>
               </li>

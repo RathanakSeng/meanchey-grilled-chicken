@@ -10,10 +10,19 @@ import { setLanguage } from '@/i18n'
 import { api } from '@/lib/api'
 import { paths } from '@/lib/paths'
 import { useErrorMessage } from '@/lib/errors'
-import { LANGUAGES, type Language, type Me } from '@/lib/types'
+import { isSuperadmin } from '@/lib/roles'
+import { LANGUAGES, type Language, type Me, type Role } from '@/lib/types'
+
+/** What a self-reset returns the password to. */
+function useDefaultPasswordLabel() {
+  const { t } = useTranslation()
+  return (role: Role | undefined) =>
+    isSuperadmin(role) ? t('profile.defaultSuperadmin') : t('profile.defaultTelegram')
+}
 
 export function ProfilePage() {
   const { t } = useTranslation()
+  const defaultPasswordLabel = useDefaultPasswordLabel()
   const { me, logout } = useAuth()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -49,8 +58,7 @@ export function ProfilePage() {
   const selfReset = useMutation({
     mutationFn: () => api.post('/me/reset-password'),
     onSuccess: async () => {
-      const value =
-        me?.user.role === 'superadmin' ? t('profile.defaultSuperadmin') : t('profile.defaultTelegram')
+      const value = defaultPasswordLabel(me?.user.role)
       // All sessions were revoked server-side.
       await logout({ skipServer: true })
       navigate('/login', {
@@ -62,8 +70,7 @@ export function ProfilePage() {
 
   if (!me) return null
   const { user } = me
-  const defaultValue =
-    user.role === 'superadmin' ? t('profile.defaultSuperadmin') : t('profile.defaultTelegram')
+  const defaultValue = defaultPasswordLabel(user.role)
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault()

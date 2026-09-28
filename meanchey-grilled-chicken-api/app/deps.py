@@ -18,6 +18,7 @@ from app.core.security import decode_access_token
 from app.db import get_session
 from app.models import Role, User
 from app.permissions.service import effective_permissions
+from app.services.redaction import set_viewer
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
@@ -37,6 +38,8 @@ async def get_current_user_allow_pending(
         raise AppError(401, ErrorCode.INVALID_TOKEN, "Invalid access token")
     if not user.is_active:
         raise AppError(401, ErrorCode.ACCOUNT_DISABLED, "Account is deactivated")
+    # Responses in this request are redacted for this viewer (services/redaction.py).
+    set_viewer(user)
     return user
 
 
@@ -72,12 +75,8 @@ def require_role(*roles: Role):
 
     async def dependency(user: CurrentUser) -> User:
         if user.role not in allowed:
-            raise AppError(
-                403,
-                ErrorCode.FORBIDDEN_ROLE,
-                "Your role cannot access this resource",
-                {"allowed_roles": sorted(allowed)},
-            )
+            # No list of allowed roles in the error: it would name roles the viewer can't see.
+            raise AppError(403, ErrorCode.FORBIDDEN_ROLE, "Your role cannot access this resource")
         return user
 
     return dependency

@@ -1,4 +1,5 @@
-"""Idempotent startup tasks: sync the permission registry, seed the superadmin and
+"""Idempotent startup tasks: sync the permission registry (backfilling role defaults for newly
+added permissions), seed the superadmin and
 (in webhook mode) register the Telegram webhook.
 
 Run with `python -m app.bootstrap`; also runs on API startup.
@@ -14,7 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.security import hash_password
 from app.models import Role, User
-from app.permissions.sync import sync_registry
+from app.permissions.registry import validate_features
+from app.permissions.sync import backfill_defaults, sync_registry
 
 if TYPE_CHECKING:
     from app.bot.runtime import TelegramRuntime
@@ -61,7 +63,9 @@ async def bootstrap(session: AsyncSession, telegram: "TelegramRuntime | None" = 
     settings = get_settings()
     # Serialize concurrent starts (api + multiple workers / replicas).
     await session.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _BOOTSTRAP_LOCK_KEY})
-    await sync_registry(session)
+    validate_features()  # also runs at import; repeated here so startup fails loudly
+    new_codes = await sync_registry(session)
+    await backfill_defaults(session, new_codes)
     await seed_superadmin(session)
     if settings.webhook_enabled and settings.telegram_webhook_auto_set:
         await register_webhook(session, telegram)

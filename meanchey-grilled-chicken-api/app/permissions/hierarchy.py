@@ -36,4 +36,4 @@ def ensure_can_manage(actor: User, target: User) -> None:
 
 def ensure_can_manage_role(actor: User, role: Role) -> None:
     if role not in MANAGEABLE_ROLES[actor.role]:
-        raise AppError(403, ErrorCode.FORBIDDEN_SCOPE, f"You cannot manage users with role {role}")
+        raise AppError(403, ErrorCode.FORBIDDEN_SCOPE, "You cannot manage users with this role")

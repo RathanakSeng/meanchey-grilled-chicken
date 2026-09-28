@@ -1,6 +1,10 @@
+"""Detailed permissions: the superadmin's tool. Everyone else uses feature levels."""
+
+import pytest
 from sqlalchemy import select
 
 from app.models import AuditLog, Role
+from app.permissions.sync import sync_registry
 from tests.conftest import assert_error, auth
 
 
@@ -16,18 +20,33 @@ async def _perms(client, user) -> list[str]:
     return (await client.get("/auth/me", headers=auth(user))).json()["permissions"]
 
 
-async def test_gm_grants_and_revokes_supervisor_permission(client, make_user) -> None:
-    gm = await make_user(Role.GENERAL_MANAGER)
-    sup = await make_user(Role.SUPERVISOR)
-    assert "users.delete" not in await _perms(client, sup)
+@pytest.mark.parametrize("role", [Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF])
+async def test_detailed_permission_endpoints_are_superadmin_only(client, make_user, role) -> None:
+    actor = await make_user(role)
+    staff = await make_user(Role.STAFF)
+    calls = [
+        client.get("/permissions", headers=auth(actor)),
+        client.get(f"/users/{staff.id}/permissions", headers=auth(actor)),
+        _grant(client, actor, staff, "suppliers.view"),
+        _revoke(client, actor, staff, "suppliers.view"),
+    ]
+    for call in calls:
+        r = await call
+        assert_error(r, 403, "FORBIDDEN_ROLE")
+        assert "details" not in r.json()["error"]  # no list of allowed roles
 
-    assert (await _grant(client, gm, sup, "users.delete")).status_code == 204
-    assert "users.delete" in await _perms(client, sup)
+
+async def test_superadmin_grants_and_revokes(client, superadmin, make_user) -> None:
+    sup = await make_user(Role.SUPERVISOR, perms=[])
+    assert "suppliers.view" not in await _perms(client, sup)
+
+    assert (await _grant(client, superadmin, sup, "suppliers.view")).status_code == 204
+    assert "suppliers.view" in await _perms(client, sup)
     # Idempotent.
-    assert (await _grant(client, gm, sup, "users.delete")).status_code == 204
+    assert (await _grant(client, superadmin, sup, "suppliers.view")).status_code == 204
 
-    assert (await _revoke(client, gm, sup, "users.delete")).status_code == 204
-    assert "users.delete" not in await _perms(client, sup)
+    assert (await _revoke(client, superadmin, sup, "suppliers.view")).status_code == 204
+    assert "suppliers.view" not in await _perms(client, sup)
 
 
 async def test_superadmin_grants_to_gm(client, superadmin, make_user) -> None:
@@ -36,51 +55,45 @@ async def test_superadmin_grants_to_gm(client, superadmin, make_user) -> None:
     assert await _perms(client, gm) == ["users.reset_password"]
 
 
-async def test_cannot_grant_what_you_do_not_hold(client, superadmin, make_user) -> None:
-    gm = await make_user(Role.GENERAL_MANAGER)
-    sup = await make_user(Role.SUPERVISOR)
-    assert (await _revoke(client, superadmin, gm, "users.delete")).status_code == 204
-    assert_error(await _grant(client, gm, sup, "users.delete"), 403, "PERMISSION_NOT_HELD")
-    # Nor revoke it.
-    assert_error(await _revoke(client, gm, sup, "users.delete"), 403, "PERMISSION_NOT_HELD")
+async def test_superadmin_cannot_target_itself(client, superadmin) -> None:
+    assert_error(await _grant(client, superadmin, superadmin, "users.view"), 403, "FORBIDDEN_SCOPE")
 
 
-async def test_cannot_grant_outside_scope(client, make_user) -> None:
-    gm = await make_user(Role.GENERAL_MANAGER)
-    sup1 = await make_user(Role.SUPERVISOR, perms=["users.view", "permissions.grant"])
-    sup2 = await make_user(Role.SUPERVISOR)
-    assert_error(await _grant(client, sup1, sup2, "users.view"), 403, "FORBIDDEN_SCOPE")
-    assert_error(await _grant(client, sup1, gm, "users.view"), 403, "FORBIDDEN_SCOPE")
-    assert_error(await _grant(client, gm, gm, "users.view"), 403, "FORBIDDEN_SCOPE")
+@pytest.mark.parametrize(
+    ("role", "code"),
+    [
+        (Role.SUPERVISOR, "users.reset_password"),
+        (Role.SUPERVISOR, "users.delete"),  # supervisors never deactivate users
+        (Role.SUPERVISOR, "permissions.grant"),  # supervisors never grant
+        (Role.STAFF, "users.view"),
+    ],
+)
+async def test_assignable_to_is_respected(client, superadmin, make_user, role, code) -> None:
+    target = await make_user(role)
+    assert_error(await _grant(client, superadmin, target, code), 422, "PERMISSION_NOT_ASSIGNABLE")
 
 
-async def test_assignable_to_is_respected(client, superadmin, make_user) -> None:
-    gm = await make_user(Role.GENERAL_MANAGER)
-    sup = await make_user(Role.SUPERVISOR)
+async def test_existing_supervisor_grant_permission_is_ineffective(
+    client, session, make_user
+) -> None:
+    """A supervisor granted permissions.grant before this change keeps the row, not the power."""
+    sup = await make_user(Role.SUPERVISOR, perms=["users.view", "permissions.grant"])
     staff = await make_user(Role.STAFF)
-    # Password reset is reserved for the general manager.
-    assert_error(
-        await _grant(client, gm, sup, "users.reset_password"), 422, "PERMISSION_NOT_ASSIGNABLE"
+    await sync_registry(session)
+    await session.commit()
+
+    me = (await client.get("/auth/me", headers=auth(sup))).json()
+    assert "permissions.grant" not in me["permissions"]
+    assert me["can_manage_features"] is False
+    r = await client.put(
+        f"/users/{staff.id}/features/suppliers", json={"level": "view"}, headers=auth(sup)
     )
-    assert_error(
-        await _grant(client, superadmin, sup, "users.reset_password"),
-        422,
-        "PERMISSION_NOT_ASSIGNABLE",
-    )
-    # No Phase 1 permission is assignable to staff.
-    assert_error(await _grant(client, gm, staff, "users.view"), 422, "PERMISSION_NOT_ASSIGNABLE")
+    assert_error(r, 403, "MISSING_PERMISSION")
 
 
-async def test_grant_requires_permissions_grant(client, make_user) -> None:
-    sup = await make_user(Role.SUPERVISOR)  # defaults: no permissions.grant
-    staff = await make_user(Role.STAFF)
-    assert_error(await _grant(client, sup, staff, "users.view"), 403, "MISSING_PERMISSION")
-
-
-async def test_unknown_permission(client, make_user) -> None:
-    gm = await make_user(Role.GENERAL_MANAGER)
+async def test_unknown_permission(client, superadmin, make_user) -> None:
     sup = await make_user(Role.SUPERVISOR)
-    assert_error(await _grant(client, gm, sup, "nope.nothing"), 404, "PERMISSION_NOT_FOUND")
+    assert_error(await _grant(client, superadmin, sup, "nope.nothing"), 404, "PERMISSION_NOT_FOUND")
 
 
 async def test_revoke_does_not_cascade_but_is_surfaced(
@@ -88,11 +101,15 @@ async def test_revoke_does_not_cascade_but_is_surfaced(
 ) -> None:
     gm = await make_user(Role.GENERAL_MANAGER)
     sup = await make_user(Role.SUPERVISOR, perms=[])
-    assert (await _grant(client, gm, sup, "users.view")).status_code == 204
+    # The GM gives the supervisor access through a feature level (granted_by = GM).
+    r = await client.put(
+        f"/users/{sup.id}/features/suppliers", json={"level": "view"}, headers=auth(gm)
+    )
+    assert r.status_code == 200, r.text
 
-    assert (await _revoke(client, superadmin, gm, "users.view")).status_code == 204
+    assert (await _revoke(client, superadmin, gm, "suppliers.view")).status_code == 204
     # The supervisor keeps the permission the GM granted.
-    assert "users.view" in await _perms(client, sup)
+    assert "suppliers.view" in await _perms(client, sup)
 
     log = await session.scalar(
         select(AuditLog)
@@ -103,32 +120,44 @@ async def test_revoke_does_not_cascade_but_is_surfaced(
     assert [d["user_id"] for d in log.details["downstream_grants"]] == [str(sup.id)]
 
 
-async def test_permission_matrix_editability(client, superadmin, make_user) -> None:
-    gm = await make_user(Role.GENERAL_MANAGER)
+async def test_permission_matrix(client, superadmin, make_user) -> None:
     sup = await make_user(Role.SUPERVISOR)
-    await _revoke(client, superadmin, gm, "users.delete")
-
-    r = await client.get(f"/users/{sup.id}/permissions", headers=auth(gm))
+    r = await client.get(f"/users/{sup.id}/permissions", headers=auth(superadmin))
     assert r.status_code == 200, r.text
     perms = {p["code"]: p for m in r.json()["modules"] for p in m["permissions"]}
-    # users.reset_password is not assignable to supervisors, so it isn't listed.
-    assert set(perms) == {
+    # Only what a supervisor can hold: no reset_password, delete or grant.
+    assert {c for c in perms if c.startswith(("users.", "permissions."))} == {
         "users.view",
         "users.create",
         "users.update",
-        "users.delete",
-        "permissions.grant",
     }
     assert perms["users.view"]["granted"] is True
-    assert perms["users.view"]["can_edit"] is True
-    assert perms["users.delete"]["can_edit"] is False  # GM no longer holds it
-    assert perms["users.delete"]["granted"] is False
+    assert all(p["can_edit"] is True and p["reason"] is None for p in perms.values())
+
+
+async def test_permission_matrix_inactive_target(client, superadmin, make_user) -> None:
+    sup = await make_user(Role.SUPERVISOR, is_active=False)
+    r = await client.get(f"/users/{sup.id}/permissions", headers=auth(superadmin))
+    perms = [p for m in r.json()["modules"] for p in m["permissions"]]
+    assert all(p["can_edit"] is False and p["reason"] == "USER_INACTIVE" for p in perms)
 
 
 async def test_permission_catalog(client, superadmin) -> None:
     r = await client.get("/permissions", headers=auth(superadmin))
     assert r.status_code == 200
-    (module,) = r.json()
-    assert module["module"] == "users"
-    assert module["name_km"]
-    assert len(module["permissions"]) == 6
+    users, partners = r.json()
+    assert users["module"] == "users"
+    assert users["name_km"]
+    assert len(users["permissions"]) == 6
+    assert partners["module"] == "partners"
+    assert partners["name_km"] == "ដៃគូ"
+    assert [p["code"] for p in partners["permissions"]] == [
+        "suppliers.view",
+        "suppliers.create",
+        "suppliers.update",
+        "suppliers.delete",
+        "customers.view",
+        "customers.create",
+        "customers.update",
+        "customers.delete",
+    ]
