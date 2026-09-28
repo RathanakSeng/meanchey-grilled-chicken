@@ -1,0 +1,254 @@
+{
+  "app": {
+    "name": "Mean Chey Grilled Chicken",
+    "shortName": "Mean Chey",
+    "tagline": "Management system"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "back": "Back",
+    "edit": "Edit",
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "search": "Search",
+    "all": "All",
+    "none": "—",
+    "yes": "Yes",
+    "no": "No",
+    "retry": "Try again",
+    "previous": "Previous",
+    "next": "Next",
+    "pageOf": "Page {{page}} of {{pages}}",
+    "total": "{{count}} total"
+  },
+  "nav": {
+    "home": "Home",
+    "production": "Production",
+    "settings": "Settings",
+    "users": "Users",
+    "audit": "Audit log",
+    "profile": "My profile",
+    "logout": "Log out",
+    "menu": "Menu"
+  },
+  "roles": {
+    "superadmin": "Super admin",
+    "general_manager": "General manager",
+    "supervisor": "Supervisor",
+    "staff": "Staff"
+  },
+  "languages": {
+    "km": "ខ្មែរ",
+    "en": "English",
+    "label": "Language"
+  },
+  "status": {
+    "label": "Status",
+    "active": "Active",
+    "inactive": "Deactivated",
+    "locked": "Locked",
+    "mustChangePassword": "Password change pending",
+    "telegramLinked": "Telegram linked",
+    "telegramNotLinked": "Telegram not linked yet"
+  },
+  "login": {
+    "title": "Sign in",
+    "subtitle": "Sign in to continue",
+    "username": "Username",
+    "usernamePlaceholder": "@your_telegram_username",
+    "usernameHint": "Your Telegram username",
+    "password": "Password",
+    "submit": "Sign in",
+    "withTelegram": "Continue with Telegram",
+    "or": "or",
+    "firstTimeHint": "First time? Your initial password is your Telegram username.",
+    "passwordResetDone": "Your password was reset. Sign in with your default password."
+  },
+  "telegram": {
+    "signingIn": "Signing in with Telegram…",
+    "errorTitle": "Couldn't sign you in",
+    "notRegisteredBody": "Ask your manager to create an account with your Telegram username, then open the app again.",
+    "usePassword": "Sign in with a password instead"
+  },
+  "changePassword": {
+    "title": "Change password",
+    "forcedNotice": "For your security, please set a new password before continuing.",
+    "current": "Current password",
+    "currentHint": "If this is your first login, it is your Telegram username.",
+    "new": "New password",
+    "confirm": "Confirm new password",
+    "rules": "At least 8 characters, and different from your username.",
+    "submit": "Change password",
+    "success": "Password changed"
+  },
+  "home": {
+    "welcome": "Welcome, {{name}}",
+    "subtitle": "Mean Chey Grilled Chicken management system",
+    "productionDescription": "Day-to-day production and operations.",
+    "settingsDescription": "Manage users, permissions and your account."
+  },
+  "users": {
+    "title": "Users",
+    "new": "New user",
+    "searchPlaceholder": "Search name, Telegram, phone or position",
+    "filterRole": "Role",
+    "filterPosition": "Position",
+    "filterStatus": "Status",
+    "statusAll": "All",
+    "empty": "No users found",
+    "columns": {
+      "name": "Name",
+      "telegram": "Telegram",
+      "role": "Role",
+      "phone": "Phone",
+      "status": "Status"
+    }
+  },
+  "userForm": {
+    "createTitle": "Create user",
+    "editTitle": "Edit user",
+    "role": "Role",
+    "position": "Position (job title)",
+    "positionHint": "Job title only — access is controlled by role and permissions.",
+    "positionPlaceholder": "e.g. Grill cook, Cashier, Delivery",
+    "fullName": "Full name",
+    "telegramUsername": "Telegram username",
+    "telegramHint": "5–32 characters: a–z, 0–9, _. Used to sign in.",
+    "loginAs": "Signs in as: {{username}}",
+    "phone": "Phone",
+    "language": "Language",
+    "initialPasswordNote": "The initial password is the Telegram username. The user must change it at first sign-in.",
+    "usernameChangeNote": "Changing the username unlinks the current Telegram account.",
+    "create": "Create user"
+  },
+  "userDetail": {
+    "tabs": {
+      "info": "Details",
+      "permissions": "Permissions"
+    },
+    "createdAt": "Created",
+    "updatedAt": "Last updated",
+    "deactivatedAt": "Deactivated",
+    "lockedUntil": "Locked until",
+    "createdSuccess": "User created. Their initial password is \"{{username}}\".",
+    "resetPassword": "Reset password",
+    "deactivate": "Deactivate",
+    "reactivate": "Reactivate",
+    "confirmResetTitle": "Reset password?",
+    "confirmResetBody": "{{name}}'s password will become their Telegram username ({{username}}). They will be signed out everywhere and must set a new password.",
+    "resetDone": "Password reset to the Telegram username",
+    "confirmDeactivateTitle": "Deactivate account?",
+    "confirmDeactivateBody": "{{name}} will be signed out and won't be able to sign in until reactivated.",
+    "confirmReactivateTitle": "Reactivate account?",
+    "confirmReactivateBody": "{{name}} will be able to sign in again.",
+    "deactivated": "Account deactivated",
+    "reactivated": "Account reactivated"
+  },
+  "permissions": {
+    "readOnlyNotice": "You can view these permissions. Only permissions you hold can be changed.",
+    "noneAssignable": "No permissions can be assigned to this role yet.",
+    "notEditable": "You can't change this permission",
+    "granted": "Permission granted",
+    "revoked": "Permission revoked"
+  },
+  "audit": {
+    "title": "Audit log",
+    "time": "Time",
+    "action": "Action",
+    "actor": "By",
+    "target": "User",
+    "details": "Details",
+    "allActions": "All actions",
+    "system": "System",
+    "empty": "No entries",
+    "downstreamWarning": "Revoking does not cascade: {{count}} grant(s) this user made are still in place.",
+    "actions": {
+      "auth_login": "Signed in",
+      "auth_login_failed": "Failed sign-in",
+      "auth_locked": "Account locked",
+      "auth_logout": "Signed out",
+      "auth_password_changed": "Changed password",
+      "auth_telegram_bound": "Linked Telegram",
+      "user_create": "Created user",
+      "user_update": "Updated user",
+      "user_deactivate": "Deactivated user",
+      "user_reactivate": "Reactivated user",
+      "user_password_reset": "Reset password",
+      "user_password_self_reset": "Reset own password",
+      "permission_grant": "Granted permission",
+      "permission_revoke": "Revoked permission",
+      "profile_update": "Updated profile"
+    }
+  },
+  "profile": {
+    "title": "My profile",
+    "info": "Personal information",
+    "account": "Account",
+    "changePassword": "Change password",
+    "selfResetTitle": "Reset my password",
+    "selfResetBody": "Your password will go back to the default ({{value}}) and you will be signed out on all devices.",
+    "selfResetButton": "Reset my password",
+    "selfResetConfirmTitle": "Reset your own password?",
+    "selfResetDone": "Password reset. Sign in again with {{value}}.",
+    "defaultTelegram": "your Telegram username",
+    "defaultSuperadmin": "\"superadmin\""
+  },
+  "production": {
+    "emptyTitle": "Production features are coming soon.",
+    "emptyBody": "This section will hold day-to-day production work once those features are ready."
+  },
+  "settings": {
+    "usersDescription": "Create and edit users and manage their permissions.",
+    "auditDescription": "See who did what, and when.",
+    "profileDescription": "Your details, language and password."
+  },
+  "forbidden": {
+    "title": "No access",
+    "body": "You don't have permission to view this page."
+  },
+  "notFound": {
+    "title": "Page not found",
+    "home": "Go home"
+  },
+  "errors": {
+    "NOT_AUTHENTICATED": "Please sign in first.",
+    "INVALID_TOKEN": "Your session is invalid. Please sign in again.",
+    "TOKEN_EXPIRED": "Your session has expired. Please sign in again.",
+    "INVALID_REFRESH_TOKEN": "Your session has expired. Please sign in again.",
+    "INVALID_CREDENTIALS": "Incorrect username or password.",
+    "ACCOUNT_LOCKED": "Too many failed attempts. Your account is locked until {{time}}.",
+    "ACCOUNT_DISABLED": "This account has been deactivated. Please contact your manager.",
+    "PASSWORD_CHANGE_REQUIRED": "You need to change your password first.",
+    "WRONG_CURRENT_PASSWORD": "Your current password is incorrect.",
+    "PASSWORD_TOO_SHORT": "The password must be at least {{min}} characters.",
+    "PASSWORD_EQUALS_USERNAME": "The password must not be the same as your username.",
+    "PASSWORDS_DO_NOT_MATCH": "The passwords don't match.",
+    "TELEGRAM_NOT_CONFIGURED": "Telegram sign-in is not configured.",
+    "INVALID_TELEGRAM_DATA": "Invalid Telegram data. Please open the app from the bot again.",
+    "TELEGRAM_DATA_EXPIRED": "Your Telegram session expired. Close and reopen the app.",
+    "USER_NOT_REGISTERED": "This Telegram account isn't registered.",
+    "FORBIDDEN_SCOPE": "You can't manage this user.",
+    "FORBIDDEN_ROLE": "Your role can't access this feature.",
+    "MISSING_PERMISSION": "You don't have permission to do this.",
+    "PERMISSION_NOT_HELD": "You can only grant or revoke permissions you hold yourself.",
+    "PERMISSION_NOT_ASSIGNABLE": "This permission can't be given to this role.",
+    "PERMISSION_NOT_FOUND": "Permission not found.",
+    "USER_NOT_FOUND": "User not found.",
+    "USER_INACTIVE": "This user is deactivated.",
+    "INVALID_TELEGRAM_USERNAME": "Telegram username must be 5–32 characters: a–z, 0–9 or _.",
+    "DUPLICATE_TELEGRAM_USERNAME": "This Telegram username is already in use.",
+    "GM_ALREADY_EXISTS": "There is already an active general manager.",
+    "POSITION_REQUIRED": "Staff must have a position.",
+    "POSITION_NOT_ALLOWED": "Only staff have a position.",
+    "VALIDATION_ERROR": "Some of the information entered is invalid.",
+    "NOT_FOUND": "Not found.",
+    "METHOD_NOT_ALLOWED": "Something went wrong.",
+    "HTTP_ERROR": "Something went wrong.",
+    "NETWORK_ERROR": "Can't reach the server. Check your connection.",
+    "UNKNOWN": "Something unexpected happened. Please try again."
+  }
+}

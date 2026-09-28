@@ -1,0 +1,17 @@
+# Normalize text files to LF in the repo and working tree (matches the API project).
+* text=auto eol=lf
+
+# Binary assets: never touch line endings or diff as text.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+
+# Generated lockfile: keep it out of textual diffs/merge noise.
+package-lock.json -diff linguist-generated=true

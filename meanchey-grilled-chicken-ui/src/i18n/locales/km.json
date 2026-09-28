@@ -1,0 +1,254 @@
+{
+  "app": {
+    "name": "មាន់អាំងមានជ័យ",
+    "shortName": "មានជ័យ",
+    "tagline": "ប្រព័ន្ធគ្រប់គ្រង"
+  },
+  "common": {
+    "save": "រក្សាទុក",
+    "cancel": "បោះបង់",
+    "confirm": "បញ្ជាក់",
+    "close": "បិទ",
+    "back": "ត្រឡប់ក្រោយ",
+    "edit": "កែប្រែ",
+    "loading": "កំពុងផ្ទុក…",
+    "saving": "កំពុងរក្សាទុក…",
+    "saved": "បានរក្សាទុក",
+    "search": "ស្វែងរក",
+    "all": "ទាំងអស់",
+    "none": "—",
+    "yes": "បាទ/ចាស",
+    "no": "ទេ",
+    "retry": "ព្យាយាមម្តងទៀត",
+    "previous": "មុន",
+    "next": "បន្ទាប់",
+    "pageOf": "ទំព័រ {{page}} នៃ {{pages}}",
+    "total": "សរុប {{count}}"
+  },
+  "nav": {
+    "home": "ទំព័រដើម",
+    "production": "ផលិតកម្ម",
+    "settings": "ការកំណត់",
+    "users": "អ្នកប្រើប្រាស់",
+    "audit": "កំណត់ហេតុសកម្មភាព",
+    "profile": "ប្រវត្តិរូបរបស់ខ្ញុំ",
+    "logout": "ចាកចេញ",
+    "menu": "ម៉ឺនុយ"
+  },
+  "roles": {
+    "superadmin": "អ្នកគ្រប់គ្រងកំពូល",
+    "general_manager": "អ្នកគ្រប់គ្រងទូទៅ",
+    "supervisor": "អ្នកត្រួតពិនិត្យ",
+    "staff": "បុគ្គលិក"
+  },
+  "languages": {
+    "km": "ខ្មែរ",
+    "en": "English",
+    "label": "ភាសា"
+  },
+  "status": {
+    "label": "ស្ថានភាព",
+    "active": "សកម្ម",
+    "inactive": "បានបិទ",
+    "locked": "ជាប់សោ",
+    "mustChangePassword": "រង់ចាំប្តូរពាក្យសម្ងាត់",
+    "telegramLinked": "បានភ្ជាប់ Telegram",
+    "telegramNotLinked": "មិនទាន់ភ្ជាប់ Telegram"
+  },
+  "login": {
+    "title": "ចូលប្រព័ន្ធ",
+    "subtitle": "សូមចូលប្រព័ន្ធដើម្បីបន្ត",
+    "username": "ឈ្មោះអ្នកប្រើ",
+    "usernamePlaceholder": "@ឈ្មោះ_telegram_របស់អ្នក",
+    "usernameHint": "ឈ្មោះ Telegram របស់អ្នក",
+    "password": "ពាក្យសម្ងាត់",
+    "submit": "ចូល",
+    "withTelegram": "បន្តជាមួយ Telegram",
+    "or": "ឬ",
+    "firstTimeHint": "ចូលលើកដំបូង? ពាក្យសម្ងាត់ដំបូងគឺឈ្មោះ Telegram របស់អ្នក។",
+    "passwordResetDone": "ពាក្យសម្ងាត់របស់អ្នកត្រូវបានកំណត់ឡើងវិញ។ សូមចូលដោយប្រើពាក្យសម្ងាត់ដើម។"
+  },
+  "telegram": {
+    "signingIn": "កំពុងចូលតាម Telegram…",
+    "errorTitle": "មិនអាចចូលប្រព័ន្ធបាន",
+    "notRegisteredBody": "សូមស្នើអ្នកគ្រប់គ្រងរបស់អ្នកឲ្យបង្កើតគណនីដោយប្រើឈ្មោះ Telegram របស់អ្នក រួចបើកកម្មវិធីម្តងទៀត។",
+    "usePassword": "ចូលដោយប្រើពាក្យសម្ងាត់ជំនួសវិញ"
+  },
+  "changePassword": {
+    "title": "ប្តូរពាក្យសម្ងាត់",
+    "forcedNotice": "ដើម្បីសុវត្ថិភាព សូមកំណត់ពាក្យសម្ងាត់ថ្មីមុនពេលបន្ត។",
+    "current": "ពាក្យសម្ងាត់បច្ចុប្បន្ន",
+    "currentHint": "ប្រសិនបើនេះជាការចូលលើកដំបូង វាគឺជាឈ្មោះ Telegram របស់អ្នក។",
+    "new": "ពាក្យសម្ងាត់ថ្មី",
+    "confirm": "បញ្ជាក់ពាក្យសម្ងាត់ថ្មី",
+    "rules": "យ៉ាងតិច ៨ តួអក្សរ និងមិនដូចឈ្មោះអ្នកប្រើ។",
+    "submit": "ប្តូរពាក្យសម្ងាត់",
+    "success": "បានប្តូរពាក្យសម្ងាត់"
+  },
+  "home": {
+    "welcome": "សូមស្វាគមន៍ {{name}}",
+    "subtitle": "ប្រព័ន្ធគ្រប់គ្រង មាន់អាំងមានជ័យ",
+    "productionDescription": "ការងារផលិត និងប្រតិបត្តិការប្រចាំថ្ងៃ។",
+    "settingsDescription": "គ្រប់គ្រងអ្នកប្រើប្រាស់ សិទ្ធិ និងគណនីរបស់អ្នក។"
+  },
+  "users": {
+    "title": "អ្នកប្រើប្រាស់",
+    "new": "អ្នកប្រើថ្មី",
+    "searchPlaceholder": "ស្វែងរកឈ្មោះ Telegram លេខទូរស័ព្ទ ឬមុខតំណែង",
+    "filterRole": "តួនាទី",
+    "filterPosition": "មុខតំណែង",
+    "filterStatus": "ស្ថានភាព",
+    "statusAll": "ទាំងអស់",
+    "empty": "រកមិនឃើញអ្នកប្រើប្រាស់",
+    "columns": {
+      "name": "ឈ្មោះ",
+      "telegram": "Telegram",
+      "role": "តួនាទី",
+      "phone": "ទូរស័ព្ទ",
+      "status": "ស្ថានភាព"
+    }
+  },
+  "userForm": {
+    "createTitle": "បង្កើតអ្នកប្រើប្រាស់",
+    "editTitle": "កែប្រែអ្នកប្រើប្រាស់",
+    "role": "តួនាទី",
+    "position": "មុខតំណែង (តួនាទីការងារ)",
+    "positionHint": "សម្រាប់ជាឈ្មោះការងារប៉ុណ្ណោះ — សិទ្ធិចូលប្រើត្រូវបានគ្រប់គ្រងដោយតួនាទី និងសិទ្ធិ។",
+    "positionPlaceholder": "ឧ. ចុងភៅអាំង, អ្នកគិតលុយ, អ្នកដឹកជញ្ជូន",
+    "fullName": "ឈ្មោះពេញ",
+    "telegramUsername": "ឈ្មោះ Telegram",
+    "telegramHint": "៥–៣២ តួអក្សរ៖ a–z, 0–9, _។ ប្រើសម្រាប់ចូលប្រព័ន្ធ។",
+    "loginAs": "ចូលប្រព័ន្ធជា៖ {{username}}",
+    "phone": "ទូរស័ព្ទ",
+    "language": "ភាសា",
+    "initialPasswordNote": "ពាក្យសម្ងាត់ដំបូងគឺឈ្មោះ Telegram។ អ្នកប្រើត្រូវប្តូរវានៅពេលចូលលើកដំបូង។",
+    "usernameChangeNote": "ការប្តូរឈ្មោះនឹងផ្តាច់គណនី Telegram ដែលបានភ្ជាប់។",
+    "create": "បង្កើតអ្នកប្រើ"
+  },
+  "userDetail": {
+    "tabs": {
+      "info": "ព័ត៌មាន",
+      "permissions": "សិទ្ធិ"
+    },
+    "createdAt": "បង្កើតនៅ",
+    "updatedAt": "កែប្រែចុងក្រោយ",
+    "deactivatedAt": "បិទនៅ",
+    "lockedUntil": "ជាប់សោរហូតដល់",
+    "createdSuccess": "បានបង្កើតអ្នកប្រើប្រាស់។ ពាក្យសម្ងាត់ដំបូងគឺ \"{{username}}\"។",
+    "resetPassword": "កំណត់ពាក្យសម្ងាត់ឡើងវិញ",
+    "deactivate": "បិទគណនី",
+    "reactivate": "បើកគណនីវិញ",
+    "confirmResetTitle": "កំណត់ពាក្យសម្ងាត់ឡើងវិញ?",
+    "confirmResetBody": "ពាក្យសម្ងាត់របស់ {{name}} នឹងក្លាយជាឈ្មោះ Telegram ({{username}})។ គាត់នឹងត្រូវចាកចេញពីគ្រប់ឧបករណ៍ ហើយត្រូវកំណត់ពាក្យសម្ងាត់ថ្មី។",
+    "resetDone": "បានកំណត់ពាក្យសម្ងាត់ទៅជាឈ្មោះ Telegram វិញ",
+    "confirmDeactivateTitle": "បិទគណនី?",
+    "confirmDeactivateBody": "{{name}} នឹងត្រូវចាកចេញ ហើយមិនអាចចូលប្រព័ន្ធបានទេ រហូតដល់គណនីត្រូវបានបើកវិញ។",
+    "confirmReactivateTitle": "បើកគណនីវិញ?",
+    "confirmReactivateBody": "{{name}} នឹងអាចចូលប្រព័ន្ធបានម្តងទៀត។",
+    "deactivated": "បានបិទគណនី",
+    "reactivated": "បានបើកគណនីវិញ"
+  },
+  "permissions": {
+    "readOnlyNotice": "អ្នកអាចមើលសិទ្ធិទាំងនេះ។ អ្នកអាចផ្លាស់ប្តូរបានតែសិទ្ធិដែលអ្នកមានប៉ុណ្ណោះ។",
+    "noneAssignable": "មិនទាន់មានសិទ្ធិណាដែលអាចផ្តល់ឲ្យតួនាទីនេះទេ។",
+    "notEditable": "អ្នកមិនអាចផ្លាស់ប្តូរសិទ្ធិនេះបានទេ",
+    "granted": "បានផ្តល់សិទ្ធិ",
+    "revoked": "បានដកសិទ្ធិ"
+  },
+  "audit": {
+    "title": "កំណត់ហេតុសកម្មភាព",
+    "time": "ពេលវេលា",
+    "action": "សកម្មភាព",
+    "actor": "ដោយ",
+    "target": "អ្នកប្រើ",
+    "details": "ព័ត៌មានលម្អិត",
+    "allActions": "សកម្មភាពទាំងអស់",
+    "system": "ប្រព័ន្ធ",
+    "empty": "មិនមានកំណត់ត្រា",
+    "downstreamWarning": "ការដកសិទ្ធិមិនរាលដាលទេ៖ សិទ្ធិ {{count}} ដែលអ្នកប្រើនេះបានផ្តល់ទៅអ្នកផ្សេង នៅតែមាន។",
+    "actions": {
+      "auth_login": "បានចូលប្រព័ន្ធ",
+      "auth_login_failed": "ចូលប្រព័ន្ធមិនបាន",
+      "auth_locked": "គណនីជាប់សោ",
+      "auth_logout": "បានចាកចេញ",
+      "auth_password_changed": "បានប្តូរពាក្យសម្ងាត់",
+      "auth_telegram_bound": "បានភ្ជាប់ Telegram",
+      "user_create": "បានបង្កើតអ្នកប្រើ",
+      "user_update": "បានកែប្រែអ្នកប្រើ",
+      "user_deactivate": "បានបិទគណនី",
+      "user_reactivate": "បានបើកគណនីវិញ",
+      "user_password_reset": "បានកំណត់ពាក្យសម្ងាត់ឡើងវិញ",
+      "user_password_self_reset": "បានកំណត់ពាក្យសម្ងាត់ខ្លួនឯងឡើងវិញ",
+      "permission_grant": "បានផ្តល់សិទ្ធិ",
+      "permission_revoke": "បានដកសិទ្ធិ",
+      "profile_update": "បានកែប្រែប្រវត្តិរូប"
+    }
+  },
+  "profile": {
+    "title": "ប្រវត្តិរូបរបស់ខ្ញុំ",
+    "info": "ព័ត៌មានផ្ទាល់ខ្លួន",
+    "account": "គណនី",
+    "changePassword": "ប្តូរពាក្យសម្ងាត់",
+    "selfResetTitle": "កំណត់ពាក្យសម្ងាត់ខ្ញុំឡើងវិញ",
+    "selfResetBody": "ពាក្យសម្ងាត់របស់អ្នកនឹងត្រឡប់ទៅតម្លៃដើម ({{value}}) ហើយអ្នកនឹងត្រូវចាកចេញពីគ្រប់ឧបករណ៍។",
+    "selfResetButton": "កំណត់ពាក្យសម្ងាត់ខ្ញុំឡើងវិញ",
+    "selfResetConfirmTitle": "កំណត់ពាក្យសម្ងាត់ខ្លួនឯងឡើងវិញ?",
+    "selfResetDone": "បានកំណត់ពាក្យសម្ងាត់ឡើងវិញ។ សូមចូលម្តងទៀតដោយប្រើ {{value}}។",
+    "defaultTelegram": "ឈ្មោះ Telegram របស់អ្នក",
+    "defaultSuperadmin": "\"superadmin\""
+  },
+  "production": {
+    "emptyTitle": "មុខងារផលិតកម្មនឹងមកដល់ឆាប់ៗនេះ។",
+    "emptyBody": "ផ្នែកនេះនឹងបង្ហាញការងារផលិតប្រចាំថ្ងៃ នៅពេលមុខងារទាំងនោះរួចរាល់។"
+  },
+  "settings": {
+    "usersDescription": "បង្កើត កែប្រែ និងកំណត់សិទ្ធិឱ្យអ្នកប្រើប្រាស់។",
+    "auditDescription": "មើលថាអ្នកណាបានធ្វើអ្វី និងនៅពេលណា។",
+    "profileDescription": "ព័ត៌មានផ្ទាល់ខ្លួន ភាសា និងពាក្យសម្ងាត់របស់អ្នក។"
+  },
+  "forbidden": {
+    "title": "គ្មានសិទ្ធិចូលប្រើ",
+    "body": "អ្នកមិនមានសិទ្ធិមើលទំព័រនេះទេ។"
+  },
+  "notFound": {
+    "title": "រកមិនឃើញទំព័រ",
+    "home": "ទៅទំព័រដើម"
+  },
+  "errors": {
+    "NOT_AUTHENTICATED": "សូមចូលប្រព័ន្ធជាមុនសិន។",
+    "INVALID_TOKEN": "វគ្គរបស់អ្នកមិនត្រឹមត្រូវ។ សូមចូលម្តងទៀត។",
+    "TOKEN_EXPIRED": "វគ្គរបស់អ្នកបានផុតកំណត់។ សូមចូលម្តងទៀត។",
+    "INVALID_REFRESH_TOKEN": "វគ្គរបស់អ្នកបានផុតកំណត់។ សូមចូលម្តងទៀត។",
+    "INVALID_CREDENTIALS": "ឈ្មោះអ្នកប្រើ ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ។",
+    "ACCOUNT_LOCKED": "ចូលខុសច្រើនដងពេក។ គណនីរបស់អ្នកជាប់សោរហូតដល់ {{time}}។",
+    "ACCOUNT_DISABLED": "គណនីនេះត្រូវបានបិទ។ សូមទាក់ទងអ្នកគ្រប់គ្រងរបស់អ្នក។",
+    "PASSWORD_CHANGE_REQUIRED": "អ្នកត្រូវប្តូរពាក្យសម្ងាត់ជាមុនសិន។",
+    "WRONG_CURRENT_PASSWORD": "ពាក្យសម្ងាត់បច្ចុប្បន្នមិនត្រឹមត្រូវ។",
+    "PASSWORD_TOO_SHORT": "ពាក្យសម្ងាត់ត្រូវមានយ៉ាងតិច {{min}} តួអក្សរ។",
+    "PASSWORD_EQUALS_USERNAME": "ពាក្យសម្ងាត់មិនអាចដូចឈ្មោះអ្នកប្រើបានទេ។",
+    "PASSWORDS_DO_NOT_MATCH": "ពាក្យសម្ងាត់ទាំងពីរមិនដូចគ្នា។",
+    "TELEGRAM_NOT_CONFIGURED": "ការចូលតាម Telegram មិនទាន់បានកំណត់។",
+    "INVALID_TELEGRAM_DATA": "ទិន្នន័យ Telegram មិនត្រឹមត្រូវ។ សូមបើកកម្មវិធីពី bot ម្តងទៀត។",
+    "TELEGRAM_DATA_EXPIRED": "វគ្គ Telegram បានផុតកំណត់។ សូមបិទ ហើយបើកកម្មវិធីម្តងទៀត។",
+    "USER_NOT_REGISTERED": "គណនី Telegram នេះមិនទាន់បានចុះឈ្មោះទេ។",
+    "FORBIDDEN_SCOPE": "អ្នកមិនអាចគ្រប់គ្រងអ្នកប្រើប្រាស់នេះបានទេ។",
+    "FORBIDDEN_ROLE": "តួនាទីរបស់អ្នកមិនអាចប្រើមុខងារនេះបានទេ។",
+    "MISSING_PERMISSION": "អ្នកមិនមានសិទ្ធិធ្វើសកម្មភាពនេះទេ។",
+    "PERMISSION_NOT_HELD": "អ្នកអាចផ្តល់ ឬដកបានតែសិទ្ធិដែលអ្នកមានប៉ុណ្ណោះ។",
+    "PERMISSION_NOT_ASSIGNABLE": "សិទ្ធិនេះមិនអាចផ្តល់ឲ្យតួនាទីនេះបានទេ។",
+    "PERMISSION_NOT_FOUND": "រកមិនឃើញសិទ្ធិ។",
+    "USER_NOT_FOUND": "រកមិនឃើញអ្នកប្រើប្រាស់។",
+    "USER_INACTIVE": "អ្នកប្រើប្រាស់នេះត្រូវបានបិទ។",
+    "INVALID_TELEGRAM_USERNAME": "ឈ្មោះ Telegram ត្រូវមាន ៥–៣២ តួអក្សរ៖ a–z, 0–9 ឬ _។",
+    "DUPLICATE_TELEGRAM_USERNAME": "ឈ្មោះ Telegram នេះត្រូវបានប្រើរួចហើយ។",
+    "GM_ALREADY_EXISTS": "មានអ្នកគ្រប់គ្រងទូទៅសកម្មម្នាក់រួចហើយ។",
+    "POSITION_REQUIRED": "បុគ្គលិកត្រូវមានមុខតំណែង។",
+    "POSITION_NOT_ALLOWED": "មានតែបុគ្គលិកប៉ុណ្ណោះដែលមានមុខតំណែង។",
+    "VALIDATION_ERROR": "ព័ត៌មានដែលបានបញ្ចូលខ្លះមិនត្រឹមត្រូវ។",
+    "NOT_FOUND": "រកមិនឃើញ។",
+    "METHOD_NOT_ALLOWED": "មានបញ្ហាកើតឡើង។",
+    "HTTP_ERROR": "មានបញ្ហាកើតឡើង។",
+    "NETWORK_ERROR": "មិនអាចភ្ជាប់ទៅម៉ាស៊ីនមេបានទេ។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក។",
+    "UNKNOWN": "មានបញ្ហាមិនរំពឹងទុក។ សូមព្យាយាមម្តងទៀត។"
+  }
+}

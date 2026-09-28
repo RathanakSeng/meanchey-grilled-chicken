@@ -1,0 +1,81 @@
+"""Idempotent startup tasks: sync the permission registry, seed the superadmin and
+(in webhook mode) register the Telegram webhook.
+
+Run with `python -m app.bootstrap`; also runs on API startup.
+"""
+
+import asyncio
+import logging
+from typing import TYPE_CHECKING
+
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import get_settings
+from app.core.security import hash_password
+from app.models import Role, User
+from app.permissions.sync import sync_registry
+
+if TYPE_CHECKING:
+    from app.bot.runtime import TelegramRuntime
+
+log = logging.getLogger(__name__)
+
+_BOOTSTRAP_LOCK_KEY = 815_001
+
+
+async def seed_superadmin(session: AsyncSession) -> None:
+    exists = await session.scalar(select(User.id).where(User.role == Role.SUPERADMIN))
+    if exists is not None:
+        return
+    session.add(
+        User(
+            role=Role.SUPERADMIN,
+            full_name="Super Admin",
+            password_hash=hash_password(get_settings().superadmin_initial_password),
+            # The superadmin is exempt from the forced first-login password change.
+            must_change_password=False,
+        )
+    )
+    await session.flush()
+    log.info("seeded superadmin account")
+
+
+async def register_webhook(session: AsyncSession, telegram: "TelegramRuntime | None") -> None:
+    """Webhook mode + auto-set: make sure Telegram points at our webhook. Never raises."""
+    from app.bot.registration import ensure_webhook
+    from app.bot.setup import create_bot, create_dispatcher
+
+    if telegram is not None:
+        await ensure_webhook(telegram.bot, telegram.dp, session)
+        return
+    # e.g. `python -m app.bootstrap` before uvicorn starts: use a short-lived bot.
+    bot = create_bot()
+    try:
+        await ensure_webhook(bot, create_dispatcher(), session)
+    finally:
+        await bot.session.close()
+
+
+async def bootstrap(session: AsyncSession, telegram: "TelegramRuntime | None" = None) -> None:
+    settings = get_settings()
+    # Serialize concurrent starts (api + multiple workers / replicas).
+    await session.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _BOOTSTRAP_LOCK_KEY})
+    await sync_registry(session)
+    await seed_superadmin(session)
+    if settings.webhook_enabled and settings.telegram_webhook_auto_set:
+        await register_webhook(session, telegram)
+    await session.commit()
+
+
+async def _main() -> None:
+    from app.db import SessionLocal, engine
+
+    logging.basicConfig(level=logging.INFO)
+    async with SessionLocal() as session:
+        await bootstrap(session)
+    await engine.dispose()
+
+
+if __name__ == "__main__":
+    asyncio.run(_main())

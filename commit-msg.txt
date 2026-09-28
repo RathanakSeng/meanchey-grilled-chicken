@@ -1,0 +1,21 @@
+<INIT><BOTH><MONOREPO>: set up monorepo with Phase 1 API and UI
+
+API (meanchey-grilled-chicken-api):
+- FastAPI + PostgreSQL + Alembic (migrations 0001-0003)
+- Auth: password + Telegram Mini App login, rotating refresh tokens, lockout, forced first-login password change (superadmin exempt)
+- Role hierarchy (superadmin > GM > supervisor > staff) + code-defined permission registry synced to DB
+- User management: CRUD, soft delete, password reset (superadmin/GM, incl. self), free-text staff position, audit log
+- Telegram bot via webhook in FastAPI (secret-token check, auto-registration with fingerprint); polling mode as dev fallback
+- 199 tests, ruff clean
+
+UI (meanchey-grilled-chicken-ui):
+- React + Vite + TS + Tailwind, TanStack Query, axios token refresh
+- Khmer (default) / English i18n, including translated API error codes
+- Desktop dashboard + Telegram Mini App layouts
+- Navigation: Home -> Production (empty) / Settings (Users, Audit log, My profile), driven by permissions
+- Permission-driven menus, route guards, <Can>, legacy URL redirects
+
+Repo:
+- Root .gitignore, per-project .gitignore/.gitattributes
+- Draft CI workflows (.github/workflows/api.yml, ui.yml): lint, tests, alembic check, builds; no deploy
+- Docs: README + docs/FEATURES.md + docs/ARCHITECTURE.md per project

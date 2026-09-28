@@ -1,0 +1,111 @@
+# DRAFT — CI only (lint, tests, migration drift, image build). Nothing is deployed or pushed.
+name: API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "meanchey-grilled-chicken-api/**"
+      - ".github/workflows/api.yml"
+  pull_request:
+    paths:
+      - "meanchey-grilled-chicken-api/**"
+      - ".github/workflows/api.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: api-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: meanchey-grilled-chicken-api
+
+jobs:
+  test:
+    name: Lint & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: meanchey
+          POSTGRES_PASSWORD: meanchey
+          POSTGRES_DB: meanchey_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U meanchey -d meanchey_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      # The suite drops/recreates this database's schema via Alembic on every run.
+      TEST_DATABASE_URL: postgresql+asyncpg://meanchey:meanchey@localhost:5432/meanchey_test
+      # conftest.py sets JWT_SECRET, BOT_MODE=off and a fake bot token; Telegram is never contacted.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: meanchey-grilled-chicken-api/uv.lock
+
+      - name: Install Python 3.12 + dependencies (from uv.lock)
+        run: |
+          uv python install 3.12
+          uv sync --frozen
+
+      - name: Ruff (lint)
+        run: uv run ruff check .
+
+      - name: Ruff (format check)
+        run: uv run ruff format --check .
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: Migrations match models (alembic check)
+        # The test run left the schema at `head`; autogenerate must find nothing to do.
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          JWT_SECRET: ci-only-not-a-secret-0123456789abcdef
+          BOT_MODE: "off"
+        run: uv run alembic check
+
+  image:
+    name: Docker image (build only)
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build (not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: meanchey-grilled-chicken-api
+          push: false
+          tags: meanchey-grilled-chicken-api:ci
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+  # --- Later (deployment) --------------------------------------------------------------
+  # deploy:
+  #   needs: [test, image]
+  #   if: github.ref == 'refs/heads/main'
+  #   environment: production
+  #   Push the image to a registry (GHCR), then roll it out. On startup the container runs
+  #   `alembic upgrade head` + bootstrap (registry sync, superadmin seed, webhook registration).
+  #   Secrets to add in the repo/environment settings: JWT_SECRET, TELEGRAM_BOT_TOKEN,
+  #   TELEGRAM_WEBHOOK_SECRET, DATABASE_URL (+ TELEGRAM_WEBHOOK_URL, MINI_APP_URL as vars).

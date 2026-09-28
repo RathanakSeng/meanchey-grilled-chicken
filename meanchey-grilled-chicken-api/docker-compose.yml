@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-meanchey}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meanchey}
+      POSTGRES_DB: ${POSTGRES_DB:-meanchey}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Creates the meanchey_test database on first start.
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meanchey} -d ${POSTGRES_DB:-meanchey}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-meanchey}:${POSTGRES_PASSWORD:-meanchey}@postgres:5432/${POSTGRES_DB:-meanchey}
+    # Runs migrations, then registry sync + superadmin seed (+ webhook registration in
+    # BOT_MODE=webhook), then the server. In webhook mode Telegram updates arrive at
+    # /api/telegram/webhook in this service; it needs outbound HTTPS to api.telegram.org.
+    command: >
+      sh -c "alembic upgrade head && python -m app.bootstrap &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # Local development without an HTTPS tunnel: `docker compose --profile polling up`.
+  # Set BOT_MODE=polling in .env as well, so the api doesn't register a webhook
+  # (Telegram refuses polling while a webhook is set).
+  bot-polling:
+    build: .
+    profiles: [polling]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-meanchey}:${POSTGRES_PASSWORD:-meanchey}@postgres:5432/${POSTGRES_DB:-meanchey}
+      BOT_MODE: polling
+    command: python -m app.bot
+    depends_on:
+      api:
+        condition: service_healthy
+    # Exits cleanly (and stays stopped) when TELEGRAM_BOT_TOKEN is empty.
+    restart: on-failure
+
+volumes:
+  pgdata:

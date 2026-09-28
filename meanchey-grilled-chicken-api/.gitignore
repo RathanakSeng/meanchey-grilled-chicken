@@ -1,0 +1,39 @@
+# --- Secrets / local config --------------------------------------------------
+# Real env files hold JWT_SECRET, the bot token and the webhook secret. Never commit.
+.env
+.env.*
+!.env.example
+
+# --- Python / uv -------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# --- Tooling caches ----------------------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# --- Logs / local data -------------------------------------------------------
+*.log
+*.sqlite3
+
+# --- Editors / OS ------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Claude Code local settings ----------------------------------------------
+.claude/settings.local.json
+.claude

@@ -1,0 +1,511 @@
+# API Architecture
+
+How the Mean Chey Grilled Chicken API is put together, and why. For what it *does*, see [FEATURES.md](FEATURES.md).
+
+- [1. System overview](#1-system-overview)
+- [2. Tech stack](#2-tech-stack)
+- [3. Code layout and layering](#3-code-layout-and-layering)
+- [4. Request lifecycle](#4-request-lifecycle)
+- [5. Data model](#5-data-model)
+- [6. Authorization model](#6-authorization-model)
+- [7. Authentication internals](#7-authentication-internals)
+- [8. Startup and bootstrap](#8-startup-and-bootstrap)
+- [9. Telegram bot](#9-telegram-bot)
+- [10. Error handling](#10-error-handling)
+- [11. Configuration](#11-configuration)
+- [12. Testing strategy](#12-testing-strategy)
+- [13. Deployment](#13-deployment)
+- [14. Extending the system](#14-extending-the-system)
+- [15. Design decisions](#15-design-decisions)
+
+---
+
+## 1. System overview
+
+```mermaid
+flowchart LR
+    subgraph Clients
+        PC[PC browser<br/>dashboard]
+        TG[Telegram app<br/>Mini App WebView]
+    end
+    subgraph UI[meanchey-grilled-chicken-ui]
+        SPA[React SPA<br/>Vite dev server / static host]
+    end
+    subgraph API[meanchey-grilled-chicken-api]
+        FAST[FastAPI app · uvicorn<br/>/api/v1 + /api/telegram/webhook<br/>aiogram Bot + Dispatcher]
+    end
+    DB[(PostgreSQL 16)]
+    TGAPI[Telegram Bot API]
+
+    PC --> SPA
+    TG --> SPA
+    SPA -- "/api/v1 (JSON, Bearer JWT)" --> FAST
+    TGAPI -- "POST /api/telegram/webhook<br/>(secret token header)" --> FAST
+    FAST -- "sendMessage, setWebhook…" --> TGAPI
+    FAST --> DB
+    TG <--> TGAPI
+```
+
+- In the default **webhook mode** there is **one process**: the FastAPI app serves the UI's JSON API and receives Telegram updates on `/api/telegram/webhook`. There is no separate bot process.
+- The **UI** calls the API only through `/api/v1`. In development the Vite dev server proxies all of `/api` to the API, so one HTTPS tunnel (ngrok / cloudflared) serves the Mini App, `/api/v1` *and* the Telegram webhook.
+- **Polling mode** (`BOT_MODE=polling`, local dev without a tunnel) adds back a separate `python -m app.bot` process from the same image. See §9.
+
+## 2. Tech stack
+
+| Concern | Choice |
+|---|---|
+| Language / runtime | Python 3.12 |
+| Web framework | FastAPI, with Pydantic v2 schemas |
+| Database | PostgreSQL 16 |
+| ORM / driver | SQLAlchemy 2.x async + asyncpg |
+| Migrations | Alembic (async `env.py`) |
+| Password hashing | argon2-cffi (argon2id), with transparent rehash on login |
+| Tokens | PyJWT (HS256) for access tokens; opaque random refresh tokens stored hashed |
+| Bot | aiogram 3 |
+| Config | pydantic-settings, reading `.env` |
+| Tooling | uv (dependencies and lock), ruff (lint and format), pytest + pytest-asyncio + httpx |
+
+## 3. Code layout and layering
+
+```
+app/
+├── main.py              # create_app(): middleware, error handlers, routers, lifespan
+├── config.py            # Settings (pydantic-settings), cached get_settings()
+├── db.py                # async engine + SessionLocal + get_session dependency
+├── bootstrap.py         # registry sync + superadmin seed (python -m app.bootstrap)
+├── deps.py              # auth dependencies: CurrentUser, PendingUser, require_permission, require_role
+├── core/
+│   ├── errors.py        # ErrorCode enum, AppError, exception handlers
+│   ├── security.py      # argon2, JWT encode/decode, refresh token generation/hashing
+│   ├── telegram_auth.py # initData HMAC validation
+│   └── usernames.py     # Telegram username normalization/validation
+├── models/              # SQLAlchemy ORM (User, Permission, UserPermission, RefreshToken, AuditLog, BotPref, AppSetting)
+├── schemas/             # Pydantic request/response models
+├── permissions/
+│   ├── registry.py      # PERMISSIONS, MODULES, DEFAULT_PERMISSIONS  ← feature authors edit this
+│   ├── sync.py          # registry → DB sync
+│   ├── hierarchy.py     # role scope: MANAGEABLE_ROLES, can_manage, ensure_can_manage
+│   └── service.py       # effective permissions, grant/revoke rules, defaults, permission matrix
+├── services/
+│   ├── auth_service.py  # login (password/Telegram), tokens, change/reset password, /me
+│   ├── user_service.py  # user CRUD, activation, resets, profile
+│   └── audit_service.py # record() + listing
+├── api/                 # thin routers: auth, me, users, permissions, audit
+└── bot/
+    ├── setup.py         # create_bot(), create_dispatcher(): the one place handlers are registered
+    ├── handlers.py      # /start, /lang (create_router())
+    ├── i18n.py          # bot texts (km/en)
+    ├── webhook.py       # POST /api/telegram/webhook (secret check → dp.feed_update)
+    ├── runtime.py       # TelegramRuntime (Bot + Dispatcher on app.state), create_runtime()
+    ├── registration.py  # ensure_webhook / set / delete / info, fingerprint in app_settings
+    └── __main__.py      # CLI: polling mode, `webhook set|delete|info`
+```
+
+**Layering rules**
+
+```mermaid
+flowchart TD
+    R[api/* routers] --> D[deps.py guards]
+    R --> S[services/*]
+    R --> P[permissions/service]
+    D --> P
+    S --> P
+    S --> A[services/audit_service]
+    P --> A
+    S --> M[models]
+    P --> M
+    S --> C[core/*]
+    D --> C
+```
+
+- **Routers** are thin. They parse input with Pydantic, declare guards through dependencies, call one service function, and serialize the result.
+- **Services** hold the business rules and own the transaction: they call `session.commit()`. Audit entries are added through `record()` inside the same transaction, so an action and its audit row commit or roll back together.
+- **Guards** in `deps.py` and `permissions/hierarchy.py` are pure checks that raise `AppError`.
+- **`core/`** has no dependency on models or services, apart from `errors`.
+
+## 4. Request lifecycle
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant F as FastAPI
+    participant Dep as deps.py
+    participant Svc as Service
+    participant DB as PostgreSQL
+
+    C->>F: PATCH /api/v1/users/{id} (Bearer JWT)
+    F->>Dep: get_session() → AsyncSession (one per request)
+    F->>Dep: get_current_user_allow_pending()
+    Dep->>Dep: decode JWT (TOKEN_EXPIRED / INVALID_TOKEN)
+    Dep->>DB: SELECT user by id
+    Dep-->>F: 401 ACCOUNT_DISABLED if inactive
+    F->>Dep: get_current_user()
+    Dep-->>F: 403 PASSWORD_CHANGE_REQUIRED if pending
+    F->>Dep: require_permission("users.update")
+    Dep->>DB: effective permissions
+    Dep-->>F: 403 MISSING_PERMISSION if missing
+    F->>Svc: update_user(session, actor, target, body)
+    Svc->>Svc: ensure_can_manage(actor, target) → FORBIDDEN_SCOPE
+    Svc->>DB: UPDATE users …; INSERT audit_logs
+    Svc->>DB: COMMIT
+    F-->>C: 200 UserOut
+```
+
+- FastAPI caches a dependency per request, so the guard dependencies and the handler share the **same session**.
+- Business-rule failures raise `AppError`, which becomes a JSON error (§10).
+
+## 5. Data model
+
+```mermaid
+erDiagram
+    users ||--o{ user_permissions : "holds"
+    permissions ||--o{ user_permissions : "granted as"
+    users ||--o{ user_permissions : "granted_by"
+    users ||--o{ refresh_tokens : "has"
+    users ||--o{ audit_logs : "actor"
+    users ||--o{ audit_logs : "target"
+    users ||--o{ users : "created_by"
+
+    users {
+        uuid id PK
+        user_role role "PG enum"
+        varchar50 position "staff only, free-text label"
+        varchar full_name
+        varchar phone
+        varchar telegram_username "normalized"
+        bigint telegram_user_id "bound on first Mini App login"
+        varchar password_hash "argon2id"
+        bool must_change_password
+        varchar language "km | en"
+        bool is_active
+        uuid created_by FK
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+        int failed_login_count
+        timestamptz locked_until
+    }
+    permissions {
+        varchar code PK
+        varchar module
+        varchar name_en
+        varchar name_km
+        text description_en
+        text description_km
+        varchar_array assignable_to
+        bool is_active
+    }
+    user_permissions {
+        uuid user_id PK,FK
+        varchar permission_code PK,FK
+        uuid granted_by FK
+        timestamptz granted_at
+    }
+    refresh_tokens {
+        uuid id PK
+        uuid user_id FK
+        varchar token_hash UK "sha256"
+        timestamptz expires_at
+        timestamptz revoked_at
+        uuid replaced_by
+    }
+    audit_logs {
+        bigint id PK
+        uuid actor_id FK
+        varchar action
+        uuid target_user_id FK
+        jsonb details
+        timestamptz created_at
+    }
+    bot_prefs {
+        bigint telegram_user_id PK
+        varchar language
+    }
+```
+
+**Notes**
+
+- **`role`** is a native PostgreSQL enum: roles are structural and change rarely.
+- **`language`** is a `VARCHAR` validated by a Python enum, so new values need no migration.
+- **`position`** is a free-text `VARCHAR(50)` job title for staff (migration `0002` widened it from 32).
+  - It is normalized by `schemas.user.normalize_position`: trimmed, whitespace collapsed, case and Khmer kept.
+  - It is a **label only**. Nothing in `permissions/`, `deps.py` or the services branches on its value, so it has no effect on access.
+  - Only its *presence* is tied to the role: required for staff, forbidden otherwise (`ck_users_position_staff_only`).
+  - `GET /users/positions` returns the distinct values for suggestions (case-insensitive grouping, most used spelling).
+- **Partial unique indexes** enforce the business invariants. See FEATURES §3.
+- **Uniqueness only counts active users,** so a deactivated user's username can be reused; that's how roles change in Phase 1.
+- **`permissions` rows are never deleted.** Removing a permission from the registry flips `is_active`.
+- **Constraint naming.** All constraints follow a naming convention (`ix_`, `uq_`, `ck_`, `fk_`, `pk_`), which keeps Alembic autogenerate deterministic.
+- **Timestamps** are `timestamptz`. The app sets them in Python (UTC) and also has server defaults. Setting them in Python avoids lazy loads after `commit` under asyncio (`expire_on_commit=False`).
+
+## 6. Authorization model
+
+Authorization combines **two independent axes**:
+
+```mermaid
+flowchart LR
+    Q{Can actor do X<br/>to target?}
+    Q --> A["WHAT: permission<br/>require_permission(code)<br/>from user_permissions<br/>(superadmin: all)"]
+    Q --> B["WHO: role hierarchy<br/>ensure_can_manage(actor, target)<br/>MANAGEABLE_ROLES"]
+    A --> OK((allowed))
+    B --> OK
+```
+
+| Layer | Where | Answers |
+|---|---|---|
+| `require_permission(*codes)` | `deps.py` | Does the actor hold the feature permission? |
+| `require_role(*roles)` | `deps.py` | Coarse role gate, e.g. the audit log |
+| `ensure_can_manage(actor, target)` | `permissions/hierarchy.py` | Is the target strictly below the actor? |
+| `ensure_can_manage_role(actor, role)` | `permissions/hierarchy.py` | Can the actor create or filter this role? |
+| Grant rules | `permissions/service.py` | Held-by-grantor, `assignable_to`, target active |
+
+### How effective permissions are computed
+
+```sql
+SELECT up.permission_code
+FROM user_permissions up JOIN permissions p ON p.code = up.permission_code
+WHERE up.user_id = :uid
+  AND p.is_active
+  AND :role = ANY(p.assignable_to)
+```
+
+The superadmin short-circuits to "all active permissions".
+
+The query filters on `is_active` and `assignable_to` **at read time**, not only when a grant is made. So if a registry change deactivates a permission or narrows its `assignable_to`, existing grants stop working immediately, with no data migration.
+
+## 7. Authentication internals
+
+### 7.1 Token design
+
+```mermaid
+sequenceDiagram
+    participant UI
+    participant API
+    participant DB
+    UI->>API: POST /auth/login
+    API->>DB: verify argon2, reset counters, INSERT refresh_tokens(hash)
+    API-->>UI: access (JWT 15m) + refresh (raw, 7d)
+    Note over UI: …15 minutes later…
+    UI->>API: GET /users (expired JWT)
+    API-->>UI: 401 TOKEN_EXPIRED
+    UI->>API: POST /auth/refresh (raw refresh)
+    API->>DB: SELECT … WHERE token_hash=sha256(raw) FOR UPDATE
+    API->>DB: revoked_at=now, INSERT new token, replaced_by=new.id
+    API-->>UI: new pair
+    UI->>API: retry GET /users
+```
+
+- **Stateless access tokens:** no database hit to validate the signature. The user row is still loaded on each request to check `is_active` and `must_change_password`.
+- **Refresh tokens:**
+  - **Hashing.** They are hashed with SHA-256 rather than argon2: they are high-entropy random values, so a fast hash is enough, and it lets them be looked up by an indexed equality match.
+  - **Row lock.** `SELECT … FOR UPDATE` prevents double-spending one token under concurrent refreshes.
+  - **Mass revocation** is a single `UPDATE … WHERE user_id = … AND revoked_at IS NULL`. It runs on deactivation, password reset and "log out everywhere".
+
+### 7.2 Lockout
+
+- **Race handling.** The login flow selects the user `FOR UPDATE`, so concurrent attempts are serialized per account.
+- **Commit before rejecting.** The failure count and lock are committed *before* the error is raised, so a rejected login still persists its side effects.
+
+### 7.3 Telegram initData
+
+`core/telegram_auth.validate_init_data` is a pure function, unit-tested with generated payloads:
+
+1. Parse the query string strictly.
+2. Pop `hash`.
+3. Build `data_check_string` from the sorted `key=value` pairs, joined by `\n`.
+4. `secret = HMAC_SHA256(key="WebAppData", msg=bot_token)`.
+5. Compare `HMAC_SHA256(secret, data_check_string)` against `hash` in constant time.
+6. Check that `auth_date` is fresh, then parse `user`.
+
+## 8. Startup and bootstrap
+
+```mermaid
+flowchart LR
+    A[container start] --> B[alembic upgrade head]
+    B --> C[python -m app.bootstrap]
+    C --> D[uvicorn app.main:app]
+    D --> E[lifespan: bootstrap again<br/>idempotent]
+```
+
+`bootstrap()` does four things:
+
+1. `SELECT pg_advisory_xact_lock(815001)`: serializes concurrent starts, for example several workers or replicas, or the api and a migration job.
+2. `sync_registry()`: upserts the registry and deactivates entries that were removed.
+3. `seed_superadmin()`: creates the superadmin if none exists, with `must_change_password = false`.
+4. **Webhook registration**, only when `BOT_MODE=webhook`, a token is set and `TELEGRAM_WEBHOOK_AUTO_SET=true`. `ensure_webhook()`:
+   1. calls `getWebhookInfo`;
+   2. calls `setWebhook(url, secret_token, allowed_updates=dp.resolve_used_update_types(), drop_pending_updates)` and `setMyCommands` only if **any** of these differ:
+      - the URL;
+      - the allowed updates;
+      - the fingerprint stored in `app_settings`, a SHA-256 of URL, secret, allowed updates and drop-pending. Telegram never returns the secret, so this is the only way to detect a rotated secret.
+   - Every Telegram call has a 10 s timeout. **Any failure is logged and swallowed**, so the API still comes up.
+   - Because this runs under the advisory lock, several workers starting together register once. The rest see the matching fingerprint and skip.
+
+It then commits. The whole thing is idempotent.
+
+- It also runs inside the FastAPI lifespan, so a plain `uvicorn` run in development gets the same guarantees.
+- The lifespan creates the `TelegramRuntime` first (webhook mode only) and passes it in, so registration and request handling use the same `Bot` and `Dispatcher`.
+- When run as `python -m app.bootstrap`, a short-lived `Bot` is created for registration and then closed.
+
+## 9. Telegram bot
+
+### 9.1 Webhook mode (default)
+
+```mermaid
+sequenceDiagram
+    participant T as Telegram
+    participant W as POST /api/telegram/webhook
+    participant D as Dispatcher (app.state.telegram)
+    participant H as handlers
+    participant DB as PostgreSQL
+
+    T->>W: Update JSON + X-Telegram-Bot-Api-Secret-Token
+    alt no runtime (polling / off / no token)
+        W-->>T: 404
+    else secret mismatch or missing
+        W-->>T: 401 (warning logged, body not read)
+    else
+        W->>D: Update.model_validate → feed_update(bot, update)
+        D->>H: /start or /lang
+        H->>DB: short-lived session (language, bot_prefs)
+        H->>T: sendMessage (via the same Bot)
+        W-->>T: 200 (also when a handler raised: logged, not retried)
+    end
+```
+
+- **Lifecycle.** The FastAPI lifespan builds one `TelegramRuntime` per process: a `Bot` and a `Dispatcher` from `bot/setup.py`. It is stored on `app.state.telegram`, and the bot's HTTP session is closed on shutdown.
+- **The endpoint** lives outside `/api/v1`: it isn't part of the versioned public API. It is still under `/api`, so the Vite dev proxy and a same-origin production setup both reach it through one HTTPS domain.
+  - It is hidden from OpenAPI and uses no auth dependencies. It is authenticated only by the secret token, compared with `hmac.compare_digest`.
+- **Inline processing.** Updates are handled inline in the request, with no background queue. Handlers are short (one database session each), well within Telegram's timeout.
+- **Handlers** (`bot/handlers.py`) are stateless and are registered only in `create_dispatcher()`. `create_router()` returns a fresh router each time, because an aiogram router can only have one parent.
+- **Shared data.** The bot reuses `app.db.SessionLocal` and the models: there is one source of truth for users and their language.
+- **Bot texts** live in `bot/i18n.py`, separately from the UI translations.
+
+### 9.2 Polling mode (fallback for local development)
+
+- `BOT_MODE=polling` + `python -m app.bot` (compose: `docker compose --profile polling up`).
+  - It deletes any registered webhook, clears the stored fingerprint, sets the commands, then long-polls with the **same** `create_dispatcher()`.
+  - In this mode the API creates no runtime, so the webhook endpoint returns 404 and nothing is registered at startup.
+- The whole stack must use `BOT_MODE=polling`. If the API still runs in webhook mode, it re-registers the webhook on its next restart, and Telegram then rejects `getUpdates`. The poller logs a warning when it finds a webhook registered.
+- **Only one polling instance** per bot token may run: Telegram rejects concurrent `getUpdates` calls.
+
+### 9.3 Scaling
+
+In webhook mode the API can run **multiple uvicorn workers or replicas**.
+
+- Each worker has its own `Bot` and `Dispatcher`, and Telegram delivers each update to whichever worker the load balancer picks.
+- Handlers keep no in-process state, so no coordination is needed.
+- Startup registration is serialized by the bootstrap advisory lock (§8).
+
+## 10. Error handling
+
+- Domain errors are raised as `AppError(status, ErrorCode, message, details)`.
+- Handlers in `core/errors.py` map these to JSON:
+
+  | Raised | Response |
+  |---|---|
+  | `AppError` | `{"error": {"code", "message", "details?"}}` |
+  | `RequestValidationError` | `422 VALIDATION_ERROR`, with `details.fields[] = {loc, type, msg}` |
+  | Starlette `HTTPException` | `NOT_FOUND`, `METHOD_NOT_ALLOWED` or `HTTP_ERROR` |
+
+- **Database constraint violations become API errors.** `_flush_or_conflict` in `user_service` catches `IntegrityError` and maps the name of the violated partial unique index to a domain code (`GM_ALREADY_EXISTS`, `DUPLICATE_TELEGRAM_USERNAME`).
+  - The code also checks these conditions up front, for friendly errors.
+  - The database index is the real guarantee under concurrency.
+
+## 11. Configuration
+
+- **Source:** all settings live in `app/config.py` (`Settings`).
+- **Where values come from:** environment variables first, then `.env`.
+- **Access:** through the cached `get_settings()`.
+- **Required:** `JWT_SECRET`. In webhook mode with a bot token, also `TELEGRAM_WEBHOOK_URL` and `TELEGRAM_WEBHOOK_SECRET`.
+- **Full list:** in the README.
+
+**Telegram bot settings**
+
+| Setting | Default | Notes |
+|---|---|---|
+| `BOT_MODE` | `webhook` | `webhook` \| `polling` \| `off` |
+| `TELEGRAM_WEBHOOK_URL` | empty | Full public URL, e.g. `https://example.com/api/telegram/webhook`. Must be `https` on port 443, 80, 88 or 8443. |
+| `TELEGRAM_WEBHOOK_SECRET` | empty | 1–256 chars `[A-Za-z0-9_-]`. Generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"`. |
+| `TELEGRAM_WEBHOOK_AUTO_SET` | `true` | Register or refresh the webhook during bootstrap. |
+| `TELEGRAM_DROP_PENDING_UPDATES` | `false` | Passed to `setWebhook`. |
+
+**Startup validation.** A `model_validator` on `Settings` checks the URL and secret whenever `webhook_enabled` is true (webhook mode and a token is set).
+
+- A misconfigured deployment fails at startup with a clear message, rather than silently never receiving updates.
+- Every entry point that loads settings fails this way, including Alembic and the CLI.
+- With `polling` / `off`, or with no token, the webhook values are not checked.
+
+Settings are read at import time by `app.db` to build the engine. Tests therefore set environment variables at the top of `tests/conftest.py`, *before* importing `app`.
+
+## 12. Testing strategy
+
+| Aspect | Approach |
+|---|---|
+| Database | A real PostgreSQL (`TEST_DATABASE_URL`). The partial indexes, `ANY(array)` and `FOR UPDATE` are Postgres-specific. |
+| Schema | A session fixture drops the `public` schema, then runs **Alembic `upgrade head`**. This tests the migration too. |
+| Isolation | Before each test: `TRUNCATE … RESTART IDENTITY CASCADE`, then `bootstrap()`. |
+| Engine | `DB_NULL_POOL=true` avoids connection reuse across pytest-asyncio event loops. |
+| HTTP | `httpx.AsyncClient` over `ASGITransport(app)`: in-process, no server. |
+| Auth in tests | `auth(user)` mints an access token directly. Login flows have their own tests. |
+| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation. |
+| Telegram | Never contacted. `tests/telegram_fakes.RecordingSession` is an aiogram `BaseSession` that records Bot API calls (`SendMessage`, `SetWebhook`, …) and returns canned responses, or simulates an outage. `BOT_MODE=off` by default; webhook tests put their own `TelegramRuntime` on `app.state`. |
+
+Run:
+
+```bash
+uv run pytest
+```
+
+Lint and format:
+
+```bash
+uv run ruff check . && uv run ruff format --check .
+```
+
+## 13. Deployment
+
+- **Image:** one image (`Dockerfile`, `python:3.12-slim` + uv, frozen lockfile, no dev dependencies) serves both the `api` and the optional `bot-polling` service.
+- **Default stack** (`docker compose up`): `postgres` + `api`.
+  1. `postgres` becomes healthy.
+  2. `api` runs migrations and bootstrap (including webhook registration), then becomes healthy on `/health`.
+- **Polling profile** (`docker compose --profile polling up`, with `BOT_MODE=polling` in `.env`): adds `bot-polling`, which starts after `api` is healthy.
+- **Network:** the `api` container needs **outbound HTTPS to `api.telegram.org`** (for `setWebhook` and `sendMessage`), and **inbound HTTPS from Telegram** on the public URL.
+- **Production notes:**
+  - Put the API behind a TLS-terminating reverse proxy that forwards `/api/*`, including `/api/telegram/webhook`.
+  - Serve the UI on the same origin under `/`, and the API under `/api`. Otherwise configure `CORS_ORIGINS`.
+  - Use a strong `JWT_SECRET`. Rotating it invalidates all access tokens; refresh tokens keep working.
+  - Rotating `TELEGRAM_WEBHOOK_SECRET` needs no extra step: the next start detects the new fingerprint and re-registers.
+  - Scaling: see §9.3. Webhook mode supports multiple workers or replicas; polling mode must stay single-instance.
+  - `.env` is read only when a container is **created**. After changing it, use `docker compose up -d --force-recreate <service>`, not `restart`.
+
+## 14. Extending the system
+
+To add a business feature, for example `orders`:
+
+1. **Registry:** add a `ModuleDef` and `PermissionDef`s (with `assignable_to`) to `permissions/registry.py`, and optionally `DEFAULT_PERMISSIONS`. There is no migration for permissions.
+2. **Models and migration:** add the feature's tables in `models/`, then:
+   ```bash
+   uv run alembic revision --autogenerate -m "orders"
+   ```
+3. **Service and router:** add the service in `services/` and the router in `api/`. Guard the routes with `require_permission("orders.view")`. Call `ensure_can_manage` whenever acting on another user's data. Record audit entries for sensitive actions.
+4. **Tests:** permission denied, scope, and the happy path.
+5. **UI:** route guard, menu entry, `<Can>`, translations. See the UI's ARCHITECTURE.md.
+
+## 15. Design decisions
+
+| Decision | Rationale |
+|---|---|
+| Permissions defined in code, mirrored to the database | Code review covers every permission change, deployment is reproducible, and the database still supports foreign keys and grant history. |
+| Role hierarchy separate from permissions | Keeps "who" (organizational structure) and "what" (features) orthogonal, so each can change independently. |
+| Invariants in database indexes, not only in code | Race-proof: two concurrent "create GM" requests cannot both succeed. |
+| Uniqueness only among active users | Supports "deactivate and recreate" without renaming old records. |
+| Reload the user on every request | Deactivation and forced password change take effect instantly. The cost is one primary-key lookup. |
+| Opaque, hashed, rotating refresh tokens | A database leak doesn't expose usable tokens, and each token can be revoked individually. |
+| No cascade on revoke | Predictable behavior. Follow-up is surfaced through the audit log instead of silently removing other people's access. |
+| Superadmin is implicit-all | New features are immediately available to the superadmin without extra grants. |
+| Stable error codes, English message | The UI owns translation, and API consumers get a machine-readable contract. |
+| One image for api and bot | Shared models and config, with no version drift between the API and the optional polling process. |
+| Webhook in FastAPI instead of a polling process | One process fewer to deploy and monitor. It scales with the API's workers and replicas, where polling allows only one instance. Updates arrive over the same HTTPS domain as the UI and API. Telegram pushes updates instead of the bot holding a long poll open. Polling stays available as a local-dev fallback, using the same dispatcher setup. |
+| Webhook fingerprint stored in the database | `getWebhookInfo` can't reveal the secret. A SHA-256 fingerprint in `app_settings` detects secret changes without calling `setWebhook` on every start. |
+| Always `200` once the secret is valid | Telegram retries non-2xx responses, so a failing handler would otherwise replay the same update in a loop. Failures are logged instead. |
