@@ -22,6 +22,9 @@ interface TelegramWebApp {
   setHeaderColor(color: string): void
   setBackgroundColor(color: string): void
   BackButton: TelegramBackButton
+  /** e.g. 'deactivated' (Bot API 8.0+: the Mini App was minimized or is being closed). */
+  onEvent?(event: string, cb: () => void): void
+  offEvent?(event: string, cb: () => void): void
 }
 
 interface Window {

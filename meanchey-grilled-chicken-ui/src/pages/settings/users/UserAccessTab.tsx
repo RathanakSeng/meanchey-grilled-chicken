@@ -13,7 +13,8 @@ export function userFeaturesKey(userId: string) {
 }
 
 /**
- * Feature access levels (Off / View only / Full access) for one user, grouped by menu.
+ * Feature access levels (Off / View only / [Record /] Full access) for one user, grouped by menu.
+ * Each feature lists its own levels (Production has Record; the others don't).
  * The data comes from the parent (`UserDetailPage`), which also decides whether to show the tab.
  */
 export function UserAccessTab({ userId, data }: { userId: string; data: UserFeatures }) {
@@ -53,6 +54,8 @@ export function UserAccessTab({ userId, data }: { userId: string; data: UserFeat
     },
   })
 
+  const hasRecord = data.menus.some((m) => m.features.some((f) => f.levels.includes('record')))
+
   if (data.menus.length === 0) {
     return (
       <Card>
@@ -66,6 +69,7 @@ export function UserAccessTab({ userId, data }: { userId: string; data: UserFeat
       <div className="rounded-xl bg-stone-100/70 px-4 py-3 text-sm text-stone-600">
         <p className="font-medium text-stone-800">{t('access.legendTitle')}</p>
         <p>{t('access.legendView')}</p>
+        {hasRecord && <p>{t('access.legendRecord')}</p>}
         <p>{t('access.legendFull')}</p>
       </div>
 
@@ -79,9 +83,9 @@ export function UserAccessTab({ userId, data }: { userId: string; data: UserFeat
               return (
                 <li
                   key={f.code}
-                  className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6"
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="flex flex-wrap items-center gap-2 font-medium text-stone-900">
                       {localized(f)}
                       {f.current_level === 'custom' && <Badge>{t('access.levels.custom')}</Badge>}

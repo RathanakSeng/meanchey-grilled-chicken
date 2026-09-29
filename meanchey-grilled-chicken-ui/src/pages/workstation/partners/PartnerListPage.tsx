@@ -199,7 +199,7 @@ export function PartnerListPage({ config }: { config: PartnerConfig }) {
   return (
     <>
       <PageHeader
-        back={paths.production}
+        back={paths.workstation}
         title={t(`${ns}.title`)}
         subtitle={list.data && t('common.total', { count: list.data.total })}
         actions={newButton}
@@ -331,15 +331,6 @@ export function PartnerListPage({ config }: { config: PartnerConfig }) {
                   </div>
                   <ActionMenu items={actionsFor(p)} label={t('partners.actions')} />
                 </div>
-                {p.phone && (
-                  <a
-                    href={`tel:${p.phone}`}
-                    className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white active:bg-green-700"
-                  >
-                    <Icon name="phone" width={18} height={18} />
-                    {t('partners.call')}
-                  </a>
-                )}
               </li>
             ))}
           </ul>
@@ -371,13 +362,7 @@ export function PartnerListPage({ config }: { config: PartnerConfig }) {
                     </td>
                     <td className="px-4 py-3">{p.location ?? t('common.none')}</td>
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums">
-                      {p.phone ? (
-                        <a href={`tel:${p.phone}`} className="text-brand-700 hover:underline">
-                          {p.phone_display}
-                        </a>
-                      ) : (
-                        t('common.none')
-                      )}
+                      {p.phone_display ?? t('common.none')}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       {formatDate(p.created_at, { dateStyle: 'medium' })}

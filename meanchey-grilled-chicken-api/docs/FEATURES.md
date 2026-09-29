@@ -1,6 +1,6 @@
 # API Features — Phase 1
 
-What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The first business features, **suppliers and customers** (§11), plug into the permission system described here, as will later ones (orders, stock, delivery, …).
+What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The business features, **suppliers and customers** (§11) and **production** (§14), plug into the permission system described here, as will later ones (orders, stock, delivery, …).
 
 - [1. Authentication](#1-authentication)
 - [2. Password policy](#2-password-policy)
@@ -15,6 +15,7 @@ What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័�
 - [11. Suppliers & customers](#11-suppliers--customers)
 - [12. Feature access levels](#12-feature-access-levels)
 - [13. Visibility and redaction](#13-visibility-and-redaction)
+- [14. Production](#14-production)
 
 ---
 
@@ -232,16 +233,25 @@ Inactive permissions are ignored everywhere: effective permissions, catalog, gra
 
 The general manager can give any of these to supervisors **and staff** through feature levels.
 
+**Module `production`** (§14)
+
+| Code | Meaning | Assignable to | In feature (level) |
+|---|---|---|---|
+| `production.view` | See batches, their steps and figures | GM, supervisor, staff | Production (View only and up) |
+| `production.create` | Start batches; save drafts and finish steps | GM, supervisor, staff | Production (Record and up) |
+| `production.update` | Reopen a finished step | GM, supervisor, staff | Production (Full access) |
+| `production.delete` | Cancel a batch | GM, supervisor, staff | Production (Full access) |
+
 ### 5.3 Defaults
 
 | Role | On creation |
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
-| General manager | All `users` permissions (incl. `users.delete`, `users.reset_password`, `permissions.grant`) and all partner permissions. |
-| Supervisor | Every feature at **Full access**: Suppliers, Customers, Staff management (= `users.view/create/update`). Limited to what the creator holds. |
+| General manager | All `users` permissions (incl. `users.delete`, `users.reset_password`, `permissions.grant`), all partner permissions and all four `production.*` permissions. |
+| Supervisor | Every feature at **Full access**: Suppliers, Customers, Production, Staff management (= `users.view/create/update`). Limited to what the creator holds. |
 | Staff | Every feature **Off** (no permissions). |
 
-`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart.
+`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing.
 
 ### 5.4 Detailed grant rules (superadmin only)
 
@@ -273,7 +283,7 @@ Grant and revoke are idempotent.
 
 ## 6. Audit log
 
-Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `target_user_id`, `entity_type`, `entity_id`, `details` JSONB, `created_at`). `entity_type` / `entity_id` reference a non-user record (`supplier`, `customer`); they're null for user and auth actions.
+Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `target_user_id`, `entity_type`, `entity_id`, `details` JSONB, `created_at`). `entity_type` / `entity_id` reference a non-user record (`supplier`, `customer`, `production_batch`); they're null for user and auth actions.
 
 | Area | Actions |
 |---|---|
@@ -283,9 +293,10 @@ Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `ta
 | Access | `feature.set`: one entry per change, `details = {feature, from, to, added, removed}` (`from` may be `custom`). No individual `permission.*` entries are written for it. |
 | Suppliers | `supplier.create`, `supplier.update` (field diff), `supplier.deactivate`, `supplier.reactivate`. `details.name` holds the record's name. |
 | Customers | `customer.create`, `customer.update` (field diff), `customer.deactivate`, `customer.reactivate`. `details.name` holds the record's name. |
+| Production | `production.create`, `production.step_finish` (`step`: 1–3), `production.step_reopen` (`step`), `production.cancel` (`reason`). `details.code` holds the batch code. **Draft saves are not audited.** |
 | Profile | `profile.update` |
 
-`GET /audit-logs` is available to the **superadmin and general manager only** (§13 for what the general manager doesn't see). This is a role check, not a permission. It supports filters (`action`, `actor_id`, `target_user_id`, `entity_type`, `entity_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references, and `entity: {type, id, name}` for supplier / customer entries (the record's current name, falling back to the logged one).
+`GET /audit-logs` is available to the **superadmin and general manager only** (§13 for what the general manager doesn't see). This is a role check, not a permission. It supports filters (`action`, `actor_id`, `target_user_id`, `entity_type`, `entity_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references, and `entity: {type, id, name}` for supplier / customer / production batch entries (the record's current name, or the batch code, falling back to the logged one).
 
 ---
 
@@ -368,7 +379,8 @@ Every error has the same shape:
 | Authorization | `FORBIDDEN_SCOPE`, `FORBIDDEN_ROLE`, `MISSING_PERMISSION`, `PERMISSION_NOT_HELD`, `PERMISSION_NOT_ASSIGNABLE`, `PERMISSION_NOT_FOUND`, `PERMISSION_GRANT_RESTRICTED` (kept; never reachable by non-superadmins today) |
 | Access levels | `FEATURE_NOT_FOUND` (404), `FEATURE_NOT_APPLICABLE` (422) |
 | Users | `USER_NOT_FOUND`, `USER_INACTIVE`, `INVALID_TELEGRAM_USERNAME`, `DUPLICATE_TELEGRAM_USERNAME`, `GM_ALREADY_EXISTS`, `POSITION_REQUIRED`, `POSITION_NOT_ALLOWED` |
-| Suppliers & customers | `SUPPLIER_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `DUPLICATE_PHONE` (409), `INVALID_PHONE` (422, `details.min_digits` / `max_digits`) |
+| Suppliers & customers | `SUPPLIER_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `DUPLICATE_PHONE` (409), `INVALID_PHONE` (422, `details.min_digits` / `max_digits`), `SUPPLIER_INACTIVE` (422, production step 1 finish) |
+| Production | `PRODUCTION_NOT_FOUND` (404), `PRODUCTION_STEP_NOT_READY` (409), `PRODUCTION_STEP_FINISHED` (409), `PRODUCTION_STEP_LOCKED` (409), `PRODUCTION_BALANCE_MISMATCH` (422, `details.wings` / `details.thighs`), `PRODUCTION_CONFLICT` (409, `details.batch`), `PRODUCTION_CANCELLED` (409), `PRODUCTION_COMPLETED` (409) |
 | Generic | `VALIDATION_ERROR` (with `details.fields`), `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `HTTP_ERROR` |
 
 Codes are defined in `app/core/errors.py`. **Never rename a code:** the UI depends on them.
@@ -413,6 +425,15 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | POST | `/suppliers/{id}/deactivate` | `suppliers.delete` |
 | POST | `/suppliers/{id}/reactivate` | `suppliers.delete` |
 | GET, POST, PATCH | `/customers…` | same seven routes, guarded by `customers.*` |
+| GET | `/production` | `production.view` |
+| GET | `/production/stats` | `production.view` |
+| GET | `/production/supplier-options` | `production.create` |
+| POST | `/production` | `production.create` |
+| GET | `/production/{id}` | `production.view` |
+| PATCH | `/production/{id}/raw-material` · `/produced` · `/standardize` | `production.create` |
+| POST | `/production/{id}/{step}/finish` | `production.create` |
+| POST | `/production/{id}/{step}/reopen` | `production.update` |
+| POST | `/production/{id}/cancel` | `production.delete` |
 | GET | `/health` (no prefix) | public |
 | GET | `/docs`, `/redoc`, `/openapi.json` (no prefix) | only when API docs are enabled (development by default, §13) |
 
@@ -420,7 +441,7 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 
 ## 11. Suppliers & customers
 
-Two lists with the same shape and rules, kept in separate tables (`suppliers`, `customers`). Both appear under **Production** in the UI.
+Two lists with the same shape and rules, kept in separate tables (`suppliers`, `customers`). Both appear under **Workstation** (កន្លែងការងារ) in the UI.
 
 ### 11.1 Fields
 
@@ -470,20 +491,23 @@ Two lists with the same shape and rules, kept in separate tables (`suppliers`, `
 
 ## 12. Feature access levels
 
-The general manager's way to give access. Each feature switches a group of detailed permissions at once: **Off**, **View only** or **Full access**.
+The general manager's way to give access. Each feature switches a group of detailed permissions at once: **Off**, **View only**, **Record** (only features that define it) or **Full access**.
 
 ### 12.1 Registry
 
-`FEATURES` in `app/permissions/registry.py`. Each feature has `code`, `menu` (`production` | `settings`), names and descriptions in Khmer and English, `applies_to` (roles it can be set for) and `levels`: an ordered mapping level → the exact permission codes of that level, always starting with `off` → none.
+`FEATURES` in `app/permissions/registry.py`. Each feature has `code`, `menu` (`workstation` | `settings`, listed in that order in `MENUS`; startup validation rejects any other value), names and descriptions in Khmer and English, `applies_to` (roles it can be set for) and `levels`: an ordered mapping level → the exact permission codes of that level, always starting with `off` → none.
 
-| Feature | Menu | Applies to | View only | Full access |
-|---|---|---|---|---|
-| `suppliers` | production | supervisor, staff | `suppliers.view` | `suppliers.view/create/update/delete` |
-| `customers` | production | supervisor, staff | `customers.view` | `customers.view/create/update/delete` |
-| `staff_management` | settings | supervisor | `users.view` | `users.view/create/update` |
+| Feature | Menu | Applies to | View only | Record | Full access |
+|---|---|---|---|---|---|
+| `suppliers` | workstation | supervisor, staff | `suppliers.view` | — | `suppliers.view/create/update/delete` |
+| `customers` | workstation | supervisor, staff | `customers.view` | — | `customers.view/create/update/delete` |
+| `production` | workstation | supervisor, staff | `production.view` | `production.view/create` | `production.view/create/update/delete` |
+| `staff_management` | settings | supervisor | `users.view` | — | `users.view/create/update` |
+
+**Record** means "can start batches and fill in steps, but can't reopen or cancel".
 
 - `users.delete`, `users.reset_password` and `permissions.grant` belong to **no** feature: they stay general-manager-only and are managed as detailed permissions by the superadmin.
-- **Startup validation** (`validate_features`, at import and in bootstrap): every code a feature uses exists, is assignable to every role in `applies_to`, and has no `grantable_by`; the first level is `off` with no codes; level names are `off` / `view` / `full`. A mismatch stops the API from starting.
+- **Startup validation** (`validate_features`, at import and in bootstrap): every code a feature uses exists, is assignable to every role in `applies_to`, and has no `grantable_by`; the first level is `off` with no codes; levels are unique and follow the order `off` → `view` → `record` → `full` (`LEVELS`), where any after `off` may be omitted (only production uses `record`). A mismatch stops the API from starting.
 
 ### 12.2 Current level
 
@@ -493,9 +517,9 @@ A user's level for a feature is the level whose code set **exactly equals** the 
 
 **The general manager can set any level of any feature** that applies to a supervisor or staff member. Unlike detailed grants, the GM's own feature permissions don't matter here: the Access layer is theirs. (Detailed permissions, §5.4, stay superadmin-only.)
 
-`GET /users/{id}/features` (`permissions.grant` + scope) returns the features that apply to the target's role, grouped by menu (production first, then settings; empty menus omitted). Each feature: `code`, `menu`, names/descriptions, `levels` (in order), `current_level` (`off` / `view` / `full` / `custom`) and `can_edit` (the actor manages access and the target, and the target is active).
+`GET /users/{id}/features` (`permissions.grant` + scope) returns the features that apply to the target's role, grouped by menu (workstation first, then settings; empty menus omitted). Each feature: `code`, `menu`, names/descriptions, `levels` (in order: 4 for production, 3 for the others), `current_level` (`off` / `view` / `record` / `full` / `custom`) and `can_edit` (the actor manages access and the target, and the target is active).
 
-`PUT /users/{id}/features/{feature}` with `{ "level": "off" | "view" | "full" }` checks, in order:
+`PUT /users/{id}/features/{feature}` with `{ "level": "off" | "view" | "record" | "full" }` (one of the feature's levels) checks, in order:
 
 1. `permissions.grant` (route guard) → `MISSING_PERMISSION`
 2. the target exists and is visible to the actor (§13) → `USER_NOT_FOUND`; the target is in scope → `FORBIDDEN_SCOPE`
@@ -522,3 +546,104 @@ The superadmin can use these endpoints too.
 - **UI:** one build for everyone. The superadmin's role label is "System" / "ប្រព័ន្ធ", like the API's redacted references; its extra screens are runtime checks. Their code is in the bundle (visible in browser dev tools), but they never receive superadmin data because the API redacts it.
 - **Tests:** `tests/test_redaction.py` calls every GET route (from the OpenAPI schema) plus key mutations as a GM, a supervisor and staff, over data the superadmin created, and fails if a body contains the superadmin's id, name or the word "superadmin".
 - **Not covered (known):** five wrong passwords for the login name `superadmin` on the login page return "account locked", which reveals that the account exists.
+
+---
+
+## 14. Production
+
+Production records one **batch** as it moves through three steps. Each step is saved as a **draft** while it's filled in (autosave) and locked by **Finish**. It appears under **Workstation → Production** (ផលិតកម្ម) in the UI.
+
+```
+New production → batch PR-YYYYMMDD-NNN
+  Step 1 Raw material (វត្ថុធាតុដើម)  → Finish
+  Step 2 Produced (ការកែច្នៃ)          → Finish   (only after step 1 is finished)
+  Step 3 Standardize (ការវេចខ្ចប់)     → Finish   (only after step 2 is finished) → batch completed
+```
+
+### 14.1 Steps and fields
+
+Weights are exact decimals (`NUMERIC`, `Decimal` in Python), accepted as JSON numbers or strings and **always returned as fixed-precision strings**: kg with 3 decimals (`"12.500"`), grams with 1 (`"350.0"`). Counts are whole numbers. Draft saves only check types and ≥ 0; Finish checks the rules below.
+
+**Step 1: Raw material** (one line per batch)
+
+| Field | Draft | Finish |
+|---|---|---|
+| `production_date` | defaults to today in `BUSINESS_TIMEZONE` | required |
+| `supplier_id` | optional (must exist) | required; the supplier must be **active** at finish time → else `SUPPLIER_INACTIVE` |
+| `material_kind` | `chicken` (the only kind today, from the catalog) | required, known kind |
+| `weight_kg` | optional, ≥ 0, max 3 decimals | required, > 0 |
+| `quantity` (chickens) | optional, whole ≥ 0 | required, > 0 |
+
+**Step 2: Produced**
+
+| Field | Unit | Rule |
+|---|---|---|
+| `wings_kg`, `thighs_kg` | kg | Finish: required, > 0 |
+| `wings_count`, `thighs_count` | pieces | **Computed by the server** = quantity × pieces per chicken (2 each for `chicken`). Never accepted from the client (sending them is a `VALIDATION_ERROR`). Recomputed whenever the step 1 quantity changes (e.g. after reopening step 1) and at Finish. |
+| By-products: gizzard (កោះមាន់), liver (ថ្លើមមាន់), heart (បេះដូងមាន់), head (ក្បាលមាន់) | kg | Finish: required, ≥ 0 (0 allowed) |
+| `marinade_g` (ទឹកប្រឡាក់) | g | Finish: required, ≥ 0 |
+
+**Step 3: Standardize**
+
+| Field | Rule |
+|---|---|
+| `big_packages` | whole ≥ 0; 1 big = 2 wings + 2 thighs |
+| `small_packages` | whole ≥ 0; 1 small = 1 wing + 1 thigh |
+| `rejected_wings`, `rejected_thighs` | whole ≥ 0 |
+| Per by-product: `carry_kg` (carried forward), `rejected_kg` | Finish: required, ≥ 0 |
+| `comment` | optional, at most 1000 characters (trimmed; empty → null) |
+
+All of these are required at Finish.
+
+**Piece balance: enforced by the API at Finish** (`422 PRODUCTION_BALANCE_MISMATCH`):
+
+```
+2 × big + small + rejected_wings  = wings_count
+2 × big + small + rejected_thighs = thighs_count
+```
+
+`details` has `{ wings: {expected, assigned, difference}, thighs: {…} }` (`difference` = expected − assigned).
+
+**By-product balance: UI only, NOT enforced by the API.** For each by-product the UI requires `carry_kg + rejected_kg = produced kg` exactly before Finish is enabled. The API only checks that both values are present and ≥ 0, and accepts a batch whose by-products don't add up. This is deliberate (the rule may be relaxed later) and covered by a test.
+
+**Catalogs** (`app/production/catalog.py`): the by-products (`code`, `name_en`, `name_km`, unit `kg`, display order) and material kinds (`chicken`: 2 wings and 2 thighs per chicken). Every batch response includes them (`catalog`) so the UI renders them. Adding a by-product or kind is a catalog entry, no migration.
+
+### 14.2 Lifecycle
+
+- Batch `status`: `in_progress` → `completed` (step 3 finished), or `cancelled`. `current_step` (1–3) is the step being worked on.
+- Step `status`: `draft` → `finished`. A step's row exists once the previous one has been finished (`produced` / `standardize` are `null` in responses until then). A finished step is read-only: saving or finishing it again → `PRODUCTION_STEP_FINISHED`. Saving or finishing a step whose previous one isn't finished → `PRODUCTION_STEP_NOT_READY`.
+- **Reopen** step N: only while step N+1 isn't finished → else `PRODUCTION_STEP_LOCKED`. The step goes back to draft, `current_step` becomes N, and later steps keep their draft values. Reopening step 3 of a completed batch puts it back to `in_progress`. Reopening a step that is already a draft changes nothing.
+- **Cancel**: only `in_progress` batches (`PRODUCTION_COMPLETED` for completed ones), with a required reason (1–500 characters). A cancelled batch is read-only (`PRODUCTION_CANCELLED` for any change) and excluded from the figures.
+- **Batch code** `PR-YYYYMMDD-NNN`: from the production date given at creation (default today in `BUSINESS_TIMEZONE`, e.g. 17:30 UTC on 30 Sep is already 1 Oct in Phnom Penh), numbered per day by a counter row (`production_batch_counters`, `INSERT … ON CONFLICT … RETURNING`), so concurrent creations get distinct numbers. The code never changes, even if the date is edited later.
+
+### 14.3 Drafts and versions
+
+- `PATCH /production/{id}/raw-material` (`/produced`, `/standardize`) takes a **partial** body: only fields present are applied, `null` clears one. `produced` and `standardize` take `byproducts` as a map by item code (`{"liver": "0.4"}`, `{"liver": {"carry_kg": "0.3"}}`); unknown codes → `VALIDATION_ERROR`.
+- Every write (draft save, finish, reopen, cancel) requires the batch **`version`** it's based on and increments it. A stale version → `409 PRODUCTION_CONFLICT` with the current batch in `details.batch`, so the client can show what changed and retry.
+- Writes lock the batch row (`SELECT … FOR UPDATE`). Checks run in this order: not found, cancelled, step state, version, values.
+
+### 14.4 Endpoints and figures
+
+| Endpoint | Notes |
+|---|---|
+| `GET /production` | Filters: `status` (`in_progress`, `completed`, `cancelled`, `all` = default), `waiting_step` (2 or 3: in-progress batches whose previous steps are finished and that step isn't), `date_from` / `date_to` (production date, inclusive), `q` (batch code or supplier name). `sort`: `-date` (default), `date`, `code`, `-code`. Paging: 20 by default, at most 100. Items: `code`, `production_date`, `status`, `current_step`, `steps` (`pending` / `draft` / `finished` for steps 1–3), `supplier`, `quantity`, `created_by`. |
+| `GET /production/stats` | `in_progress`; `completed_today` (completed since midnight, Cambodia time); `chickens_this_month` (quantity of finished step 1s dated this month); `rejected_pieces_this_month` (rejected wings + thighs of finished step 3s dated this month). Months and days follow `BUSINESS_TIMEZONE`; cancelled batches are excluded. |
+| `POST /production` | Creates the batch with a draft step 1; optional initial step 1 fields. `201` with the batch. |
+| `GET /production/{id}` | The batch, all steps, by-products, catalogs and `computed` (`wings_count` / `thighs_count` from the current quantity, `yield_percent` = (wings kg + thighs kg) ÷ raw kg × 100, one decimal, or null). |
+| `POST /production/{id}/{step}/finish` | `step` ∈ `raw-material`, `produced`, `standardize`; body `{version}`. |
+| `POST /production/{id}/{step}/reopen` | Body `{version}`. |
+| `POST /production/{id}/cancel` | Body `{version, reason}`. |
+| `GET /production/supplier-options` | Active suppliers `{id, name, phone_display}` (at most 20, `q` on name or phone digits), for picking the step 1 supplier **without** Suppliers access. |
+
+Every user reference (`created_by`, `finished_by`, …) is a `UserRef` and redacted like everywhere else (§13); the GET routes are part of the redaction sweep.
+
+### 14.5 Access
+
+| Level (feature `production`) | Can |
+|---|---|
+| Off | nothing |
+| View only | list, open batches and see figures |
+| Record | also start batches, fill in steps (drafts) and finish them, pick suppliers |
+| Full access | also reopen steps and cancel batches |
+
+Defaults: the general manager holds all four permissions, supervisors Full access, staff Off (§5.3). Anyone with `production.create` can fill in any in-progress batch, not only their own.

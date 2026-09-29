@@ -81,8 +81,10 @@ app/
 │   ├── usernames.py     # Telegram username normalization/validation
 │   └── phones.py        # phone normalization (storage) + formatting (phone_display)
 ├── models/              # SQLAlchemy ORM (User, Permission, UserPermission, RefreshToken, AuditLog, BotPref, AppSetting,
-│                        #   Supplier + Customer via PartnerMixin)
+│                        #   Supplier + Customer via PartnerMixin, production batches + steps)
 ├── schemas/             # Pydantic request/response models; common.UserRef = the only user-reference shape
+├── production/
+│   └── catalog.py       # by-products and raw material kinds (code catalogs, no migration to extend)
 ├── permissions/
 │   ├── registry.py      # PERMISSIONS, MODULES, FEATURES, DEFAULT_PERMISSIONS  ← feature authors edit this
 │   ├── features.py      # feature access levels: current level, matrix, set_level (diff + feature.set audit)
@@ -93,10 +95,11 @@ app/
 │   ├── auth_service.py  # login (password/Telegram), tokens, change/reset password, /me
 │   ├── user_service.py  # user CRUD, activation, resets, profile
 │   ├── partner_service.py # generic supplier/customer CRUD, search, stats (PartnerKind)
+│   ├── production_service.py # batches: drafts + versions, finish / reopen / cancel, codes, stats
 │   ├── audit_service.py # record() + listing (viewer-aware filters)
 │   └── redaction.py     # hides the superadmin from other viewers: viewer context, hides(), middleware
 ├── api/                 # thin routers: auth, me, users, permissions (superadmin), features, audit,
-│                        #   partners (build_router(kind) → /suppliers, /customers)
+│                        #   partners (build_router(kind) → /suppliers, /customers), production
 └── bot/
     ├── setup.py         # create_bot(), create_dispatcher(): the one place handlers are registered
     ├── handlers.py      # /start, /lang (create_router())
@@ -176,6 +179,13 @@ erDiagram
     users ||--o{ customers : "created_by / updated_by"
     suppliers ||..o{ audit_logs : "entity (no FK)"
     customers ||..o{ audit_logs : "entity (no FK)"
+    production_batches ||--|| production_raw_materials : "step 1"
+    production_batches ||--o| production_outputs : "step 2"
+    production_batches ||--o| production_packaging : "step 3"
+    production_batches ||--o{ production_byproducts : "per catalog item"
+    suppliers ||--o{ production_raw_materials : "supplier_id (RESTRICT)"
+    users ||--o{ production_batches : "created_by / updated_by / cancelled_by"
+    production_batches ||..o{ audit_logs : "entity (no FK)"
 
     users {
         uuid id PK
@@ -226,7 +236,7 @@ erDiagram
         uuid actor_id FK
         varchar action
         uuid target_user_id FK
-        varchar entity_type "supplier | customer"
+        varchar entity_type "supplier | customer | production_batch"
         uuid entity_id "no FK"
         jsonb details
         timestamptz created_at
@@ -259,6 +269,63 @@ erDiagram
         bigint telegram_user_id PK
         varchar language
     }
+    production_batches {
+        uuid id PK
+        varchar32 code UK "PR-YYYYMMDD-NNN"
+        date production_date
+        varchar status "in_progress | completed | cancelled"
+        smallint current_step "1-3"
+        varchar500 cancel_reason
+        int version "optimistic concurrency"
+        uuid created_by FK
+        uuid updated_by FK
+        uuid cancelled_by FK
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz cancelled_at
+        timestamptz completed_at
+    }
+    production_raw_materials {
+        uuid batch_id PK,FK
+        uuid supplier_id FK "null while draft"
+        varchar material_kind "catalog code"
+        numeric10_3 weight_kg
+        int quantity
+        varchar status "draft | finished"
+        uuid finished_by FK
+        timestamptz finished_at
+        uuid updated_by FK
+        timestamptz updated_at
+    }
+    production_outputs {
+        uuid batch_id PK,FK
+        numeric10_3 wings_kg
+        numeric10_3 thighs_kg
+        int wings_count "computed"
+        int thighs_count "computed"
+        numeric10_1 marinade_g
+        varchar status
+    }
+    production_packaging {
+        uuid batch_id PK,FK
+        int big_packages
+        int small_packages
+        int rejected_wings
+        int rejected_thighs
+        text comment
+        varchar status
+    }
+    production_byproducts {
+        uuid batch_id PK,FK
+        varchar item_code PK "catalog code"
+        numeric10_3 produced_kg
+        numeric10_3 carry_kg
+        numeric10_3 rejected_kg
+    }
+    production_batch_counters {
+        date day PK
+        int last_number
+    }
 ```
 
 **Notes**
@@ -277,7 +344,14 @@ erDiagram
   - `ix_<table>_name_lower` on `lower(name)` for case-insensitive sorting and search;
   - `uq_<table>_active_phone`, a partial unique index on `phone` `WHERE is_active AND phone IS NOT NULL`: one active record per normalized number, per table;
   - `phone` stores the normalized form (digits, optional leading `+`); `phone_display` is computed on output.
-- **`audit_logs.entity_type` / `entity_id`** (indexed together as `ix_audit_logs_entity`) reference non-user records. There is no foreign key because one column pair points into several tables; the audit listing resolves current names with one query per entity type.
+- **Production** (`models/production.py`, migration `0005`):
+  - one `production_batches` row per batch, and **one row per step** (`production_raw_materials`, `production_outputs`, `production_packaging`, PK = `batch_id`, `ON DELETE CASCADE`). A step's row is created when it becomes available (step 1 with the batch, step 2 when step 1 is first finished, step 3 when step 2 is), so "not started" is simply a missing row. All three step tables share `status` / `finished_by` / `finished_at` / `updated_by` / `updated_at` through `StepMixin`;
+  - `production_byproducts`: one row per batch and catalog `item_code` (created on demand, so a new catalog entry needs no migration);
+  - `production_batch_counters`: the last number used per production date, incremented with `INSERT … ON CONFLICT (day) DO UPDATE … RETURNING`. The row stays locked until the transaction ends, so concurrent creations on one day get distinct numbers; `uq_production_batches_code` is the safety net;
+  - CHECK constraints keep statuses, `current_step` (1–3) and all quantities ≥ 0 valid even outside the API;
+  - the relationships load with `selectin`, so a batch arrives with all its steps (no lazy loads under asyncio).
+- **Weights are `Decimal` end to end:** `NUMERIC(10,3)` for kg and `NUMERIC(10,1)` for grams in the database, `Decimal` in Python (never `float`), accepted by Pydantic from JSON numbers or strings with `max_digits` / `decimal_places`, and serialized as fixed-precision strings (`"12.500"`, `"350.0"`) through a `PlainSerializer`. The UI parses them into scaled integers for exact sums.
+- **`audit_logs.entity_type` / `entity_id`** (indexed together as `ix_audit_logs_entity`) reference non-user records. There is no foreign key because one column pair points into several tables; the audit listing resolves current names with one query per entity type (`ENTITY_LABELS`: `suppliers.name`, `customers.name`, `production_batches.code`).
 - **Constraint naming.** All constraints follow a naming convention (`ix_`, `uq_`, `ck_`, `fk_`, `pk_`), which keeps Alembic autogenerate deterministic.
 - **Timestamps** are `timestamptz`. The app sets them in Python (UTC) and also has server defaults. Setting them in Python avoids lazy loads after `commit` under asyncio (`expire_on_commit=False`).
 
@@ -301,7 +375,7 @@ flowchart LR
 | `ensure_can_manage(actor, target)` | `permissions/hierarchy.py` | Is the target strictly below the actor? |
 | `ensure_can_manage_role(actor, role)` | `permissions/hierarchy.py` | Can the actor create or filter this role? |
 | Detailed grant rules | `permissions/service.py` | Superadmin only (`require_role`). Held-by-grantor, `grantable_by`, target active, `assignable_to` |
-| Feature levels | `permissions/features.py` | GM (and superadmin): set Off / View only / Full access; diff within the feature's codes |
+| Feature levels | `permissions/features.py` | GM (and superadmin): set Off / View only / [Record /] Full access; diff within the feature's codes |
 | Redaction | `services/redaction.py`, `schemas/common.py` | Hides the superadmin from every other viewer |
 
 ### How effective permissions are computed
@@ -343,7 +417,7 @@ flowchart LR
     UP -->|effective permissions| ME[/auth/me → menus, guards/]
 ```
 
-- A feature (`registry.FEATURES`) maps each level to an exact set of codes. `current_level` = the level whose set equals the user's effective codes within the feature, else `custom`.
+- A feature (`registry.FEATURES`) maps each level to an exact set of codes. Levels come from `LEVELS = (off, view, record, full)` in that order; a feature starts with `off` and may omit any of the others (only `production` has `record` = view + create). `current_level` = the level whose set equals the user's effective codes within the feature, else `custom`; this works unchanged for any number of levels.
 - `set_level` checks, in order: scope (`FORBIDDEN_SCOPE`; the hidden account is already `USER_NOT_FOUND`), `FEATURE_NOT_FOUND`, `FEATURE_NOT_APPLICABLE`, unknown level (`VALIDATION_ERROR`), target active (`USER_INACTIVE`). The level is a plain string in the body so this order holds.
 - Unlike detailed grants there is **no held-by-grantor rule**: whoever holds `permissions.grant` (the general manager) can set any level of any applicable feature. Detailed permissions keep `PERMISSION_NOT_HELD` and are superadmin-only anyway.
 - **Role changes** (`user_service.change_role`) call `service.reset_to_role_defaults`: all grants are replaced by `DEFAULT_PERMISSIONS[new role]` (not limited to what the actor holds), in the same transaction as the role update and the `user.role_change` audit entry.
@@ -576,7 +650,7 @@ uv run ruff check . && uv run ruff format --check .
 
 To add a business feature, for example `orders`:
 
-1. **Registry:** add a `ModuleDef` and `PermissionDef`s (with `assignable_to`) to `permissions/registry.py`, **and a `FeatureDef`** in `FEATURES` (menu, `applies_to`, levels `off` / `view` / `full` → codes) so the general manager can switch it on the Access tab. Startup validation checks the feature against the permissions. Update `DEFAULT_PERMISSIONS` (supervisor/staff defaults are built from feature levels). There is no migration for permissions.
+1. **Registry:** add a `ModuleDef` and `PermissionDef`s (with `assignable_to`) to `permissions/registry.py`, **and a `FeatureDef`** in `FEATURES` (`menu`, `applies_to`, levels `off` / `view` / `full` → codes) so the general manager can switch it on the Access tab. `menu` is `"workstation"` for day-to-day work (e.g. `FeatureDef(code="orders", menu="workstation", …)`) or `"settings"` for administration; a new menu goes into both `Menu` and `MENUS` (the display order). Startup validation checks the feature against the permissions. Update `DEFAULT_PERMISSIONS` (supervisor/staff defaults are built from feature levels). There is no migration for permissions.
 2. **Models and migration:** add the feature's tables in `models/`, then:
    ```bash
    uv run alembic revision --autogenerate -m "orders"
@@ -595,6 +669,10 @@ To add a business feature, for example `orders`:
 
 A third list with the same fields needs a model class, a `PartnerKind`, a router mount, the registry entries, a migration and translations.
 5. **UI:** route guard, menu entry, `<Can>`, translations. See the UI's ARCHITECTURE.md.
+
+**Adding a by-product or a raw material kind** (production): add a `ByproductDef` (code, names, unit, order) or a `MaterialKindDef` (code, names, wings / thighs per unit) to `app/production/catalog.py`. No migration: by-product rows are keyed by `item_code` and created on demand, and every batch response carries the catalog, so the UI shows the new row automatically (add a `production.materialKinds.<code>` label in the UI locales if you want a translated kind name). Existing finished batches simply have no row for the new item; the new item becomes required at the next Finish of step 2 / step 3.
+
+**Adding a feature level:** levels are the fixed ordered list `LEVELS` in `registry.py`; a feature lists the ones it uses (e.g. production uses `record`). A new level name needs an entry in `LEVELS`, in the UI's `FeatureLevel` type and `access.levels.<name>` translations.
 
 ## 15. Design decisions
 
@@ -620,4 +698,9 @@ A third list with the same fields needs a model class, a `PartnerKind`, a router
 | `grantable_by` on the permission, not a new role rule | Keeps the hierarchy (who manages whom) unchanged, and restricts only the permissions that need it, per target role. The superadmin is exempt, matching "implicit-all". Unused today; kept for later. |
 | Separate `suppliers` and `customers` tables, one generic implementation | Each list gets its own ids, indexes and future columns, while the code and tests are written once. |
 | Phones stored normalized, displayed formatted | Search and the uniqueness index work on one canonical form, whatever separators people type. |
+| Production as a batch with one row per step | The three steps have different fields, owners and lifecycles (draft / finished, reopen). One table per step keeps each typed and constrained, a missing row means "not started", and a batch loads with all steps at once. |
+| Server-side drafts with a batch `version` | Autosave needs the half-filled form on the server (the Mini App may be closed any time, work continues on another device). Optimistic versioning (`409 PRODUCTION_CONFLICT` with the current batch) is simpler than locking a batch to one user and still prevents silent overwrites; the row lock (`FOR UPDATE`) serializes concurrent writes. |
+| Piece counts computed by the server | `wings_count` / `thighs_count` follow from the chicken count; accepting them from clients would let the balance check be bypassed. |
+| By-product kg balance enforced by the UI only (for now) | Weights are measured on a scale and may legitimately not add up exactly; the business may relax the rule. Keeping it out of the API means that change is UI-only; a test documents that the API accepts it. |
+| Batch code from a per-day counter row | Readable, gap-free per day and race-safe (`ON CONFLICT … RETURNING`), without a sequence per day. |
 | Always `200` once the secret is valid | Telegram retries non-2xx responses, so a failing handler would otherwise replay the same update in a loop. Failures are logged instead. |

@@ -74,10 +74,36 @@ def test_grant_and_reset_password_belong_to_no_feature() -> None:
     assert "users.reset_password" not in codes
 
 
+def test_menus() -> None:
+    assert registry.MENUS == ("workstation", "settings")
+    # "production" is reserved for a future feature; the suppliers/customers section is Workstation.
+    assert all(f.menu != "production" for f in registry.FEATURES)
+    assert {f.code: f.menu for f in registry.FEATURES if f.menu == "workstation"} == {
+        "suppliers": "workstation",
+        "customers": "workstation",
+        "production": "workstation",
+    }
+
+
+def test_startup_validation_rejects_unknown_menu() -> None:
+    bad = registry.FeatureDef(
+        code="old_menu",
+        menu="production",  # type: ignore[arg-type]
+        name_en="x",
+        name_km="x",
+        description_en="x",
+        description_km="x",
+        applies_to=(Role.STAFF,),
+        levels=(("off", ()), ("view", ("suppliers.view",))),
+    )
+    with pytest.raises(registry.FeatureRegistryError, match="unknown menu"):
+        registry.validate_features(features=[bad])
+
+
 def test_startup_validation_rejects_unknown_permission() -> None:
     bad = registry.FeatureDef(
         code="ghost",
-        menu="production",
+        menu="workstation",
         name_en="x",
         name_km="x",
         description_en="x",
@@ -107,7 +133,7 @@ def test_startup_validation_rejects_non_assignable_permission() -> None:
 def test_startup_validation_requires_off_first() -> None:
     bad = registry.FeatureDef(
         code="no_off",
-        menu="production",
+        menu="workstation",
         name_en="x",
         name_km="x",
         description_en="x",
@@ -127,9 +153,9 @@ async def test_gm_sees_staff_features_off_by_default(client, make_user) -> None:
     staff = await make_user(Role.STAFF)
     r = await client.get(f"/users/{staff.id}/features", headers=auth(gm))
     body = r.json()
-    assert [m["menu"] for m in body["menus"]] == ["production"]
+    assert [m["menu"] for m in body["menus"]] == ["workstation"]
     features = body["menus"][0]["features"]
-    assert [f["code"] for f in features] == ["suppliers", "customers"]
+    assert [f["code"] for f in features] == ["suppliers", "customers", "production"]
     assert all(f["current_level"] == "off" and f["can_edit"] for f in features)
     assert features[0]["levels"] == ["off", "view", "full"]
     assert features[0]["name_km"] == "អ្នកផ្គត់ផ្គង់"
@@ -139,8 +165,12 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
     gm = await make_user(Role.GENERAL_MANAGER)
     sup = await make_user(Role.SUPERVISOR)
     r = await client.get(f"/users/{sup.id}/features", headers=auth(gm))
-    menus = {m["menu"]: [f["code"] for f in m["features"]] for m in r.json()["menus"]}
-    assert menus == {"production": ["suppliers", "customers"], "settings": ["staff_management"]}
+    menus = [(m["menu"], [f["code"] for f in m["features"]]) for m in r.json()["menus"]]
+    # Workstation first, then settings.
+    assert menus == [
+        ("workstation", ["suppliers", "customers", "production"]),
+        ("settings", ["staff_management"]),
+    ]
     assert {f["current_level"] for f in (await _features(client, gm, sup)).values()} == {"full"}
 
 

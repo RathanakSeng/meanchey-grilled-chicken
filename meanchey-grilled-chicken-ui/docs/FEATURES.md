@@ -2,7 +2,7 @@
 
 What the Mean Chey Grilled Chicken UI (មាន់អាំងមានជ័យ) offers today. One React app serves both the **PC dashboard** and the **Telegram Mini App**.
 
-Phase 1 covers sign-in, user management and access control (feature access levels), plus the first production features: **Suppliers** and **Customers**.
+Phase 1 covers sign-in, user management and access control (feature access levels), plus the **Workstation** features: **Suppliers**, **Customers** and **Production** (batches in three steps, with autosave).
 
 > The UI hides what a user can't do, for a cleaner experience. **The API enforces every rule**, so hiding things in the UI is never the security boundary.
 
@@ -11,7 +11,7 @@ Phase 1 covers sign-in, user management and access control (feature access level
 - [3. Forced password change](#3-forced-password-change)
 - [4. App shell and navigation](#4-app-shell-and-navigation)
 - [5. Home](#5-home)
-- [6. Production](#6-production)
+- [6. Workstation (កន្លែងការងារ)](#6-workstation-កន្លែងការងារ)
 - [7. Settings](#7-settings)
 - [8. Users](#8-users)
 - [9. User detail](#9-user-detail)
@@ -31,7 +31,7 @@ Phase 1 covers sign-in, user management and access control (feature access level
 | Opened from | Browser | The bot's **Open app** button or menu button |
 | Sign-in | Username + password | Automatic, using Telegram `initData` |
 | Layout | Left sidebar + top bar | Top bar + bottom navigation, full-height, safe-area aware |
-| Navigation | Sidebar: Home · Production · Settings (with its sub-pages nested) | Bottom bar: Home · Production · Settings |
+| Navigation | Sidebar: Home · Workstation · Settings (with its sub-pages nested) | Bottom bar: Home · Workstation · Settings |
 | Back navigation | In-page back arrows (to the parent screen) | Telegram's native **Back** button (to the parent screen), plus in-page arrows |
 | Lists | Tables | Cards |
 
@@ -91,9 +91,10 @@ The app is organized in two sections under Home:
 
 ```
 Home                      everyone
-├── Production            everyone          /production
-│   ├── Suppliers         suppliers.view    /production/suppliers
-│   └── Customers         customers.view    /production/customers
+├── Workstation           everyone          /workstation
+│   ├── Suppliers         suppliers.view    /workstation/suppliers
+│   ├── Customers         customers.view    /workstation/customers
+│   └── Production        production.view   /workstation/production  (batch: /workstation/production/:id?step=1|2|3)
 └── Settings              everyone          /settings
     ├── Users             users.view        /settings/users
     ├── Audit log         superadmin, GM    /settings/audit-logs
@@ -102,55 +103,55 @@ Home                      everyone
 
 - **Each item appears only when the user is allowed to open it.** The rules are unchanged from before: Users needs `users.view`, and Audit log is for the superadmin and general manager.
 - **Settings is always shown,** because everyone can open My profile.
-- **Production is always shown,** even when none of its pages are visible, so its hub can explain that nothing is available yet.
-- **Staff** see Home, Production and Settings. Production shows the "no access yet" message and Settings only My profile, which follows from the permissions with no special handling. Once the general manager sets e.g. Suppliers to *View only* on the Access tab, Suppliers appears for that staff member.
-- **Desktop sidebar:** Home, Production and Settings.
-  - While you're anywhere under Production or Settings, that section's visible sub-pages are listed indented below it.
+- **Workstation is always shown,** even when none of its pages are visible, so its hub can explain that nothing is available yet.
+- **Staff** see Home, Workstation and Settings. Workstation shows the "no access yet" message and Settings only My profile, which follows from the permissions with no special handling. Once the general manager sets e.g. Suppliers to *View only* on the Access tab, Suppliers appears for that staff member.
+- **Desktop sidebar:** Home, Workstation and Settings.
+  - While you're anywhere under Workstation or Settings, that section's visible sub-pages are listed indented below it.
   - The current page and its section are highlighted.
-- **Mobile / Telegram bottom bar:** exactly three buttons, Home · Production · Settings. Settings stays highlighted on every Settings page.
-- **Back buttons,** both in-page and Telegram's native one, go to the **parent screen**, not the browser history. For example: user details → Users → Settings → Home, and Suppliers → Production → Home. A deep link opened straight into the Mini App therefore still has a sensible way back.
+- **Mobile / Telegram bottom bar:** exactly three buttons, Home · Workstation · Settings. Settings stays highlighted on every Settings page.
+- **Back buttons,** both in-page and Telegram's native one, go to the **parent screen**, not the browser history. For example: user details → Users → Settings → Home, Suppliers → Workstation → Home, and a production batch → Production → Workstation → Home. A deep link opened straight into the Mini App therefore still has a sensible way back.
 - **Header:** language switcher (ខ្មែរ / EN) and an avatar menu.
 - **Avatar menu:** name, role, Telegram username, **My profile** and **Log out**.
-- **Permission changes show up quickly.** Menus refresh when Home, Production or Settings is opened and the cached permissions are more than a minute old. They also refresh whenever the server answers "no permission", "wrong role" or "out of scope".
+- **Permission changes show up quickly.** Menus refresh when Home, Workstation or Settings is opened and the cached permissions are more than a minute old. They also refresh whenever the server answers "no permission", "wrong role" or "out of scope".
 - **Old links keep working.** Old addresses (`/users/…`, `/audit-logs`, `/profile`) redirect to their new place under `/settings`, keeping the rest of the address, for example `/users/<id>?tab=permissions`.
-
 ## 5. Home
 
 - A welcome banner with the user's name and role badge (plus position for staff).
 - Two large tiles, each with an icon, a title and a one-line description. They sit side by side on desktop and stack on mobile:
-  - **Production:** day-to-day production and operations;
+  - **Workstation (កន្លែងការងារ):** your daily work: suppliers, customers and more;
   - **Settings:** users, permissions and your account.
 
-## 6. Production
+## 6. Workstation (កន្លែងការងារ)
 
-**Path:** `/production`. **Who can open it:** everyone.
+**Path:** `/workstation`. **Who can open it:** everyone.
 
-A hub with one card per Production page the user may open, built from the same menu definition as the sidebar:
+A hub with one card per Workstation page the user may open, built from the same menu definition as the sidebar:
 
 | Card | Shown to |
 |---|---|
 | Suppliers | holders of `suppliers.view` |
 | Customers | holders of `customers.view` |
+| Production | holders of `production.view` |
 
-With no visible cards (staff by default) it shows *"You don't have access to any production features yet"* with a hint to ask a manager.
+With no visible cards (staff by default) it shows *"You don't have access to any workstation features yet"* with a hint to ask a manager.
 
 ### 6.1 Suppliers and customers
 
-**Paths:** `/production/suppliers`, `/production/customers`. **Who can open them:** users whose Suppliers / Customers access is *View only* or *Full access* (§10): by default the general manager and supervisors; staff once the general manager turns it on. Both pages work the same way.
+**Paths:** `/workstation/suppliers`, `/workstation/customers`. **Who can open them:** users whose Suppliers / Customers access is *View only* or *Full access* (§10): by default the general manager and supervisors; staff once the general manager turns it on. Both pages work the same way.
 
 Top to bottom:
 
 1. **Header:** title, total, and **New supplier** / **New customer** (with `*.create`).
 2. **Figures (KPI cards):** **Active**, **New this month** and **Deactivated**.
-   - Three in a row on desktop; a swipeable row on mobile. Grey placeholders while loading.
+   - Always all visible: three in a row on every screen (compact on phones and in the Mini App, with the label above the number). Grey placeholders while loading.
    - Tapping **Active** or **Deactivated** filters the list; the selected card is outlined.
    - "This month" follows the calendar month in Cambodia time.
 3. **Search and filters:** a search box (name, location or phone; `345 678` finds `012 345 678`), a status filter (Active · Deactivated · All) and a sort (Name A–Z, Name Z–A, Newest, Oldest).
    - Filters are kept in the address (`?q=…&status=…&sort=…&page=…`), so Back and shared links keep them.
 4. **List,** 20 per page:
    - **Desktop:** a table with Name, Location, Phone, Added, Status and a **⋮** menu.
-   - **Mobile / Mini App:** cards with name, location and phone, a large green **Call** button (opens the phone dialer) and a **⋮** menu.
-   - Phones are shown formatted (`012 345 678`, `+855 12 345 678`) and are tap-to-call on desktop too.
+   - **Mobile / Mini App:** cards with name, location, phone and a **⋮** menu.
+   - Phones are shown formatted (`012 345 678`, `+855 12 345 678`) as plain text; there is no call button or tap-to-call.
    - Deactivated records are dimmed with a *Deactivated* badge.
    - The **⋮** menu offers **Edit** (`*.update`) and **Deactivate** / **Reactivate** (`*.delete`); without either permission there is no menu.
 5. **Empty states:** *No suppliers yet* (with the create button when allowed); *Nothing matches your search* with **Clear filters**; or, when only deactivated records exist, **Show deactivated**.
@@ -163,6 +164,52 @@ Top to bottom:
 - On success the panel closes, a confirmation appears above the list, and the list and figures refresh.
 
 **Deactivate / reactivate** asks for confirmation first. Deactivated records keep their history and can be reactivated; reactivation fails if another active record now has the same phone.
+
+### 6.2 Production (ផលិតកម្ម)
+
+**Paths:** `/workstation/production` (list) and `/workstation/production/<id>?step=1|2|3` (a batch). **Who can open them:** Production access *View only* or higher (§10): by default the general manager and supervisors; staff once the general manager turns it on.
+
+A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Raw material** (វត្ថុធាតុដើម) → **Produced** (ការកែច្នៃ) → **Standardize** (ការវេចខ្ចប់). Each step is filled in as a draft that **saves itself**, and is locked with **Finish step**. A step opens only once the previous one is finished.
+
+**List page**
+
+1. **Header:** title, total and **New production** (Record or Full access). It creates the batch at once and opens step 1.
+2. **Figures:** *In progress*, *Completed today*, *Chickens this month*, *Rejected pieces this month* (Cambodia calendar; cancelled batches aren't counted). Four in a row on large screens, 2 × 2 on phones and in the Mini App, all visible without scrolling.
+3. **Quick filters** as chips: **Waiting for step 2** and **Waiting for step 3**: the batches whose previous step is finished, ready to pick up. Plus a status filter (All · In progress · Completed · Cancelled), a date range (production date) and a search box (batch code or supplier). All filters are kept in the address.
+4. **List,** 20 per page: batch code, date, supplier, step dots (●●○: filled = finished, ringed = draft), number of chickens and a status badge. A table on desktop, cards on mobile; tapping a batch opens it.
+
+**Batch page**
+
+- **Header:** code, production date, status badge, and a **⋮** menu with **Reopen \<step\>** (Full access; only a finished step whose next step isn't finished) and **Cancel batch** (Full access; in-progress batches, asks for a required reason).
+- **Stepper 1 · 2 · 3** (✓ when finished). Tapping a step shows it; steps not started yet are disabled. On mobile one step is shown at a time.
+- A finished step shows a **read-only summary** with *Finished by … · time*. The current step shows its **form** to users with Record or Full access; with *View only* every step is read-only (a notice says so).
+- Cancelled batches show the reason and are read-only; completed ones show when they were completed.
+
+**Step 1: Raw material.** Supplier (a searchable list of active suppliers; no Suppliers access needed), production date (today by default), raw material (Chicken), weight (kg) and number of chickens.
+
+**Step 2: Produced.** Wings and thighs weight (kg), each next to its **count, locked at 2 per chicken** (lock icon; set by the server from step 1), the four by-products in kg (gizzard កោះមាន់, liver ថ្លើមមាន់, heart បេះដូងមាន់, head ក្បាលមាន់; 0 is allowed) and the marinade in grams. The yield (wings + thighs ÷ raw weight) is shown live and in the summary.
+
+**Step 3: Standardize.** Big packages (*1 big = 2 wings + 2 thighs*) and small packages (*1 small = 1 wing + 1 thigh*) with a live breakdown, rejected wings and thighs, and a **balance meter** per piece type (*"Wings: 3 left to assign"*, *"2 too many"*, *All assigned*). For each by-product: the produced kg, **carry forward** (យកទៅបន្ត) and **rejected** (ខូច/មិនប្រើ) inputs, and a per-row indicator. A comment is optional.
+
+**Finish step** is disabled until the step is complete; a list under the form says what's missing (*"Fill in: Weight, Supplier"*, *"Wings don't add up yet"*). It asks for confirmation: *"You can't edit this step after finishing."*
+
+- Wings and thighs must balance exactly: 2 × big + small + rejected = count. The API enforces this too.
+- **By-products must balance exactly** (carry forward + rejected = produced kg). **This rule is enforced by the UI only**; the API accepts unbalanced by-products (it may be relaxed later).
+- Numbers: kg up to 3 decimals, grams up to 1, counts whole; a comma works as the decimal point. Weight fields open the decimal keypad, counts the numeric one, with large touch targets. Invalid input is flagged under the field and isn't sent.
+- On mobile and in the Mini App, **Finish step** sits in a sticky bar above the bottom navigation.
+
+**Autosave** (a status in the step header):
+
+| Status | Meaning |
+|---|---|
+| *Saving…* | changes are waiting (1.5 s after the last keystroke) or being sent |
+| *Saved just now* / *Saved at 14:05* | on the server |
+| *Offline — saved on this device* | no connection; sent automatically when back online |
+| *Couldn't save — retrying* | the server failed; retried every few seconds |
+
+- **Closing the Mini App or switching apps doesn't lose input:** pending changes are sent immediately when the page is hidden or closed, and every unsent change is also kept on the device. On the next visit, changes that didn't reach the server are resent automatically; if the batch changed on the server in the meantime, the app asks **"Restore unsaved changes?"** (Restore / Discard).
+- **Two people editing the same step:** if someone else saved first, the step shows *"Someone else saved this batch first"* with the fields they changed, keeps your values on screen, and lets you **Keep my values** (save over theirs) or **Use their version**.
+- Finished steps never autosave. Finishing first sends any pending changes.
 
 ## 7. Settings
 
@@ -260,16 +307,16 @@ Top to bottom:
 
 How the general manager decides what supervisors and staff can use. Shown when the viewer may manage access (*can manage features*) and at least one feature applies to the user. The general manager can set **any level of any feature** available to that user's role; nothing here depends on the general manager's own permissions.
 
-- **Grouped by menu:** **Production** (Suppliers, Customers), then **Settings** (Staff management, supervisors only).
-- Each row: the feature's name and a one-line description (from the server, in the current language), and a segmented control **Off · View only · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · ពេញលេញ*).
-- A legend at the top: *View only* = can see the list; *Full access* = can add, edit and deactivate. For Staff management, Full access means add and edit staff: supervisors never deactivate people.
+- **Grouped by menu:** **Workstation** (Suppliers, Customers, Production), then **Settings** (Staff management, supervisors only).
+- Each row: the feature's name and a one-line description (from the server, in the current language), and a segmented control with the levels the server lists for that feature: **Off · View only · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · ពេញលេញ*), and for Production **Off · View only · Record · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · កត់ត្រា · ពេញលេញ*).
+- A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't reopen or cancel (shown when a feature has it); *Full access* = can add, edit and deactivate. For Staff management, Full access means add and edit staff: supervisors never deactivate people.
 - **Each click saves** immediately, with a spinner on that row. On error the previous level comes back and a translated message is shown.
 - From *Off*, *View only* has a dashed outline as the suggested next step; it still takes a click.
 - **Custom:** if a user's permissions match no level (only possible through the superadmin's detailed permissions), a neutral *Custom* badge is shown and no level is selected. Picking a level replaces it.
 - Rows are disabled only when the user is deactivated. No explanation mentions other roles.
 - Defaults: supervisors start with everything at **Full access**, staff with everything **Off**.
 - Changes take effect on the user's next menu refresh (within a minute, or at once on their next "no permission" answer). If you change your own access, your menus refresh immediately.
-- On phones and in the Mini App the control sits under the name, full width, with large touch targets.
+- On large screens every level button has the same width in every row (whether a feature has 3 or 4 levels), so the controls line up on the right and no label is cut off. On tablets, phones and in the Mini App the control sits under the name, full width, with large touch targets; on phones the four Production levels wrap into a 2 × 2 grid.
 
 ### Permissions (advanced), superadmin only
 
@@ -289,13 +336,14 @@ Supervisors and staff never see any permission or access information.
   - access changes (*Changed access*), shown as e.g. *"Suppliers: View only → Full access"*;
   - detailed permission grants and revokes, including automatic ones on deploy: **superadmin only** (the general manager sees access changes instead);
   - profile updates;
-  - suppliers and customers added, edited, deactivated and reactivated.
-- **Filters:** record type (All · Suppliers · Customers) and action type.
+  - suppliers and customers added, edited, deactivated and reactivated;
+  - production: batch started, step finished and step reopened (*"Step 2 · Produced"*), batch cancelled (with the reason). Draft saves aren't logged.
+- **Filters:** record type (All · Suppliers · Customers · Production batches) and action type.
 - Each entry shows:
   - the time, in the current language's format;
   - the action, as a translated badge, red for failures and locks;
   - **By** (actor) and **User** (target), linking to the user. Actions by the system show **System** (ប្រព័ន្ធ), without a link;
-  - for supplier / customer entries, the **record**: its type and current name, linking to the Suppliers / Customers page with that name already searched (including deactivated records);
+  - for supplier / customer entries, the **record**: its type and current name, linking to the Suppliers / Customers page with that name already searched (including deactivated records); for production entries, the batch code, linking to the batch;
   - details: the permission code, or an expandable JSON view.
 - **Revocations are highlighted.** When a revoked permission had been passed on to others by that user, an amber warning lists who still holds it, so managers can follow up (revoking does not cascade).
 - Pagination, with 50 per page.
@@ -325,7 +373,7 @@ Supervisors and staff never see any permission or access information.
 
 ## 13. Language (Khmer / English)
 
-- **Khmer is the default.** English is fully supported: every label, message, role, audit action and error, including the supplier / customer pages and their figures. Positions are free text and are shown as entered.
+- **Khmer is the default.** English is fully supported: every label, message, role, audit action and error, including the supplier / customer / production pages, their figures and autosave states. Positions are free text and are shown as entered.
 - **Switching** from the header takes effect instantly.
   - **Signed in:** the choice is saved to your profile and follows you to other devices.
   - **Signed out, or password change pending:** it is remembered on this device.
@@ -349,7 +397,7 @@ Supervisors and staff never see any permission or access information.
 
 | Screen | Superadmin | General manager | Supervisor | Staff |
 |---|---|---|---|---|
-| Home, Production, Settings hub | ✅ | ✅ | ✅ | ✅ |
+| Home, Workstation, Settings hub | ✅ | ✅ | ✅ | ✅ |
 | Settings → My profile | ✅ | ✅ | ✅ | ✅ |
 | Settings → Users (list / detail) | ✅ all below | ✅ supervisors, staff | Staff management ≥ View only (default Full): staff | ❌ |
 | Create / edit user | ✅ | ✅ | Staff management = Full (default) | ❌ |
@@ -360,10 +408,13 @@ Supervisors and staff never see any permission or access information.
 | User detail → Access tab | ✅ | ✅ (supervisors, staff) | ❌ | ❌ |
 | User detail → Permissions (advanced) | ✅ | ❌ | ❌ | ❌ |
 | Settings → Audit log | ✅ everything | ✅ without detailed permission entries | ❌ | ❌ |
-| Production → Suppliers (list, figures) | ✅ | ✅ | Suppliers ≥ View only (default Full) | Suppliers ≥ View only (default Off) |
+| Workstation → Suppliers (list, figures) | ✅ | ✅ | Suppliers ≥ View only (default Full) | Suppliers ≥ View only (default Off) |
 | Add / edit / deactivate suppliers | ✅ | ✅ | Suppliers = Full (default) | Suppliers = Full |
-| Production → Customers (list, figures) | ✅ | ✅ | Customers ≥ View only (default Full) | Customers ≥ View only (default Off) |
+| Workstation → Customers (list, figures) | ✅ | ✅ | Customers ≥ View only (default Full) | Customers ≥ View only (default Off) |
 | Add / edit / deactivate customers | ✅ | ✅ | Customers = Full (default) | Customers = Full |
+| Workstation → Production (list, batches, figures) | ✅ | ✅ | Production ≥ View only (default Full) | Production ≥ View only (default Off) |
+| Start batches, fill in and finish steps | ✅ | ✅ | Production ≥ Record (default Full) | Production ≥ Record |
+| Reopen steps, cancel batches | ✅ | ✅ | Production = Full (default) | Production = Full |
 
 "Suppliers = Full" etc. refers to the levels the general manager sets on the Access tab (§10). "(default)" is the level a new account starts with.
 

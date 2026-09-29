@@ -21,5 +21,23 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          // Libraries change rarely: a separate chunk stays cached across app releases.
+          manualChunks: {
+            vendor: [
+              'react',
+              'react-dom',
+              'react-router-dom',
+              '@tanstack/react-query',
+              'axios',
+              'i18next',
+              'react-i18next',
+            ],
+          },
+        },
+      },
+    },
   }
 })

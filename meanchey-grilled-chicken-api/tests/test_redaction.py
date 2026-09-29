@@ -43,6 +43,12 @@ async def world(client, session, superadmin, make_user) -> dict:
     staff_id = (await post("/users", staff_body))["id"]
     supplier = await post("/suppliers", {"name": "Sokha Farm", "phone": "012345678"})
     customer = await post("/customers", {"name": "Dara Shop"})
+    # A production batch the superadmin created and finished step 1 of.
+    batch = await post(
+        "/production",
+        {"supplier_id": supplier["id"], "weight_kg": "25.5", "quantity": 10},
+    )
+    batch = await post(f"/production/{batch['id']}/raw-material/finish", {"version": 1})
     await client.patch(
         f"/suppliers/{supplier['id']}", json={"location": "Kandal"}, headers=auth(superadmin)
     )
@@ -68,6 +74,8 @@ async def world(client, session, superadmin, make_user) -> dict:
         "staff": by_id[staff_id],
         "supplier": supplier["id"],
         "customer": customer["id"],
+        "batch": batch["id"],
+        "batch_version": batch["version"],
     }
 
 
@@ -98,6 +106,8 @@ def _fill(path: str, world: dict) -> list[str]:
     if "{partner_id}" in path:
         pid = world["supplier"] if path.startswith("/suppliers") else world["customer"]
         return [path.replace("{partner_id}", pid)]
+    if "{batch_id}" in path:
+        return [path.replace("{batch_id}", world["batch"])]
     assert not re.search(r"\{\w+\}", path), f"sweep doesn't know how to fill {path}"
     return [path]
 
@@ -132,6 +142,11 @@ async def test_no_response_reveals_the_superadmin(client, world, viewer_key) -> 
             f"/suppliers/{world['supplier']}", json={"name": "Sokha Farm 2"}, headers=auth(viewer)
         ),
         client.post(f"/customers/{world['customer']}/deactivate", headers=auth(viewer)),
+        client.patch(
+            f"/production/{world['batch']}/produced",
+            json={"version": world["batch_version"], "wings_kg": "5"},
+            headers=auth(viewer),
+        ),
         client.patch(f"/users/{world['staff'].id}", json={"phone": "012"}, headers=auth(viewer)),
         client.patch(f"/users/{sa.id}", json={"full_name": "x"}, headers=auth(viewer)),
         client.post(f"/users/{sa.id}/reset-password", headers=auth(viewer)),

@@ -2,7 +2,7 @@
 
 Backend and Telegram bot for the Mean Chey Grilled Chicken system.
 
-**Phase 1** covers authentication (PC password login + Telegram Mini App), user management by role hierarchy, and a generic, extensible permission system. The first business features are the **suppliers** and **customers** lists (`/suppliers`, `/customers`); see `docs/FEATURES.md` §11.
+**Phase 1** covers authentication (PC password login + Telegram Mini App), user management by role hierarchy, and a generic, extensible permission system. The business features are the **suppliers** and **customers** lists (`/suppliers`, `/customers`; `docs/FEATURES.md` §11) and **production** batches in three steps with autosaved drafts (`/production`; §14).
 
 📄 Detailed docs: [docs/FEATURES.md](docs/FEATURES.md) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
@@ -124,20 +124,21 @@ The tests need PostgreSQL. `TEST_DATABASE_URL` (from the environment or `.env`) 
 
 **Access levels (what the general manager uses)**
 
-The general manager gives access per feature: **Off**, **View only** or **Full access** (`/users/{id}/features`). Detailed permissions stay underneath and are visible only to the superadmin. See `docs/FEATURES.md` §12.
+The general manager gives access per feature: **Off**, **View only**, **Record** (production only) or **Full access** (`/users/{id}/features`). Detailed permissions stay underneath and are visible only to the superadmin. See `docs/FEATURES.md` §12.
 
-| Feature | For | View only | Full access | Default |
-|---|---|---|---|---|
-| Suppliers | supervisor, staff | `suppliers.view` | + create, update, delete | supervisor: Full · staff: Off |
-| Customers | supervisor, staff | `customers.view` | + create, update, delete | supervisor: Full · staff: Off |
-| Staff management | supervisor | `users.view` | + create, update | supervisor: Full |
+| Feature | For | View only | Record | Full access | Default |
+|---|---|---|---|---|---|
+| Suppliers | supervisor, staff | `suppliers.view` | — | + create, update, delete | supervisor: Full · staff: Off |
+| Customers | supervisor, staff | `customers.view` | — | + create, update, delete | supervisor: Full · staff: Off |
+| Production | supervisor, staff | `production.view` | + create (start batches, fill in and finish steps) | + update (reopen), delete (cancel) | supervisor: Full · staff: Off |
+| Staff management | supervisor | `users.view` | — | + create, update | supervisor: Full |
 
 **General-manager-only permissions** (no feature; managed by the superadmin as detailed permissions): `users.delete` (deactivate / reactivate), `users.reset_password`, `permissions.grant` (set access levels). Supervisors never deactivate users and never grant access.
 
 **Defaults**
 
 - The superadmin implicitly holds every permission; these are not stored.
-- A new GM gets every `users` and partner permission.
+- A new GM gets every `users`, partner and production permission.
 - A new supervisor gets every feature at Full access, limited to what their creator holds; staff get everything Off.
 - When a release adds a permission with role defaults, existing active users of those roles receive it on the next start (a one-time backfill, audited as `default_backfill`).
 

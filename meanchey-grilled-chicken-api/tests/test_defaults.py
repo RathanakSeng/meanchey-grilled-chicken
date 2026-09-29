@@ -18,6 +18,7 @@ PARTNERS = {
     for entity in ("suppliers", "customers")
     for action in ("view", "create", "update", "delete")
 }
+PRODUCTION = {f"production.{a}" for a in ("view", "create", "update", "delete")}
 
 
 async def _create(client, actor, role: str, username: str) -> dict:
@@ -35,9 +36,9 @@ async def _perms_of(client, superadmin, user_id) -> set[str]:
     return {p["code"] for m in r.json()["modules"] for p in m["permissions"] if p["granted"]}
 
 
-async def test_gm_gets_all_phase1_and_partner_permissions(client, superadmin) -> None:
+async def test_gm_gets_all_phase1_partner_and_production_permissions(client, superadmin) -> None:
     gm = await _create(client, superadmin, "general_manager", "default_gm")
-    assert await _perms_of(client, superadmin, gm["id"]) == ALL_PHASE1 | PARTNERS
+    assert await _perms_of(client, superadmin, gm["id"]) == ALL_PHASE1 | PARTNERS | PRODUCTION
 
 
 async def test_supervisor_defaults(client, superadmin, make_user) -> None:
@@ -49,6 +50,7 @@ async def test_supervisor_defaults(client, superadmin, make_user) -> None:
         "users.create",
         "users.update",
         *PARTNERS,
+        *PRODUCTION,
     }
 
 

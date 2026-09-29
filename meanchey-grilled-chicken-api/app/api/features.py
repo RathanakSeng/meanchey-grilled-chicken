@@ -7,14 +7,13 @@ from app.deps import SessionDep, require_permission
 from app.models import User
 from app.permissions import features as feature_service
 from app.permissions.hierarchy import ensure_can_manage
+from app.permissions.registry import MENUS
 from app.schemas.feature import FeatureLevelIn, FeatureMenuOut, FeatureOut, UserFeaturesOut
 from app.services.user_service import get_user_or_404
 
 router = APIRouter(tags=["features"])
 
 CanManageFeatures = Annotated[User, Depends(require_permission("permissions.grant"))]
-
-MENUS = ("production", "settings")
 
 
 def _out(state: feature_service.FeatureState) -> FeatureOut:

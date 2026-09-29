@@ -2,8 +2,9 @@
 
 Adding a feature:
   1. Add its module to MODULES and its permissions to PERMISSIONS below.
-  2. Add a FeatureDef to FEATURES so the general manager can set it (Off / View only / Full
-     access) on the Access tab. Detailed permissions are managed by the superadmin only.
+  2. Add a FeatureDef to FEATURES so the general manager can set it (Off / View only /
+     [Record /] Full access) on the Access tab. Detailed permissions are managed by the
+     superadmin only.
   3. Optionally add defaults to DEFAULT_PERMISSIONS. Defaults for a newly added permission are
      also backfilled once to existing active users of those roles (see permissions/sync.py).
   4. Guard the endpoints with `require_permission("<code>")`.
@@ -43,6 +44,7 @@ class PermissionDef:
 MODULES: list[ModuleDef] = [
     ModuleDef("users", "User management", "គ្រប់គ្រងអ្នកប្រើប្រាស់"),
     ModuleDef("partners", "Partners", "ដៃគូ"),
+    ModuleDef("production", "Production", "ផលិតកម្ម"),
 ]
 
 _MANAGERS = (Role.GENERAL_MANAGER, Role.SUPERVISOR)
@@ -167,16 +169,61 @@ PERMISSIONS += [
 
 _PARTNER_CODES = frozenset(p.code for p in PERMISSIONS if p.module == "partners")
 
+PERMISSIONS += [
+    PermissionDef(
+        code="production.view",
+        module="production",
+        name_en="View production",
+        name_km="មើលផលិតកម្ម",
+        description_en="See production batches, their steps and figures.",
+        description_km="មើលបាច់ផលិតកម្ម ជំហាននីមួយៗ និងតួលេខសង្ខេប។",
+        assignable_to=_EVERYONE,
+    ),
+    PermissionDef(
+        code="production.create",
+        module="production",
+        name_en="Record production",
+        name_km="កត់ត្រាផលិតកម្ម",
+        description_en="Start batches, fill in their steps and finish them.",
+        description_km="ចាប់ផ្តើមបាច់ថ្មី បំពេញជំហាននីមួយៗ និងបញ្ចប់ជំហាន។",
+        assignable_to=_EVERYONE,
+    ),
+    PermissionDef(
+        code="production.update",
+        module="production",
+        name_en="Reopen production steps",
+        name_km="បើកជំហានផលិតកម្មឡើងវិញ",
+        description_en="Reopen a finished step so it can be corrected.",
+        description_km="បើកជំហានដែលបានបញ្ចប់ឡើងវិញ ដើម្បីកែតម្រូវ។",
+        assignable_to=_EVERYONE,
+    ),
+    PermissionDef(
+        code="production.delete",
+        module="production",
+        name_en="Cancel production batches",
+        name_km="លុបចោលបាច់ផលិតកម្ម",
+        description_en="Cancel a batch that is still in progress, with a reason.",
+        description_km="លុបចោលបាច់ដែលកំពុងដំណើរការ ដោយបញ្ជាក់មូលហេតុ។",
+        assignable_to=_EVERYONE,
+    ),
+]
+
+_PRODUCTION_CODES = frozenset(p.code for p in PERMISSIONS if p.module == "production")
+
 # --- Feature access levels -------------------------------------------------------------------
 
-Level = Literal["off", "view", "full"]
-LEVELS: tuple[Level, ...] = ("off", "view", "full")
-Menu = Literal["production", "settings"]
+Level = Literal["off", "view", "record", "full"]
+# Every level in display order. A feature uses "off" first, then any of the others in this order
+# (most omit "record").
+LEVELS: tuple[Level, ...] = ("off", "view", "record", "full")
+Menu = Literal["workstation", "settings"]
+# Display order of the menus (GET /users/{id}/features groups by it).
+MENUS: tuple[Menu, ...] = ("workstation", "settings")
 
 
 @dataclass(frozen=True)
 class FeatureDef:
-    """A feature the general manager switches per user: Off / View only / Full access.
+    """A feature the general manager switches per user: Off / View only / [Record /] Full access.
 
     Each level is an exact set of permission codes; a user whose permissions (restricted to the
     feature's codes) match no level is shown as "custom". `users.reset_password` and
@@ -191,7 +238,7 @@ class FeatureDef:
     description_km: str
     # Roles the level can be set for.
     applies_to: tuple[Role, ...]
-    # Ordered level -> permission codes. Always starts with "off" -> ().
+    # Ordered level -> permission codes. Always starts with "off" -> (); order follows LEVELS.
     levels: tuple[tuple[Level, tuple[str, ...]], ...]
 
     @property
@@ -208,7 +255,7 @@ def _partner_feature(
 ) -> FeatureDef:
     return FeatureDef(
         code=entity,
-        menu="production",
+        menu="workstation",
         name_en=name_en,
         name_km=name_km,
         description_en=desc_en,
@@ -236,6 +283,30 @@ FEATURES: list[FeatureDef] = [
         "អតិថិជន",
         "The list of customers, with their location and phone.",
         "បញ្ជីអតិថិជន ព្រមទាំងទីតាំង និងលេខទូរស័ព្ទ។",
+    ),
+    FeatureDef(
+        code="production",
+        menu="workstation",
+        name_en="Production",
+        name_km="ផលិតកម្ម",
+        description_en=(
+            "Production batches: raw material, produced and standardize steps. Record lets "
+            "someone fill in and finish steps; full access also reopens steps and cancels batches."
+        ),
+        description_km=(
+            "បាច់ផលិតកម្ម៖ វត្ថុធាតុដើម ការកែច្នៃ និងការវេចខ្ចប់។ កម្រិតកត់ត្រាអាចបំពេញ និងបញ្ចប់ជំហាន "
+            "ចំណែកសិទ្ធិពេញលេញអាចបើកជំហានឡើងវិញ និងលុបចោលបាច់បានផងដែរ។"
+        ),
+        applies_to=(Role.SUPERVISOR, Role.STAFF),
+        levels=(
+            ("off", ()),
+            ("view", ("production.view",)),
+            ("record", ("production.view", "production.create")),
+            (
+                "full",
+                ("production.view", "production.create", "production.update", "production.delete"),
+            ),
+        ),
     ),
     FeatureDef(
         code="staff_management",
@@ -268,10 +339,17 @@ def _feature_defaults(role: Role, levels: dict[str, Level]) -> frozenset[str]:
 # Granted automatically when a user of this role is created (limited to what the creator holds).
 DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
     Role.GENERAL_MANAGER: frozenset(p.code for p in PERMISSIONS if p.module == "users")
-    | _PARTNER_CODES,
+    | _PARTNER_CODES
+    | _PRODUCTION_CODES,
     # Every feature at full access.
     Role.SUPERVISOR: _feature_defaults(
-        Role.SUPERVISOR, {"suppliers": "full", "customers": "full", "staff_management": "full"}
+        Role.SUPERVISOR,
+        {
+            "suppliers": "full",
+            "customers": "full",
+            "production": "full",
+            "staff_management": "full",
+        },
     ),
     # Every feature off.
     Role.STAFF: _feature_defaults(Role.STAFF, {}),
@@ -289,10 +367,15 @@ def validate_features(
     features = FEATURES if features is None else features
     perms = {p.code: p for p in (PERMISSIONS if permissions is None else permissions)}
     for f in features:
+        if f.menu not in MENUS:
+            raise FeatureRegistryError(f"feature {f.code}: unknown menu {f.menu!r}")
         levels = [level for level, _ in f.levels]
         if not levels or levels[0] != "off" or f.level_map["off"]:
             raise FeatureRegistryError(f"feature {f.code}: first level must be 'off' with no codes")
-        if len(set(levels)) != len(levels) or any(level not in LEVELS for level in levels):
+        if any(level not in LEVELS for level in levels) or levels != sorted(
+            set(levels), key=LEVELS.index
+        ):
+            # Known levels, no duplicates, in LEVELS order ("record" is optional).
             raise FeatureRegistryError(f"feature {f.code}: invalid levels {levels}")
         for code in sorted(f.codes):
             perm = perms.get(code)

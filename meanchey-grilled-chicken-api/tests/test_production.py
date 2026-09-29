@@ -1,0 +1,677 @@
+"""Production batches: steps, drafts and versions, finish / reopen / cancel, codes, stats, list."""
+
+import asyncio
+from datetime import UTC, date, datetime, timedelta
+
+import pytest
+from httpx import Response
+from sqlalchemy import select
+
+from app.models import AuditLog, Role
+from app.services import production_service
+from tests.conftest import assert_error, auth
+
+BYPRODUCTS = ["gizzard", "liver", "heart", "head"]
+PRODUCED = {
+    "wings_kg": "4.2",
+    "thighs_kg": "6.8",
+    "marinade_g": "350",
+    "byproducts": {code: "0.5" for code in BYPRODUCTS},
+}
+
+
+def standardize_body(big=7, small=5, rejected_wings=1, rejected_thighs=1, **extra) -> dict:
+    """Defaults balance a 10-chicken batch: 2×7 + 5 + 1 = 20 wings and 20 thighs."""
+    return {
+        "big_packages": big,
+        "small_packages": small,
+        "rejected_wings": rejected_wings,
+        "rejected_thighs": rejected_thighs,
+        "byproducts": {c: {"carry_kg": "0.4", "rejected_kg": "0.1"} for c in BYPRODUCTS},
+        **extra,
+    }
+
+
+def ok(r: Response, status: int = 200) -> dict:
+    assert r.status_code == status, r.text
+    return r.json()
+
+
+class Api:
+    def __init__(self, client, actor) -> None:
+        self.client, self.headers = client, auth(actor)
+
+    async def create(self, **body) -> dict:
+        return ok(await self.client.post("/production", json=body, headers=self.headers), 201)
+
+    async def get(self, batch: dict) -> dict:
+        return ok(await self.client.get(f"/production/{batch['id']}", headers=self.headers))
+
+    def patch(self, batch: dict, step: str, version: int | None = None, **fields):
+        body = {"version": batch["version"] if version is None else version, **fields}
+        return self.client.patch(
+            f"/production/{batch['id']}/{step}", json=body, headers=self.headers
+        )
+
+    def finish(self, batch: dict, step: str):
+        return self.client.post(
+            f"/production/{batch['id']}/{step}/finish",
+            json={"version": batch["version"]},
+            headers=self.headers,
+        )
+
+    def reopen(self, batch: dict, step: str):
+        return self.client.post(
+            f"/production/{batch['id']}/{step}/reopen",
+            json={"version": batch["version"]},
+            headers=self.headers,
+        )
+
+    def cancel(self, batch: dict, reason: str = "Wrong delivery"):
+        return self.client.post(
+            f"/production/{batch['id']}/cancel",
+            json={"version": batch["version"], "reason": reason},
+            headers=self.headers,
+        )
+
+    async def step1(self, supplier: dict, quantity: int = 10, **extra) -> dict:
+        batch = await self.create(
+            supplier_id=supplier["id"], weight_kg="25.500", quantity=quantity, **extra
+        )
+        return ok(await self.finish(batch, "raw-material"))
+
+    async def step2(self, supplier: dict, quantity: int = 10, **extra) -> dict:
+        batch = await self.step1(supplier, quantity, **extra)
+        batch = ok(await self.patch(batch, "produced", **PRODUCED))
+        return ok(await self.finish(batch, "produced"))
+
+    async def completed(self, supplier: dict, **standardize) -> dict:
+        batch = await self.step2(supplier)
+        batch = ok(await self.patch(batch, "standardize", **standardize_body(**standardize)))
+        return ok(await self.finish(batch, "standardize"))
+
+
+@pytest.fixture
+async def gm(make_user):
+    return await make_user(Role.GENERAL_MANAGER)
+
+
+@pytest.fixture
+def api(client, gm) -> Api:
+    return Api(client, gm)
+
+
+@pytest.fixture
+async def supplier(client, gm) -> dict:
+    return ok(await client.post("/suppliers", json={"name": "Sokha Farm"}, headers=auth(gm)), 201)
+
+
+def _field_locs(r: Response) -> list[list[str]]:
+    return [f["loc"] for f in r.json()["error"]["details"]["fields"]]
+
+
+# --- Create and codes ----------------------------------------------------------------------------
+
+
+async def test_create_starts_a_draft_step_1(api, session) -> None:
+    batch = await api.create()
+    today = production_service.business_today()
+    assert batch["code"] == f"PR-{today:%Y%m%d}-001"
+    assert batch["production_date"] == today.isoformat()
+    assert (batch["status"], batch["current_step"], batch["version"]) == ("in_progress", 1, 1)
+    raw = batch["raw_material"]
+    assert raw["status"] == "draft"
+    assert raw["material_kind"] == "chicken"
+    assert raw["supplier"] is None and raw["weight_kg"] is None and raw["quantity"] is None
+    assert batch["produced"] is None and batch["standardize"] is None
+    assert batch["byproducts"] == []
+    assert [b["code"] for b in batch["catalog"]["byproducts"]] == BYPRODUCTS
+    assert batch["catalog"]["byproducts"][0]["name_km"] == "កោះមាន់"
+    assert batch["catalog"]["material_kinds"][0]["wings_per_unit"] == 2
+    assert batch["created_by"]["full_name"] == "Test general_manager"
+
+    log = await session.scalar(select(AuditLog).where(AuditLog.action == "production.create"))
+    assert log.entity_type == "production_batch"
+    assert str(log.entity_id) == batch["id"]
+    assert log.details == {"code": batch["code"]}
+
+
+async def test_create_with_initial_values(api, supplier) -> None:
+    batch = await api.create(
+        production_date="2026-05-04", supplier_id=supplier["id"], weight_kg=12.25, quantity=6
+    )
+    assert batch["code"] == "PR-20260504-001"
+    raw = batch["raw_material"]
+    assert raw["supplier"] == {
+        "id": supplier["id"],
+        "name": "Sokha Farm",
+        "phone_display": None,
+        "is_active": True,
+    }
+    # Weights are fixed-precision strings.
+    assert raw["weight_kg"] == "12.250"
+    assert raw["quantity"] == 6
+
+
+async def test_codes_are_sequential_per_day(api) -> None:
+    codes = [(await api.create(production_date="2026-03-01"))["code"] for _ in range(3)]
+    assert codes == ["PR-20260301-001", "PR-20260301-002", "PR-20260301-003"]
+    assert (await api.create(production_date="2026-03-02"))["code"] == "PR-20260302-001"
+
+
+async def test_codes_are_unique_under_concurrent_creation(api) -> None:
+    batches = await asyncio.gather(*(api.create(production_date="2026-03-05") for _ in range(8)))
+    codes = sorted(b["code"] for b in batches)
+    assert codes == [f"PR-20260305-{n:03d}" for n in range(1, 9)]
+
+
+async def test_code_day_follows_business_timezone(api, monkeypatch) -> None:
+    # 17:30 UTC on 30 Sep is 00:30 on 1 Oct in Phnom Penh (UTC+7).
+    monkeypatch.setattr(
+        production_service, "utcnow", lambda: datetime(2026, 9, 30, 17, 30, tzinfo=UTC)
+    )
+    batch = await api.create()
+    assert batch["production_date"] == "2026-10-01"
+    assert batch["code"] == "PR-20261001-001"
+
+
+async def test_editing_the_date_keeps_the_code(api) -> None:
+    batch = await api.create(production_date="2026-03-01")
+    batch = ok(await api.patch(batch, "raw-material", production_date="2026-03-02"))
+    assert batch["production_date"] == "2026-03-02"
+    assert batch["code"] == "PR-20260301-001"
+
+
+async def test_create_rejects_unknown_supplier_and_kind(api) -> None:
+    r = await api.client.post(
+        "/production",
+        json={"supplier_id": "00000000-0000-0000-0000-000000000001"},
+        headers=api.headers,
+    )
+    assert_error(r, 422, "SUPPLIER_NOT_FOUND")
+    r = await api.client.post("/production", json={"material_kind": "duck"}, headers=api.headers)
+    assert_error(r, 422, "VALIDATION_ERROR")
+
+
+# --- Drafts and versions -------------------------------------------------------------------------
+
+
+async def test_draft_save_is_partial_and_bumps_version(api, supplier) -> None:
+    batch = await api.create()
+    batch = ok(await api.patch(batch, "raw-material", weight_kg="10.5"))
+    assert batch["version"] == 2
+    batch = ok(await api.patch(batch, "raw-material", supplier_id=supplier["id"]))
+    assert batch["version"] == 3
+    assert batch["raw_material"]["weight_kg"] == "10.500"  # untouched by the second save
+    batch = ok(await api.patch(batch, "raw-material", weight_kg=None))
+    assert batch["raw_material"]["weight_kg"] is None
+    assert batch["raw_material"]["updated_by"]["full_name"] == "Test general_manager"
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"weight_kg": "-1"},
+        {"weight_kg": "1.2345"},  # more than 3 decimals
+        {"weight_kg": "abc"},
+        {"quantity": -1},
+        {"quantity": 1.5},
+        {"production_date": None},
+    ],
+)
+async def test_draft_relaxed_validation(api, fields) -> None:
+    batch = await api.create()
+    assert_error(await api.patch(batch, "raw-material", **fields), 422, "VALIDATION_ERROR")
+
+
+async def test_draft_allows_zero(api) -> None:
+    batch = await api.create()
+    batch = ok(await api.patch(batch, "raw-material", weight_kg="0", quantity=0))
+    assert (batch["raw_material"]["weight_kg"], batch["raw_material"]["quantity"]) == ("0.000", 0)
+
+
+async def test_version_is_required(api) -> None:
+    batch = await api.create()
+    r = await api.client.patch(
+        f"/production/{batch['id']}/raw-material", json={"quantity": 3}, headers=api.headers
+    )
+    assert_error(r, 422, "VALIDATION_ERROR")
+
+
+async def test_stale_version_is_a_conflict_with_the_current_batch(api) -> None:
+    batch = await api.create()
+    current = ok(await api.patch(batch, "raw-material", quantity=5))
+    r = await api.patch(batch, "raw-material", quantity=7)  # still version 1
+    assert_error(r, 409, "PRODUCTION_CONFLICT")
+    details = r.json()["error"]["details"]["batch"]
+    assert details["version"] == current["version"] == 2
+    assert details["raw_material"]["quantity"] == 5
+    # Finish with a stale version conflicts too.
+    r = await api.finish(batch, "raw-material")
+    assert_error(r, 409, "PRODUCTION_CONFLICT")
+
+
+async def test_unknown_batch(api) -> None:
+    r = await api.client.get(
+        "/production/00000000-0000-0000-0000-000000000001", headers=api.headers
+    )
+    assert_error(r, 404, "PRODUCTION_NOT_FOUND")
+
+
+# --- Step order and finished steps ---------------------------------------------------------------
+
+
+async def test_later_steps_wait_for_the_previous_one(api, supplier) -> None:
+    batch = await api.create()
+    assert_error(await api.patch(batch, "produced", wings_kg="1"), 409, "PRODUCTION_STEP_NOT_READY")
+    assert_error(await api.finish(batch, "produced"), 409, "PRODUCTION_STEP_NOT_READY")
+    assert_error(await api.patch(batch, "standardize"), 409, "PRODUCTION_STEP_NOT_READY")
+    assert_error(await api.finish(batch, "standardize"), 409, "PRODUCTION_STEP_NOT_READY")
+
+    batch = await api.step1(supplier)
+    assert_error(await api.patch(batch, "standardize"), 409, "PRODUCTION_STEP_NOT_READY")
+    assert_error(await api.finish(batch, "standardize"), 409, "PRODUCTION_STEP_NOT_READY")
+
+
+async def test_finished_step_is_read_only(api, supplier) -> None:
+    batch = await api.step1(supplier)
+    assert batch["raw_material"]["status"] == "finished"
+    assert batch["raw_material"]["finished_by"]["full_name"] == "Test general_manager"
+    assert batch["raw_material"]["finished_at"]
+    assert batch["current_step"] == 2
+    assert_error(
+        await api.patch(batch, "raw-material", quantity=3), 409, "PRODUCTION_STEP_FINISHED"
+    )
+    assert_error(await api.finish(batch, "raw-material"), 409, "PRODUCTION_STEP_FINISHED")
+
+
+# --- Step 1 --------------------------------------------------------------------------------------
+
+
+async def test_finish_step_1_requires_every_field(api) -> None:
+    batch = await api.create()
+    r = await api.finish(batch, "raw-material")
+    assert_error(r, 422, "VALIDATION_ERROR")
+    assert _field_locs(r) == [
+        ["raw_material", "supplier_id"],
+        ["raw_material", "weight_kg"],
+        ["raw_material", "quantity"],
+    ]
+
+
+async def test_finish_step_1_requires_positive_values(api, supplier) -> None:
+    batch = await api.create(supplier_id=supplier["id"], weight_kg="0", quantity=0)
+    r = await api.finish(batch, "raw-material")
+    assert_error(r, 422, "VALIDATION_ERROR")
+    types = {tuple(f["loc"]): f["type"] for f in r.json()["error"]["details"]["fields"]}
+    assert types == {
+        ("raw_material", "weight_kg"): "greater_than",
+        ("raw_material", "quantity"): "greater_than",
+    }
+
+
+async def test_finish_step_1_needs_an_active_supplier(api, client, gm, supplier) -> None:
+    batch = await api.create(supplier_id=supplier["id"], weight_kg="5", quantity=2)
+    r = await client.post(f"/suppliers/{supplier['id']}/deactivate", headers=auth(gm))
+    assert r.status_code == 200
+    assert_error(await api.finish(batch, "raw-material"), 422, "SUPPLIER_INACTIVE")
+
+
+async def test_finishing_step_1_opens_step_2_with_computed_counts(api, supplier) -> None:
+    batch = await api.step1(supplier, quantity=10)
+    produced = batch["produced"]
+    assert produced["status"] == "draft"
+    assert (produced["wings_count"], produced["thighs_count"]) == (20, 20)
+    assert [b["item_code"] for b in batch["byproducts"]] == BYPRODUCTS
+    assert batch["computed"] == {"wings_count": 20, "thighs_count": 20, "yield_percent": None}
+
+
+# --- Step 2 --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("field", ["wings_count", "thighs_count"])
+async def test_counts_are_never_accepted_from_the_client(api, supplier, field) -> None:
+    batch = await api.step1(supplier)
+    assert_error(await api.patch(batch, "produced", **{field: 99}), 422, "VALIDATION_ERROR")
+
+
+async def test_counts_follow_quantity_after_reopening_step_1(api, supplier) -> None:
+    batch = await api.step1(supplier, quantity=10)
+    batch = ok(await api.patch(batch, "produced", wings_kg="3"))  # a step 2 draft value
+    batch = ok(await api.reopen(batch, "raw-material"))
+    assert batch["current_step"] == 1 and batch["raw_material"]["status"] == "draft"
+    batch = ok(await api.patch(batch, "raw-material", quantity=12))
+    assert batch["produced"]["wings_count"] == 24
+    batch = ok(await api.finish(batch, "raw-material"))
+    assert (batch["produced"]["wings_count"], batch["produced"]["thighs_count"]) == (24, 24)
+    assert batch["produced"]["wings_kg"] == "3.000"  # the step 2 draft is kept
+
+
+async def test_finish_step_2_validation(api, supplier) -> None:
+    batch = await api.step1(supplier)
+    batch = ok(await api.patch(batch, "produced", wings_kg="0", byproducts={"liver": "0.3"}))
+    r = await api.finish(batch, "produced")
+    assert_error(r, 422, "VALIDATION_ERROR")
+    assert _field_locs(r) == [
+        ["produced", "wings_kg"],
+        ["produced", "thighs_kg"],
+        ["produced", "marinade_g"],
+        ["produced", "byproducts", "gizzard"],
+        ["produced", "byproducts", "heart"],
+        ["produced", "byproducts", "head"],
+    ]
+
+
+async def test_step_2_accepts_zero_byproducts_and_marinade(api, supplier) -> None:
+    batch = await api.step1(supplier)
+    body = {**PRODUCED, "marinade_g": 0, "byproducts": {c: 0 for c in BYPRODUCTS}}
+    batch = ok(await api.patch(batch, "produced", **body))
+    batch = ok(await api.finish(batch, "produced"))
+    assert batch["produced"]["status"] == "finished"
+    assert batch["produced"]["marinade_g"] == "0.0"
+    assert batch["current_step"] == 3
+    assert batch["standardize"]["status"] == "draft"
+
+
+async def test_step_2_values_and_yield(api, supplier) -> None:
+    batch = await api.step2(supplier)
+    produced = batch["produced"]
+    assert (produced["wings_kg"], produced["thighs_kg"], produced["marinade_g"]) == (
+        "4.200",
+        "6.800",
+        "350.0",
+    )
+    # (4.2 + 6.8) / 25.5 = 43.1 %
+    assert batch["computed"]["yield_percent"] == "43.1"
+    assert {b["item_code"]: b["produced_kg"] for b in batch["byproducts"]} == {
+        c: "0.500" for c in BYPRODUCTS
+    }
+
+
+async def test_unknown_byproduct_is_rejected(api, supplier) -> None:
+    batch = await api.step1(supplier)
+    r = await api.patch(batch, "produced", byproducts={"feet": "1"})
+    assert_error(r, 422, "VALIDATION_ERROR")
+    assert _field_locs(r) == [["body", "byproducts", "feet"]]
+
+
+# --- Step 3 --------------------------------------------------------------------------------------
+
+
+async def test_finish_step_3_completes_the_batch(api, session, supplier) -> None:
+    batch = await api.completed(supplier, comment="  Good batch  ")
+    assert batch["status"] == "completed"
+    assert batch["completed_at"]
+    assert batch["standardize"]["status"] == "finished"
+    assert batch["standardize"]["comment"] == "Good batch"
+    assert batch["current_step"] == 3
+
+    logs = list(
+        await session.scalars(
+            select(AuditLog)
+            .where(AuditLog.action == "production.step_finish")
+            .order_by(AuditLog.id)
+        )
+    )
+    assert [log.details for log in logs] == [{"code": batch["code"], "step": s} for s in (1, 2, 3)]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "wings", "thighs"),
+    [
+        ({"rejected_wings": 2}, -1, 0),
+        ({"rejected_thighs": 0}, 0, 1),
+        ({"big": 8}, -2, -2),
+        ({"small": 4, "rejected_wings": 2}, 0, 1),
+    ],
+)
+async def test_piece_balance_is_enforced(api, supplier, overrides, wings, thighs) -> None:
+    batch = await api.step2(supplier)
+    batch = ok(await api.patch(batch, "standardize", **standardize_body(**overrides)))
+    r = await api.finish(batch, "standardize")
+    assert_error(r, 422, "PRODUCTION_BALANCE_MISMATCH")
+    details = r.json()["error"]["details"]
+    assert details["wings"]["expected"] == 20
+    assert (details["wings"]["difference"], details["thighs"]["difference"]) == (wings, thighs)
+    assert details["wings"]["assigned"] == 20 - wings
+
+
+async def test_byproduct_balance_is_not_enforced_by_the_api(api, supplier) -> None:
+    """carry + rejected ≠ produced is a UI-only rule (documented); the API accepts it."""
+    body = standardize_body()
+    body["byproducts"]["liver"] = {"carry_kg": "9", "rejected_kg": "0"}  # produced 0.5
+    batch = await api.step2(supplier)
+    batch = ok(await api.patch(batch, "standardize", **body))
+    assert ok(await api.finish(batch, "standardize"))["status"] == "completed"
+
+
+async def test_finish_step_3_requires_every_field(api, supplier) -> None:
+    batch = await api.step2(supplier)
+    batch = ok(
+        await api.patch(
+            batch,
+            "standardize",
+            big_packages=7,
+            byproducts={"heart": {"carry_kg": "0.5"}},
+        )
+    )
+    r = await api.finish(batch, "standardize")
+    assert_error(r, 422, "VALIDATION_ERROR")
+    locs = _field_locs(r)
+    assert ["standardize", "small_packages"] in locs
+    assert ["standardize", "byproducts", "heart", "rejected_kg"] in locs
+    assert ["standardize", "byproducts", "heart", "carry_kg"] not in locs
+    assert ["standardize", "big_packages"] not in locs
+
+
+async def test_step_3_draft_keeps_other_byproduct_fields(api, supplier) -> None:
+    batch = await api.step2(supplier)
+    batch = ok(await api.patch(batch, "standardize", byproducts={"head": {"carry_kg": "0.2"}}))
+    batch = ok(await api.patch(batch, "standardize", byproducts={"head": {"rejected_kg": "0.3"}}))
+    head = next(b for b in batch["byproducts"] if b["item_code"] == "head")
+    assert (head["produced_kg"], head["carry_kg"], head["rejected_kg"]) == (
+        "0.500",
+        "0.200",
+        "0.300",
+    )
+
+
+# --- Reopen --------------------------------------------------------------------------------------
+
+
+async def test_reopen_is_blocked_by_a_finished_next_step(api, supplier) -> None:
+    batch = await api.step2(supplier)
+    assert_error(await api.reopen(batch, "raw-material"), 409, "PRODUCTION_STEP_LOCKED")
+
+
+async def test_reopen_step_3_puts_the_batch_back_in_progress(api, session, supplier) -> None:
+    batch = await api.completed(supplier)
+    assert_error(await api.reopen(batch, "produced"), 409, "PRODUCTION_STEP_LOCKED")
+    batch = ok(await api.reopen(batch, "standardize"))
+    assert (batch["status"], batch["completed_at"], batch["current_step"]) == (
+        "in_progress",
+        None,
+        3,
+    )
+    assert batch["standardize"]["status"] == "draft"
+    assert batch["standardize"]["finished_by"] is None
+    # Then step 2 can be reopened too, and edited again.
+    batch = ok(await api.reopen(batch, "produced"))
+    assert batch["current_step"] == 2
+    batch = ok(await api.patch(batch, "produced", wings_kg="4.5"))
+    assert batch["produced"]["wings_kg"] == "4.500"
+
+    logs = list(
+        await session.scalars(
+            select(AuditLog)
+            .where(AuditLog.action == "production.step_reopen")
+            .order_by(AuditLog.id)
+        )
+    )
+    assert [log.details["step"] for log in logs] == [3, 2]
+
+
+async def test_reopening_a_draft_step_changes_nothing(api) -> None:
+    batch = await api.create()
+    again = ok(await api.reopen(batch, "raw-material"))
+    assert again["version"] == batch["version"]
+
+
+# --- Cancel --------------------------------------------------------------------------------------
+
+
+async def test_cancel(api, session, supplier) -> None:
+    batch = await api.step1(supplier)
+    assert_error(await api.cancel(batch, reason="   "), 422, "VALIDATION_ERROR")
+    batch = ok(await api.cancel(batch, reason=" Chickens were sick "))
+    assert batch["status"] == "cancelled"
+    assert batch["cancel_reason"] == "Chickens were sick"
+    assert batch["cancelled_by"]["full_name"] == "Test general_manager"
+    assert batch["cancelled_at"]
+
+    # Read-only from now on.
+    assert_error(await api.patch(batch, "produced", wings_kg="1"), 409, "PRODUCTION_CANCELLED")
+    assert_error(await api.finish(batch, "produced"), 409, "PRODUCTION_CANCELLED")
+    assert_error(await api.reopen(batch, "raw-material"), 409, "PRODUCTION_CANCELLED")
+    assert_error(await api.cancel(batch), 409, "PRODUCTION_CANCELLED")
+    assert (await api.get(batch))["status"] == "cancelled"
+
+    log = await session.scalar(select(AuditLog).where(AuditLog.action == "production.cancel"))
+    assert log.details == {"code": batch["code"], "reason": "Chickens were sick"}
+
+
+async def test_completed_batches_cannot_be_cancelled(api, supplier) -> None:
+    batch = await api.completed(supplier)
+    assert_error(await api.cancel(batch), 409, "PRODUCTION_COMPLETED")
+
+
+# --- Stats ---------------------------------------------------------------------------------------
+
+
+async def test_stats(api, client, gm, supplier) -> None:
+    today = production_service.business_today()
+    last_month = today.replace(day=1) - timedelta(days=1)
+    await api.completed(supplier, rejected_wings=1, rejected_thighs=1)  # 10 chickens, 2 rejected
+    await api.step1(supplier, quantity=5)  # in progress
+    await api.create()  # in progress, step 1 draft: its quantity doesn't count
+    cancelled = await api.step1(supplier, quantity=7)
+    ok(await api.cancel(cancelled))
+    await api.step1(supplier, quantity=100, production_date=last_month.isoformat())
+
+    stats = ok(await client.get("/production/stats", headers=auth(gm)))
+    assert stats == {
+        "in_progress": 3,
+        "completed_today": 1,
+        "chickens_this_month": 15,
+        "rejected_pieces_this_month": 2,
+    }
+
+
+async def test_stats_month_boundary(api, client, gm, supplier, monkeypatch) -> None:
+    await api.step1(supplier, quantity=4, production_date="2026-09-30")
+    await api.step1(supplier, quantity=6, production_date="2026-10-01")
+    # 00:30 on 1 Oct in Phnom Penh: September no longer counts.
+    monkeypatch.setattr(
+        production_service, "utcnow", lambda: datetime(2026, 9, 30, 17, 30, tzinfo=UTC)
+    )
+    stats = ok(await client.get("/production/stats", headers=auth(gm)))
+    assert stats["chickens_this_month"] == 6
+    # One minute earlier it's still September there.
+    monkeypatch.setattr(
+        production_service, "utcnow", lambda: datetime(2026, 9, 30, 16, 59, tzinfo=UTC)
+    )
+    stats = ok(await client.get("/production/stats", headers=auth(gm)))
+    assert stats["chickens_this_month"] == 4
+
+
+# --- List and supplier options -------------------------------------------------------------------
+
+
+async def _list(client, gm, **params) -> dict:
+    return ok(await client.get("/production", params=params, headers=auth(gm)))
+
+
+async def test_list_filters(api, client, gm, supplier) -> None:
+    other = ok(
+        await client.post("/suppliers", json={"name": "Dara Poultry"}, headers=auth(gm)), 201
+    )
+    draft = await api.create(production_date="2026-04-01")
+    waiting2 = await api.step1(supplier, production_date="2026-04-02")
+    waiting3 = await api.step2(other, production_date="2026-04-03")
+    cancelled = await api.step1(supplier, production_date="2026-04-04")
+    ok(await api.cancel(cancelled))
+
+    def codes(page: dict) -> list[str]:
+        return [item["code"] for item in page["items"]]
+
+    page = await _list(client, gm)
+    assert page["total"] == 4 and page["page_size"] == 20
+    # Newest production date first by default.
+    assert codes(page) == [b["code"] for b in (cancelled, waiting3, waiting2, draft)]
+    assert codes(await _list(client, gm, sort="date"))[0] == draft["code"]
+
+    assert codes(await _list(client, gm, waiting_step=2)) == [waiting2["code"]]
+    assert codes(await _list(client, gm, waiting_step=3)) == [waiting3["code"]]
+    assert codes(await _list(client, gm, status="cancelled")) == [cancelled["code"]]
+    assert set(codes(await _list(client, gm, status="in_progress"))) == {
+        draft["code"],
+        waiting2["code"],
+        waiting3["code"],
+    }
+    assert codes(await _list(client, gm, date_from="2026-04-02", date_to="2026-04-03")) == [
+        waiting3["code"],
+        waiting2["code"],
+    ]
+    assert codes(await _list(client, gm, q="dara")) == [waiting3["code"]]
+    assert codes(await _list(client, gm, q="20260401")) == [draft["code"]]
+    assert codes(await _list(client, gm, page_size=1, page=2)) == [waiting3["code"]]
+
+    item = (await _list(client, gm, waiting_step=3))["items"][0]
+    assert item["steps"] == ["finished", "finished", "draft"]
+    assert item["supplier"]["name"] == "Dara Poultry"
+    assert item["quantity"] == 10
+    assert (await _list(client, gm, q=draft["code"]))["items"][0]["steps"] == [
+        "draft",
+        "pending",
+        "pending",
+    ]
+    assert_error(
+        await client.get("/production?waiting_step=1", headers=auth(gm)), 422, "VALIDATION_ERROR"
+    )
+
+
+async def test_supplier_options(client, gm) -> None:
+    for name, phone in (("Sokha Farm", "012345678"), ("Dara Poultry", None), ("Old Farm", None)):
+        r = await client.post("/suppliers", json={"name": name, "phone": phone}, headers=auth(gm))
+        created = ok(r, 201)
+        if name == "Old Farm":
+            await client.post(f"/suppliers/{created['id']}/deactivate", headers=auth(gm))
+
+    options = ok(await client.get("/production/supplier-options", headers=auth(gm)))
+    assert [o["name"] for o in options] == ["Dara Poultry", "Sokha Farm"]
+    assert set(options[0]) == {"id", "name", "phone_display"}
+    options = ok(await client.get("/production/supplier-options?q=012 34", headers=auth(gm)))
+    assert [o["name"] for o in options] == ["Sokha Farm"]
+    assert options[0]["phone_display"] == "012 345 678"
+
+
+# --- Audit link ----------------------------------------------------------------------------------
+
+
+async def test_audit_entries_link_to_the_batch(api, client, gm, supplier) -> None:
+    batch = await api.step1(supplier)
+    r = await client.get(
+        "/audit-logs", params={"entity_type": "production_batch"}, headers=auth(gm)
+    )
+    items = ok(r)["items"]
+    assert [i["action"] for i in items] == ["production.step_finish", "production.create"]
+    assert all(
+        i["entity"] == {"type": "production_batch", "id": batch["id"], "name": batch["code"]}
+        for i in items
+    )
+
+
+def test_business_today_uses_the_timezone() -> None:
+    assert production_service.business_today(datetime(2026, 1, 1, 17, 0, tzinfo=UTC)) == date(
+        2026, 1, 2
+    )

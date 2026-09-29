@@ -27,7 +27,7 @@
   },
   "nav": {
     "home": "Home",
-    "production": "Production",
+    "workstation": "Workstation",
     "suppliers": "Suppliers",
     "customers": "Customers",
     "settings": "Settings",
@@ -35,7 +35,8 @@
     "audit": "Audit log",
     "profile": "My profile",
     "logout": "Log out",
-    "menu": "Menu"
+    "menu": "Menu",
+    "production": "Production"
   },
   "roles": {
     "superadmin": "System",
@@ -90,7 +91,7 @@
   "home": {
     "welcome": "Welcome, {{name}}",
     "subtitle": "Mean Chey Grilled Chicken management system",
-    "productionDescription": "Day-to-day production and operations.",
+    "workstationDescription": "Your daily work: suppliers, customers and more.",
     "settingsDescription": "Manage users, permissions and your account."
   },
   "users": {
@@ -169,20 +170,23 @@
       "off": "Off",
       "view": "View only",
       "full": "Full access",
-      "custom": "Custom"
+      "custom": "Custom",
+      "record": "Record"
     },
     "suggested": "Suggested",
     "empty": "No features can be set for this user.",
     "saved": "Saved",
     "menus": {
-      "production": "Production",
+      "workstation": "Workstation",
       "settings": "Settings"
     },
     "featureNames": {
       "suppliers": "Suppliers",
       "customers": "Customers",
-      "staff_management": "Staff management"
-    }
+      "staff_management": "Staff management",
+      "production": "Production"
+    },
+    "legendRecord": "Record: can start batches and fill in steps, but can't reopen or cancel."
   },
   "audit": {
     "title": "Audit log",
@@ -199,7 +203,8 @@
     "allEntities": "All record types",
     "entityTypes": {
       "supplier": "Supplier",
-      "customer": "Customer"
+      "customer": "Customer",
+      "production_batch": "Production batch"
     },
     "defaultBackfill": "Granted automatically (role default)",
     "actions": {
@@ -227,10 +232,16 @@
       "customer_deactivate": "Deactivated customer",
       "customer_reactivate": "Reactivated customer",
       "feature_set": "Changed access",
-      "user_role_change": "Changed role"
+      "user_role_change": "Changed role",
+      "production_create": "Production started",
+      "production_step_finish": "Production step finished",
+      "production_step_reopen": "Production step reopened",
+      "production_cancel": "Production cancelled"
     },
     "featureChange": "{{feature}}: {{from}} → {{to}}",
-    "roleChange": "{{from}} → {{to}}"
+    "roleChange": "{{from}} → {{to}}",
+    "productionStep": "Step {{step}} · {{name}}",
+    "cancelReason": "Reason: {{reason}}"
   },
   "profile": {
     "title": "My profile",
@@ -245,8 +256,8 @@
     "defaultTelegram": "your Telegram username",
     "defaultSuperadmin": "\"superadmin\""
   },
-  "production": {
-    "noAccessTitle": "You don't have access to any production features yet.",
+  "workstation": {
+    "noAccessTitle": "You don't have access to any workstation features yet.",
     "noAccessBody": "Ask your manager if you need to use them."
   },
   "partners": {
@@ -283,7 +294,6 @@
       "status": "Status"
     },
     "actions": "Actions",
-    "call": "Call",
     "deactivate": "Deactivate",
     "reactivate": "Reactivate",
     "deactivatedBadge": "Deactivated",
@@ -390,7 +400,17 @@
     "HTTP_ERROR": "Something went wrong.",
     "NETWORK_ERROR": "Can't reach the server. Check your connection.",
     "UNKNOWN": "Something unexpected happened. Please try again.",
-    "PERMISSION_GRANT_RESTRICTED": "Your role can't grant this permission to this user."
+    "PERMISSION_GRANT_RESTRICTED": "Your role can't grant this permission to this user.",
+    "SUPPLIER_INACTIVE": "This supplier is deactivated. Choose another supplier.",
+    "PRODUCTION_NOT_FOUND": "Production batch not found.",
+    "PRODUCTION_STEP_NOT_READY": "Finish the previous step first.",
+    "PRODUCTION_STEP_FINISHED": "This step is already finished. Reopen it to make changes.",
+    "PRODUCTION_STEP_LOCKED": "The next step is already finished. Reopen that one first.",
+    "PRODUCTION_BALANCE_MISMATCH": "Packed and rejected wings and thighs must add up exactly to the pieces produced.",
+    "PRODUCTION_CONFLICT": "Someone else changed this batch. It has been reloaded; please try again.",
+    "PRODUCTION_CANCELLED": "This batch is cancelled and can't be changed.",
+    "PRODUCTION_COMPLETED": "Completed batches can't be cancelled.",
+    "PRODUCTION_UNSAVED": "Your latest changes aren't saved yet. Check the connection and try again."
   },
   "permissions": {
     "readOnlyNotice": "You can view these permissions, but you can't change them here.",
@@ -398,5 +418,154 @@
     "notEditable": "You can't change this permission",
     "granted": "Permission granted",
     "revoked": "Permission revoked"
+  },
+  "production": {
+    "title": "Production",
+    "description": "Record batches step by step: raw material, produced and packaging.",
+    "new": "New production",
+    "actions": "Batch actions",
+    "searchPlaceholder": "Search by batch code or supplier",
+    "noResults": "No batches match these filters.",
+    "emptyTitle": "No production yet",
+    "emptyBody": "Start a new production to record raw material, produced pieces and packaging.",
+    "emptyBodyReadOnly": "Batches will appear here once someone starts a production.",
+    "chickensCount": "{{count}} chickens",
+    "stepsDone": "{{count}} of 3 steps finished",
+    "kpi": {
+      "inProgress": "In progress",
+      "completedToday": "Completed today",
+      "chickensThisMonth": "Chickens this month",
+      "rejectedThisMonth": "Rejected pieces this month"
+    },
+    "filters": {
+      "waiting2": "Waiting for step 2",
+      "waiting3": "Waiting for step 3",
+      "status": "Status",
+      "allStatuses": "All statuses",
+      "from": "From date",
+      "to": "To date"
+    },
+    "columns": {
+      "code": "Batch",
+      "steps": "Steps",
+      "chickens": "Chickens",
+      "status": "Status"
+    },
+    "status": {
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "cancelled": "Cancelled"
+    },
+    "steps": {
+      "rawMaterial": "Raw material",
+      "produced": "Produced",
+      "standardize": "Standardize"
+    },
+    "stepStatus": {
+      "draft": "Draft",
+      "finished": "Finished",
+      "pending": "Not started"
+    },
+    "fields": {
+      "date": "Production date",
+      "supplier": "Supplier",
+      "materialKind": "Raw material",
+      "weightKg": "Weight",
+      "quantity": "Number of chickens",
+      "wingsKg": "Wings weight",
+      "thighsKg": "Thighs weight",
+      "wingsCount": "Wings",
+      "thighsCount": "Thighs",
+      "marinadeG": "Marinade",
+      "bigPackages": "Big packages",
+      "smallPackages": "Small packages",
+      "rejectedWings": "Rejected wings",
+      "rejectedThighs": "Rejected thighs",
+      "carryKg": "Carry forward",
+      "rejectedKg": "Rejected",
+      "comment": "Comment"
+    },
+    "materialKinds": {
+      "chicken": "Chicken"
+    },
+    "units": {
+      "chickens": "chickens"
+    },
+    "errors": {
+      "required": "Required",
+      "positive": "Must be more than 0",
+      "invalidKg": "Enter a number with up to 3 decimals",
+      "invalidG": "Enter a number with up to 1 decimal",
+      "invalidCount": "Enter a whole number"
+    },
+    "autosave": {
+      "idle": "Changes save automatically",
+      "saving": "Saving…",
+      "savedJustNow": "Saved just now",
+      "savedAt": "Saved at {{time}}",
+      "offline": "Offline — saved on this device",
+      "retrying": "Couldn't save — retrying",
+      "failed": "Couldn't save",
+      "conflict": "Someone else changed this step"
+    },
+    "restore": {
+      "title": "Restore unsaved changes?",
+      "body": "This device has changes that weren't saved, and the batch has changed since.",
+      "restore": "Restore my changes",
+      "discard": "Discard"
+    },
+    "conflict": {
+      "title": "Someone else saved this batch first",
+      "body": "Your values are kept on this screen. Choose which version to keep.",
+      "changed": "They changed: {{fields}}. Your values are kept on this screen.",
+      "keepMine": "Keep my values",
+      "useTheirs": "Use their version"
+    },
+    "finishStep": "Finish step",
+    "finishConfirmTitle": "Finish this step?",
+    "finishConfirmBody": "You can't edit this step after finishing.",
+    "blockers": {
+      "fillIn": "Fill in: {{fields}}",
+      "supplierInactive": "The supplier is deactivated. Choose another one.",
+      "wings": "Wings don't add up yet.",
+      "thighs": "Thighs don't add up yet.",
+      "byproduct": "{{name}}: carry forward + rejected must equal the produced weight."
+    },
+    "supplierInactive": "Deactivated",
+    "chooseSupplier": "Choose supplier",
+    "searchSupplier": "Search by name or phone",
+    "noSuppliers": "No active suppliers found.",
+    "pieces": "{{count}} pcs",
+    "perChicken": "{{count}} per chicken × {{chickens}} chickens (set automatically)",
+    "yield": "Yield: {{percent}}% of the raw weight",
+    "yieldLabel": "Yield",
+    "byproductsTitle": "By-products",
+    "byproductsHint": "Split each by-product into what is carried forward and what is rejected.",
+    "bigHint": "1 big = 2 wings + 2 thighs → {{count}} wings + {{count}} thighs",
+    "smallHint": "1 small = 1 wing + 1 thigh → {{count}} wings + {{count}} thighs",
+    "wings": "Wings",
+    "thighs": "Thighs",
+    "producedKg": "Produced {{kg}} kg",
+    "carryRejected": "{{carry}} kg forward · {{rejected}} kg rejected",
+    "balance": {
+      "done": "All assigned",
+      "left": "{{count}} left to assign",
+      "tooMany": "{{count}} too many",
+      "kgDone": "Balanced",
+      "kgLeft": "{{kg}} kg left to assign",
+      "kgTooMuch": "{{kg}} kg too much"
+    },
+    "finishedBy": "Finished by {{name}} · {{time}}",
+    "lastSavedBy": "Last saved by {{name}} · {{time}}",
+    "reopen": "Reopen",
+    "reopenStep": "Reopen {{step}}",
+    "reopenBody": "The step becomes editable again. Steps after it stay as they are.",
+    "reopenCompletedBody": "The batch goes back to in progress until this step is finished again.",
+    "cancelBatch": "Cancel batch",
+    "cancelBody": "Batch {{code}} will be read-only and left out of the figures.",
+    "cancelReason": "Reason",
+    "cancelledNotice": "This batch was cancelled.",
+    "completedNotice": "Completed on {{time}}.",
+    "readOnlyNotice": "You can view this batch but not record steps."
   }
 }

@@ -1,14 +1,16 @@
+import { lazy, Suspense, type ReactNode } from 'react'
 import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom'
 import { PublicOnly, RequireAccess, RequireAuth } from '@/auth/guards'
+import { Spinner } from '@/components/ui'
 import { AppShell } from '@/layouts/AppShell'
 import { LEGACY_PREFIXES, paths } from '@/lib/paths'
 import { AUDIT_ROLES } from '@/lib/roles'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
 import { HomePage } from '@/pages/HomePage'
 import { LoginPage } from '@/pages/LoginPage'
-import { CUSTOMERS, SUPPLIERS } from '@/pages/production/partners/config'
-import { PartnerListPage } from '@/pages/production/partners/PartnerListPage'
-import { ProductionPage } from '@/pages/production/ProductionPage'
+import { CUSTOMERS, SUPPLIERS } from '@/pages/workstation/partners/config'
+import { PartnerListPage } from '@/pages/workstation/partners/PartnerListPage'
+import { WorkstationPage } from '@/pages/workstation/WorkstationPage'
 import { AuditLogPage } from '@/pages/settings/AuditLogPage'
 import { ProfilePage } from '@/pages/settings/ProfilePage'
 import { SettingsPage } from '@/pages/settings/SettingsPage'
@@ -18,13 +20,40 @@ import { UsersListPage } from '@/pages/settings/users/UsersListPage'
 import { NotFoundPage } from '@/pages/StatusPages'
 
 /**
- * Old URL (before Production/Settings) → new URL, keeping the rest of the path, the query string
+ * Old URL (before the Workstation/Settings sections) → new URL, keeping the rest of the path, the query string
  * and the hash: /users/abc/edit?x=1 → /settings/users/abc/edit?x=1.
  */
 function LegacyRedirect({ from }: { from: string }) {
   const { pathname, search, hash } = useLocation()
   const rest = pathname.slice(from.length)
   return <Navigate to={`${LEGACY_PREFIXES[from]}${rest}${search}${hash}`} replace />
+}
+
+// Production is the largest feature and only some users have it: its pages are a separate chunk,
+// loaded on first visit (after the access check, so users without access never download it).
+const ProductionListPage = lazy(() =>
+  import('@/pages/workstation/production/ProductionListPage').then((m) => ({
+    default: m.ProductionListPage,
+  })),
+)
+const ProductionBatchPage = lazy(() =>
+  import('@/pages/workstation/production/ProductionBatchPage').then((m) => ({
+    default: m.ProductionBatchPage,
+  })),
+)
+
+function PageLoading({ children }: { children: ReactNode }) {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-16 text-brand-600">
+          <Spinner />
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  )
 }
 
 const legacyRoutes = Object.keys(LEGACY_PREFIXES).flatMap((from) => [
@@ -47,9 +76,9 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <HomePage /> },
           {
-            path: paths.production,
+            path: paths.workstation,
             children: [
-              { index: true, element: <ProductionPage /> },
+              { index: true, element: <WorkstationPage /> },
               {
                 path: 'suppliers',
                 element: (
@@ -65,6 +94,31 @@ export const router = createBrowserRouter([
                     <PartnerListPage key="customers" config={CUSTOMERS} />
                   </RequireAccess>
                 ),
+              },
+              {
+                path: 'production',
+                children: [
+                  {
+                    index: true,
+                    element: (
+                      <RequireAccess permission="production.view">
+                        <PageLoading>
+                          <ProductionListPage />
+                        </PageLoading>
+                      </RequireAccess>
+                    ),
+                  },
+                  {
+                    path: ':batchId',
+                    element: (
+                      <RequireAccess permission="production.view">
+                        <PageLoading>
+                          <ProductionBatchPage />
+                        </PageLoading>
+                      </RequireAccess>
+                    ),
+                  },
+                ],
               },
             ],
           },

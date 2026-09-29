@@ -89,10 +89,11 @@ export interface UserPermissions {
 }
 
 export type PartnerEntityType = 'supplier' | 'customer'
+export type AuditEntityType = PartnerEntityType | 'production_batch'
 
 /** Non-user record an audit entry is about. `name` is its current name (or the logged one). */
 export interface AuditEntityRef {
-  type: PartnerEntityType | string
+  type: AuditEntityType | string
   id: string
   name: string | null
 }
@@ -138,8 +139,8 @@ export const PHONE_MIN_DIGITS = 8
 export const PHONE_MAX_DIGITS = 15
 
 /** Feature access levels (Access tab). `custom` = the permissions match no level exactly. */
-export type FeatureLevel = 'off' | 'view' | 'full'
-export type FeatureMenu = 'production' | 'settings'
+export type FeatureLevel = 'off' | 'view' | 'record' | 'full'
+export type FeatureMenu = 'workstation' | 'settings'
 
 export interface Feature extends Localized {
   code: string
@@ -160,3 +161,125 @@ export interface UserFeatures {
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: Record<string, unknown> }
 }
+
+// --- Production -------------------------------------------------------------------------------
+
+export type BatchStatus = 'in_progress' | 'completed' | 'cancelled'
+export type StepStatus = 'draft' | 'finished'
+/** API path segment of each step: /production/{id}/{slug}. */
+export type StepSlug = 'raw-material' | 'produced' | 'standardize'
+export type StepNumber = 1 | 2 | 3
+
+export interface SupplierBrief {
+  id: string
+  name: string
+  phone_display: string | null
+  is_active: boolean
+}
+
+export interface SupplierOption {
+  id: string
+  name: string
+  phone_display: string | null
+}
+
+interface StepBase {
+  status: StepStatus
+  finished_by: UserRef | null
+  finished_at: string | null
+  updated_by: UserRef | null
+  updated_at: string
+}
+
+/** Weights are fixed-precision strings: kg "12.500", grams "350.0". */
+export interface RawMaterialStep extends StepBase {
+  supplier: SupplierBrief | null
+  material_kind: string
+  weight_kg: string | null
+  quantity: number | null
+}
+
+export interface ProducedStep extends StepBase {
+  wings_kg: string | null
+  thighs_kg: string | null
+  /** Computed by the server: quantity × 2. */
+  wings_count: number
+  thighs_count: number
+  marinade_g: string | null
+}
+
+export interface StandardizeStep extends StepBase {
+  big_packages: number | null
+  small_packages: number | null
+  rejected_wings: number | null
+  rejected_thighs: number | null
+  comment: string | null
+}
+
+export interface BatchByproduct {
+  item_code: string
+  produced_kg: string | null
+  carry_kg: string | null
+  rejected_kg: string | null
+}
+
+export interface ByproductCatalogItem extends Localized {
+  code: string
+  unit: string
+  order: number
+}
+
+export interface MaterialKind extends Localized {
+  code: string
+  wings_per_unit: number
+  thighs_per_unit: number
+}
+
+export interface ProductionBatch {
+  id: string
+  code: string
+  production_date: string
+  status: BatchStatus
+  current_step: StepNumber
+  version: number
+  cancel_reason: string | null
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+  cancelled_at: string | null
+  created_by: UserRef | null
+  updated_by: UserRef | null
+  cancelled_by: UserRef | null
+  raw_material: RawMaterialStep
+  /** null until step 1 is finished for the first time (likewise `standardize` for step 2). */
+  produced: ProducedStep | null
+  standardize: StandardizeStep | null
+  byproducts: BatchByproduct[]
+  computed: { wings_count: number; thighs_count: number; yield_percent: string | null }
+  catalog: { byproducts: ByproductCatalogItem[]; material_kinds: MaterialKind[] }
+}
+
+export interface ProductionBatchListItem {
+  id: string
+  code: string
+  production_date: string
+  status: BatchStatus
+  current_step: StepNumber
+  steps: ('pending' | StepStatus)[]
+  supplier: SupplierBrief | null
+  material_kind: string
+  quantity: number | null
+  created_by: UserRef | null
+  updated_at: string
+}
+
+export interface ProductionStats {
+  in_progress: number
+  completed_today: number
+  chickens_this_month: number
+  rejected_pieces_this_month: number
+}
+
+/** Same limits as the API. */
+export const PRODUCTION_COMMENT_MAX_LENGTH = 1000
+export const CANCEL_REASON_MAX_LENGTH = 500

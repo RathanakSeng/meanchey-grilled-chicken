@@ -6,16 +6,16 @@ import { Card, PageHeader } from '@/components/ui'
 import { useNavChildren } from '@/layouts/nav'
 import { paths } from '@/lib/paths'
 
-/** Production hub: one card per Production child the user may open (driven by the nav tree). */
-export function ProductionPage() {
+/** Workstation hub: one card per Workstation child the user may open (driven by the nav tree). */
+export function WorkstationPage() {
   const { t } = useTranslation()
   // Pick up newly granted / revoked permissions when the hub is opened.
   useRefreshMeWhenStale()
-  const items = useNavChildren(paths.production)
+  const items = useNavChildren(paths.workstation)
 
   return (
     <>
-      <PageHeader title={t('nav.production')} back={paths.home} />
+      <PageHeader title={t('nav.workstation')} back={paths.home} />
       {items.length > 0 ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {items.map((item) => (
@@ -29,9 +29,9 @@ export function ProductionPage() {
               <Icon name="lock" width={28} height={28} />
             </span>
             <h2 className="text-base font-semibold text-stone-900">
-              {t('production.noAccessTitle')}
+              {t('workstation.noAccessTitle')}
             </h2>
-            <p className="mt-1 max-w-sm text-sm text-stone-500">{t('production.noAccessBody')}</p>
+            <p className="mt-1 max-w-sm text-sm text-stone-500">{t('workstation.noAccessBody')}</p>
           </div>
         </Card>
       )}

@@ -8,7 +8,7 @@ export function HomePage() {
   const { t } = useTranslation()
   const { me } = useAuth()
   useRefreshMeWhenStale()
-  // The top-level sections (Production, Settings) as large tiles; Home itself is skipped.
+  // The top-level sections (Workstation, Settings) as large tiles; Home itself is skipped.
   const sections = useNavItems().filter((item) => !item.end)
   if (!me) return null
 

@@ -1,9 +1,18 @@
-<ADD><BOTH><ACCESS-CONTROL>: add suppliers/customers, feature access levels, hidden superadmin and role changes
+<ADD, UPDATE, FIX><BOTH><PRODUCTION, PERFORMANCE, WORKSTATION>: 
 
-- Production: suppliers and customers (model, migration 0004, CRUD endpoints, list pages with KPI cards, Sheet form, phone normalization)
-- Permissions: grantable_by, reason on locked permissions, one-time backfill of defaults for new permissions
-- Access layer: GM sets Off / View only / Full per feature for supervisors and staff; detailed permissions are superadmin-only; only GM and superadmin can delete users
-- Superadmin hidden from other roles: shown as "System", 404 on lookup, left out of the GM's audit log, no role names in errors; API docs off outside development
-- Role changes: GM promotes/demotes staff and supervisor, superadmin changes any lower role; access resets to the new role's defaults (user.role_change audit)
-- UI: Access tab, Change role sheet, SegmentedControl/Sheet/ActionMenu, audit labels, km/en strings
-- Docs and tests updated (338 passing)
+3-step production batches with autosave and a Record access level
+- Access: new "record" level (off/view/record/full; features may omit it); production feature (view, record = view+create, full = +reopen/cancel); GM all, supervisor Full, staff Off, backfilled to existing GM/supervisors
+- API: batches with raw material / produced / standardize steps, by-products and a per-day code counter (migration 0005); by-product and material catalogs; Decimal weights; drafts with version (409 PRODUCTION_CONFLICT), finish / reopen / cancel, piece balance at finish (by-product balance is UI-only); list filters, stats, supplier options; audit entries; redaction sweep covers the new routes
+- UI: Workstation → Production list (KPIs, waiting-for-step chips, filters in URL) and batch page (stepper, step forms and summaries, reopen/cancel menu); useAutosaveDraft (debounce, keepalive flush on hide/close/Telegram deactivated, local backup with restore, conflict handling); 4-level SegmentedControl on the Access tab; audit log labels and batch links; km/en strings
+- Docs updated in both projects; 67 new API tests
+
+lazy-load production pages and split vendor chunk
+- Production list and batch pages load on first visit (React.lazy inside RequireAccess), never for users without access
+- Libraries in a separate cached vendor chunk; main bundle 546 kB → 145 kB, no Vite size warning
+- Docs: routing and build sections in UI ARCHITECTURE.md
+
+consistent access controls, mobile KPI grid, remove calling
+- Access tab: equal fixed-width level buttons on desktop so 3- and 4-level controls line up without clipping Khmer labels; stacked full width below lg, 2×2 for 4 levels on phones
+- KPI cards: shared KpiGrid (3 across / 2×2 on phones, no horizontal scroll) for suppliers, customers and production
+- Suppliers/customers: remove Call button and tap-to-call; phone shown as text
+- Docs: UI FEATURES and ARCHITECTURE

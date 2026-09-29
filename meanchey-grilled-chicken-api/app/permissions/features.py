@@ -1,8 +1,8 @@
 """Feature access levels: the general manager's view of permissions.
 
-A feature (registry.FEATURES) maps each level (off / view / full) to an exact set of permission
-codes. Setting a level grants and revokes only that feature's codes; everything else a user holds
-is untouched. Detailed permissions stay the underlying mechanism (superadmin-only UI).
+A feature (registry.FEATURES) maps each level (off / view / [record /] full) to an exact set of
+permission codes. Setting a level grants and revokes only that feature's codes; everything else a
+user holds is untouched. Detailed permissions stay the underlying mechanism (superadmin-only UI).
 
 Whoever may manage access (`permissions.grant`: the general manager, and the superadmin) can set
 ANY level of ANY feature that applies to a user they manage. Unlike detailed grants, it doesn't

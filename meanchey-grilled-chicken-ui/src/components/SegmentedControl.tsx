@@ -8,7 +8,7 @@ export interface Segment<T extends string> {
 /**
  * A row of mutually exclusive buttons (radio group). `value` may match no segment (e.g. a
  * "custom" state): then none is selected. `suggested` gets a dashed outline as a hint only; the
- * user still has to click it.
+ * user still has to click it. With more than 3 segments it wraps to a 2×2 grid on narrow screens.
  */
 export function SegmentedControl<T extends string>({
   segments,
@@ -32,7 +32,14 @@ export function SegmentedControl<T extends string>({
       role="radiogroup"
       aria-label={label}
       className={cx(
-        'grid w-full auto-cols-fr grid-flow-col gap-1 rounded-xl bg-stone-100 p-1 sm:w-auto',
+        'grid w-full gap-1 rounded-xl bg-stone-100 p-1',
+        // Phones: full width, 4 segments as 2×2. Tablets: one full-width row of equal segments.
+        segments.length > 3
+          ? 'grid-cols-2 sm:auto-cols-fr sm:grid-flow-col sm:grid-cols-none'
+          : 'auto-cols-fr grid-flow-col',
+        // Desktop: every segment the same fixed width (fits the longest Khmer label), so
+        // controls with 3 or 4 levels line up and never clip their labels.
+        'lg:w-auto lg:shrink-0 lg:auto-cols-[9.5rem]',
         disabled && 'opacity-60',
       )}
     >

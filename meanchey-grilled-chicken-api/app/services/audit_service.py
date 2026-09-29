@@ -4,14 +4,15 @@ from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import InstrumentedAttribute, aliased
 
-from app.models import AuditLog, Customer, Role, Supplier, User
+from app.models import AuditLog, Customer, ProductionBatch, Role, Supplier, User
 
-# entity_type -> table holding records of that type (for the entity name in listings).
-ENTITY_MODELS: dict[str, type[Supplier] | type[Customer]] = {
-    "supplier": Supplier,
-    "customer": Customer,
+# entity_type -> the column naming records of that type (the entity name in listings).
+ENTITY_LABELS: dict[str, InstrumentedAttribute[str]] = {
+    "supplier": Supplier.name,
+    "customer": Customer.name,
+    "production_batch": ProductionBatch.code,
 }
 
 
@@ -102,11 +103,12 @@ async def entity_names(session: AsyncSession, logs: list[AuditLog]) -> dict[uuid
     """Current names of the records referenced by `logs`: one query per entity type."""
     ids_by_type: dict[str, set[uuid.UUID]] = {}
     for log in logs:
-        if log.entity_type in ENTITY_MODELS and log.entity_id is not None:
+        if log.entity_type in ENTITY_LABELS and log.entity_id is not None:
             ids_by_type.setdefault(log.entity_type, set()).add(log.entity_id)
     names: dict[uuid.UUID, str] = {}
     for entity_type, ids in ids_by_type.items():
-        model = ENTITY_MODELS[entity_type]
-        rows = await session.execute(select(model.id, model.name).where(model.id.in_(ids)))
+        label = ENTITY_LABELS[entity_type]
+        id_col = label.class_.id
+        rows = await session.execute(select(id_col, label).where(id_col.in_(ids)))
         names.update({row_id: name for row_id, name in rows})
     return names

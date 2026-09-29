@@ -13,7 +13,7 @@ export interface NavItem extends AccessRule {
   end?: boolean
   /**
    * Keep the section visible even when none of its children are visible, so its hub page can
-   * explain that nothing is available yet (Production for staff without partner permissions).
+   * explain that nothing is available yet (Workstation for staff without partner permissions).
    */
   keepWhenEmpty?: boolean
   children?: NavItem[]
@@ -23,16 +23,16 @@ export interface NavItem extends AccessRule {
  * The app menu, as a tree. Items render only when the user passes their `permission` / `roles`
  * rule; a parent with children is shown only if at least one child is visible.
  *
- * New feature? Add a child under Production or Settings (or a new top-level item) with the
+ * New feature? Add a child under Workstation or Settings (or a new top-level item) with the
  * permission that guards its route. Home, the sidebar, the bottom nav and the Settings hub all
  * read from this tree.
  */
 export const NAV_ITEMS: NavItem[] = [
   { to: paths.home, labelKey: 'nav.home', icon: 'home', end: true },
   {
-    to: paths.production,
-    labelKey: 'nav.production',
-    descriptionKey: 'home.productionDescription',
+    to: paths.workstation,
+    labelKey: 'nav.workstation',
+    descriptionKey: 'home.workstationDescription',
     icon: 'flame',
     keepWhenEmpty: true,
     children: [
@@ -49,6 +49,13 @@ export const NAV_ITEMS: NavItem[] = [
         descriptionKey: 'customers.description',
         icon: 'store',
         permission: 'customers.view',
+      },
+      {
+        to: paths.production,
+        labelKey: 'nav.production',
+        descriptionKey: 'production.description',
+        icon: 'chicken',
+        permission: 'production.view',
       },
     ],
   },

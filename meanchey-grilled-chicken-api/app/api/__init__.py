@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api import audit, auth, features, me, permissions, users
+from app.api import audit, auth, features, me, permissions, production, users
 from app.api.partners import customers_router, suppliers_router
 
 api_router = APIRouter(prefix="/api/v1")
@@ -12,3 +12,4 @@ api_router.include_router(features.router)
 api_router.include_router(audit.router)
 api_router.include_router(suppliers_router)
 api_router.include_router(customers_router)
+api_router.include_router(production.router)

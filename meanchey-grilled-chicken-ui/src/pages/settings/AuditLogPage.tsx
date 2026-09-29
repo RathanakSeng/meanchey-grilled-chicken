@@ -11,7 +11,7 @@ import { useFormatDate } from '@/lib/format'
 import { useAuth } from '@/auth/AuthProvider'
 import { isSuperadmin } from '@/lib/roles'
 import type { AuditEntityRef, AuditLog, Page, UserRef as UserRefData } from '@/lib/types'
-import { PARTNER_CONFIGS, partnerSearchLink } from '@/pages/production/partners/config'
+import { PARTNER_CONFIGS, partnerSearchLink } from '@/pages/workstation/partners/config'
 
 const ACTIONS = [
   'auth.login',
@@ -32,10 +32,15 @@ const ACTIONS = [
   ...(['supplier', 'customer'] as const).flatMap((e) =>
     ['create', 'update', 'deactivate', 'reactivate'].map((a) => `${e}.${a}`),
   ),
+  'production.create',
+  'production.step_finish',
+  'production.step_reopen',
+  'production.cancel',
 ]
 // Detailed permission entries are listed by the API for the superadmin only.
 const PERMISSION_ACTIONS = ['permission.grant', 'permission.revoke']
-const ENTITY_TYPES = ['supplier', 'customer'] as const
+const ENTITY_TYPES = ['supplier', 'customer', 'production_batch'] as const
+const STEP_LABELS = ['production.steps.rawMaterial', 'production.steps.produced', 'production.steps.standardize']
 const PAGE_SIZE = 50
 
 function actionKey(action: string) {
@@ -58,11 +63,24 @@ function UserRef({ user }: { user: UserRefData | null }) {
   )
 }
 
-/** The supplier / customer an entry is about, linking to its list with the name searched. */
+/**
+ * The record an entry is about: a supplier / customer links to its list with the name searched,
+ * a production batch to its page.
+ */
 function EntityRef({ entity }: { entity: AuditEntityRef }) {
   const { t } = useTranslation()
   const config = PARTNER_CONFIGS[entity.type as keyof typeof PARTNER_CONFIGS]
   const name = entity.name ?? t('common.none')
+  if (entity.type === 'production_batch') {
+    return (
+      <span className="block">
+        <span className="block text-xs text-stone-400">{t('audit.entityTypes.production_batch')}</span>
+        <Link to={paths.productionBatch(entity.id)} className="font-medium tabular-nums text-stone-800 hover:underline">
+          {name}
+        </Link>
+      </span>
+    )
+  }
   return (
     <span className="block">
       <span className="block text-xs text-stone-400">{t(`audit.entityTypes.${entity.type}`, { defaultValue: entity.type })}</span>
@@ -98,6 +116,21 @@ function Details({ log }: { log: AuditLog }) {
   const { t } = useTranslation()
   const d = log.details
   if (log.action === 'feature.set') return <FeatureChange details={d} />
+  if (log.action === 'production.step_finish' || log.action === 'production.step_reopen') {
+    const step = Number(d.step)
+    return (
+      <span className="block text-sm text-stone-700">
+        {t('audit.productionStep', { step, name: t(STEP_LABELS[step - 1] ?? '', { defaultValue: '' }) })}
+      </span>
+    )
+  }
+  if (log.action === 'production.cancel') {
+    return (
+      <span className="block text-sm text-stone-700">
+        {t('audit.cancelReason', { reason: String(d.reason ?? '') })}
+      </span>
+    )
+  }
   if (log.action === 'user.role_change') {
     return (
       <span className="block text-sm text-stone-700">
@@ -112,7 +145,7 @@ function Details({ log }: { log: AuditLog }) {
     ? (d.downstream_grants as { full_name: string; telegram_username: string | null }[])
     : []
   const entries = Object.entries(d).filter(
-    ([k]) => k !== 'downstream_grants' && !(log.entity && k === 'name'),
+    ([k]) => k !== 'downstream_grants' && !(log.entity && (k === 'name' || k === 'code')),
   )
 
   return (
