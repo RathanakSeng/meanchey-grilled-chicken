@@ -213,7 +213,9 @@ export function PageHeader({
   const { t } = useTranslation()
   return (
     <div className="mb-4 flex flex-wrap items-start justify-between gap-3 sm:mb-6">
-      <div className="flex min-w-0 items-start gap-2">
+      {/* basis-48: a long subtitle wraps inside this block, so a small action (⋮) stays on the
+          title row; wide action buttons still wrap below on phones. */}
+      <div className="flex min-w-0 flex-1 basis-48 items-start gap-2">
         {back && (
           <button
             type="button"

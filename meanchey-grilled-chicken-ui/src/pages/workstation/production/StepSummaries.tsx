@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Badge, Card } from '@/components/ui'
-import { useFormatDate, useLocalized } from '@/lib/format'
+import { useFormatDate, useFormatDay, useLocalized } from '@/lib/format'
 import type { ProductionBatch, StepNumber, UserRef } from '@/lib/types'
-import { STEPS, stepData } from './api'
+import { STEPS, stepData, stepDate } from './api'
 import { toInput } from './numbers'
 
 function Row({ label, children }: { label: ReactNode; children: ReactNode }) {
@@ -29,8 +29,10 @@ const num = (v: number | null) => (v === null ? '—' : String(v))
 export function StepSummary({ batch, step }: { batch: ProductionBatch; step: StepNumber }) {
   const { t } = useTranslation()
   const formatDate = useFormatDate()
+  const formatDay = useFormatDay()
   const localized = useLocalized()
   const data = stepData(batch, step)
+  const day = stepDate(batch, step)
   if (!data) return null
   const byproductName = (code: string) => {
     const item = batch.catalog.byproducts.find((b) => b.code === code)
@@ -47,7 +49,6 @@ export function StepSummary({ batch, step }: { batch: ProductionBatch; step: Ste
     const kind = batch.catalog.material_kinds.find((k) => k.code === raw.material_kind)
     rows = (
       <>
-        <Row label={t('production.fields.date')}>{formatDate(batch.production_date, { dateStyle: 'medium' })}</Row>
         <Row label={t('production.fields.supplier')}>
           {raw.supplier ? (
             <span className="inline-flex flex-wrap items-center justify-end gap-2">
@@ -129,6 +130,12 @@ export function StepSummary({ batch, step }: { batch: ProductionBatch; step: Ste
     >
       <dl className="-my-2 divide-y divide-stone-100">{rows}</dl>
       <p className="mt-3 text-xs text-stone-500">
+        {day && (
+          <span className="font-medium text-stone-700">
+            {t(STEPS[step - 1].dateKey)} · {formatDay(day)}
+            <span aria-hidden> · </span>
+          </span>
+        )}
         {data.status === 'finished'
           ? t('production.finishedBy', {
               name: who(data.finished_by, t('audit.system')),

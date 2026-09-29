@@ -14,6 +14,19 @@ export function useFormatDate() {
   )
 }
 
+/**
+ * A calendar date from the API ("2026-09-29", e.g. a production step date), shown as that same
+ * day whatever the device's time zone.
+ */
+export function useFormatDay() {
+  const formatDate = useFormatDate()
+  return useCallback(
+    (day: string | null | undefined, options: Intl.DateTimeFormatOptions = { dateStyle: 'medium' }) =>
+      formatDate(day, { ...options, timeZone: 'UTC' }),
+    [formatDate],
+  )
+}
+
 /** Pick `name_km` / `name_en` (or any `<field>_km` / `<field>_en`) for the current language. */
 export function useLocalized() {
   const { i18n } = useTranslation()

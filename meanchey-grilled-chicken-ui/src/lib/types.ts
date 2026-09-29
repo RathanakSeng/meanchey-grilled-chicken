@@ -199,6 +199,8 @@ export interface RawMaterialStep extends StepBase {
   material_kind: string
   weight_kg: string | null
   quantity: number | null
+  /** ថ្ងៃនាំចូល: recorded by the server when step 1 is finished; null while a draft. */
+  import_date: string | null
 }
 
 export interface ProducedStep extends StepBase {
@@ -208,6 +210,8 @@ export interface ProducedStep extends StepBase {
   wings_count: number
   thighs_count: number
   marinade_g: string | null
+  /** ថ្ងៃផលិត: recorded when step 2 is finished; null while a draft. */
+  production_date: string | null
 }
 
 export interface StandardizeStep extends StepBase {
@@ -216,6 +220,8 @@ export interface StandardizeStep extends StepBase {
   rejected_wings: number | null
   rejected_thighs: number | null
   comment: string | null
+  /** ថ្ងៃវេចខ្ចប់: recorded when step 3 is finished; null while a draft. */
+  packaging_date: string | null
 }
 
 export interface BatchByproduct {
@@ -239,8 +245,8 @@ export interface MaterialKind extends Localized {
 
 export interface ProductionBatch {
   id: string
+  /** PR-YYYYMMDD-NNN from the creation day; never changes. */
   code: string
-  production_date: string
   status: BatchStatus
   current_step: StepNumber
   version: number
@@ -264,7 +270,11 @@ export interface ProductionBatch {
 export interface ProductionBatchListItem {
   id: string
   code: string
-  production_date: string
+  /** Step dates (YYYY-MM-DD), null until that step is finished. */
+  import_date: string | null
+  production_date: string | null
+  packaging_date: string | null
+  created_at: string
   status: BatchStatus
   current_step: StepNumber
   steps: ('pending' | StepStatus)[]

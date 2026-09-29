@@ -271,8 +271,7 @@ erDiagram
     }
     production_batches {
         uuid id PK
-        varchar32 code UK "PR-YYYYMMDD-NNN"
-        date production_date
+        varchar32 code UK "PR-YYYYMMDD-NNN (creation day)"
         varchar status "in_progress | completed | cancelled"
         smallint current_step "1-3"
         varchar500 cancel_reason
@@ -291,6 +290,7 @@ erDiagram
         varchar material_kind "catalog code"
         numeric10_3 weight_kg
         int quantity
+        date import_date "set at Finish, null while draft"
         varchar status "draft | finished"
         uuid finished_by FK
         timestamptz finished_at
@@ -304,6 +304,7 @@ erDiagram
         int wings_count "computed"
         int thighs_count "computed"
         numeric10_1 marinade_g
+        date production_date "set at Finish"
         varchar status
     }
     production_packaging {
@@ -313,6 +314,7 @@ erDiagram
         int rejected_wings
         int rejected_thighs
         text comment
+        date packaging_date "set at Finish"
         varchar status
     }
     production_byproducts {
@@ -344,10 +346,11 @@ erDiagram
   - `ix_<table>_name_lower` on `lower(name)` for case-insensitive sorting and search;
   - `uq_<table>_active_phone`, a partial unique index on `phone` `WHERE is_active AND phone IS NOT NULL`: one active record per normalized number, per table;
   - `phone` stores the normalized form (digits, optional leading `+`); `phone_display` is computed on output.
-- **Production** (`models/production.py`, migration `0005`):
+- **Production** (`models/production.py`, migrations `0005` and `0006`):
   - one `production_batches` row per batch, and **one row per step** (`production_raw_materials`, `production_outputs`, `production_packaging`, PK = `batch_id`, `ON DELETE CASCADE`). A step's row is created when it becomes available (step 1 with the batch, step 2 when step 1 is first finished, step 3 when step 2 is), so "not started" is simply a missing row. All three step tables share `status` / `finished_by` / `finished_at` / `updated_by` / `updated_at` through `StepMixin`;
   - `production_byproducts`: one row per batch and catalog `item_code` (created on demand, so a new catalog entry needs no migration);
-  - `production_batch_counters`: the last number used per production date, incremented with `INSERT … ON CONFLICT (day) DO UPDATE … RETURNING`. The row stays locked until the transaction ends, so concurrent creations on one day get distinct numbers; `uq_production_batches_code` is the safety net;
+  - **step dates** (migration `0006`): `production_raw_materials.import_date`, `production_outputs.production_date` and `production_packaging.packaging_date` (`DATE`, indexed), written by the service at Finish (today in `BUSINESS_TIMEZONE`) and cleared on reopen. A CHECK per table (`ck_<table>_<column>_matches_status`: `(status = 'finished') = (<date> IS NOT NULL)`) is the safety net. The migration filled them for finished steps from `finished_at` converted to `BUSINESS_TIMEZONE` (drafts stay null) and dropped `production_batches.production_date`; batch codes were not touched;
+  - `production_batch_counters`: the last number used per creation day, incremented with `INSERT … ON CONFLICT (day) DO UPDATE … RETURNING`. The row stays locked until the transaction ends, so concurrent creations on one day get distinct numbers; `uq_production_batches_code` is the safety net;
   - CHECK constraints keep statuses, `current_step` (1–3) and all quantities ≥ 0 valid even outside the API;
   - the relationships load with `selectin`, so a batch arrives with all its steps (no lazy loads under asyncio).
 - **Weights are `Decimal` end to end:** `NUMERIC(10,3)` for kg and `NUMERIC(10,1)` for grams in the database, `Decimal` in Python (never `float`), accepted by Pydantic from JSON numbers or strings with `max_digits` / `decimal_places`, and serialized as fixed-precision strings (`"12.500"`, `"350.0"`) through a `PlainSerializer`. The UI parses them into scaled integers for exact sums.
@@ -695,6 +698,7 @@ A third list with the same fields needs a model class, a `PartnerKind`, a router
 | Webhook fingerprint stored in the database | `getWebhookInfo` can't reveal the secret. A SHA-256 fingerprint in `app_settings` detects secret changes without calling `setWebhook` on every start. |
 | Feature levels also for the GM, set by the superadmin | The superadmin controls the GM with the same simple levels the GM uses for its team, instead of permission codes. The role scope (only the superadmin manages the GM) keeps the GM from changing its own access with no extra rule. GM-only powers stay detailed permissions, so a level change can't grant or remove them by accident. |
 | Reopening a finished step reopens every later step | Later steps were computed from the earlier one (counts, balances). Reopening them together, with values kept, is one action for the user and guarantees they are checked again, instead of a chain of reopen clicks in reverse order. |
+| Step dates recorded by the server at Finish | The dates mean "when this step really happened", so they come from the server clock (business time zone), never from a form: nobody can backdate one, and the order import ≤ production ≤ packing follows from the step order and reopen rules, with no extra validation. The batch code keeps the creation day and never changes. |
 | Cancelling batches is GM-only | Cancelling removes a batch from the figures: a management decision, like deactivating people. Outside the feature levels, so a supervisor at Full access can fix steps but not cancel. |
 | Feature levels for managers, detailed permissions for the superadmin | Managers think in "who can use Suppliers, and how much", not in permission codes. Levels are exact code sets over the same `user_permissions` table, so nothing else changes and the superadmin can still fine-tune (shown as `custom`). |
 | Superadmin redacted for all other viewers | The superadmin is an operator account, not part of the business. Hiding it at the serialization edge (one `UserRef` schema, one lookup helper, fail-closed) covers new endpoints by default, and a route-walking test guards against regressions. |

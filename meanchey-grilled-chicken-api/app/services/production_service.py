@@ -9,6 +9,9 @@ Rules enforced here:
 - A step can be edited or finished only after the previous one is finished.
 - Reopening a finished step puts it and every later finished step back to draft.
 - Piece counts (step 2) are always quantity × pieces per unit; clients can't set them.
+- Step dates (import / production / packaging) are recorded here at Finish (today in
+  BUSINESS_TIMEZONE) and cleared on reopen; clients can't set them. Steps finish in order and
+  reopening sends every later step back to draft, so import ≤ production ≤ packing always holds.
 - Finishing step 3 requires the piece balance (PRODUCTION_BALANCE_MISMATCH). The by-product
   balance (carry + rejected = produced) is a UI-only rule and deliberately NOT checked here.
 """
@@ -19,7 +22,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import Date, and_, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,6 +80,8 @@ SUPPLIER_OPTIONS_LIMIT = 20
 _NON_DIGITS = re.compile(r"\D+")
 
 StepRow = ProductionRawMaterial | ProductionOutput | ProductionPackaging
+# The column holding each step's date (recorded at Finish).
+STEP_DATE_ATTRS: dict[int, str] = {1: "import_date", 2: "production_date", 3: "packaging_date"}
 
 
 # --- Calendar and codes --------------------------------------------------------------------------
@@ -88,6 +93,11 @@ def business_today(now: datetime | None = None) -> date:
 
 def _local_midnight(day: date) -> datetime:
     return datetime.combine(day, time(), tzinfo=get_settings().business_tz)
+
+
+def _creation_day():
+    """SQL: the batch's creation day in BUSINESS_TIMEZONE."""
+    return cast(func.timezone(get_settings().business_timezone, ProductionBatch.created_at), Date)
 
 
 async def next_code(session: AsyncSession, day: date) -> str:
@@ -225,21 +235,12 @@ async def _apply_raw(
     session: AsyncSession, batch: ProductionBatch, data: RawMaterialFields, fields: set[str]
 ) -> None:
     raw = batch.raw_material
-    errors: list[dict[str, Any]] = []
-    if "production_date" in fields:
-        if data.production_date is None:
-            errors.append(_field_error(["body", "production_date"], "missing", "Date is required"))
-        else:
-            batch.production_date = data.production_date
     if "material_kind" in fields:
         if data.material_kind is None or data.material_kind not in MATERIAL_KINDS_BY_CODE:
-            errors.append(
-                _field_error(["body", "material_kind"], "value_error", "Unknown material kind")
+            raise _invalid(
+                [_field_error(["body", "material_kind"], "value_error", "Unknown material kind")]
             )
-        else:
-            raw.material_kind = data.material_kind
-    if errors:
-        raise _invalid(errors)
+        raw.material_kind = data.material_kind
     if "supplier_id" in fields:
         if data.supplier_id is not None and await session.get(Supplier, data.supplier_id) is None:
             raise AppError(422, ErrorCode.SUPPLIER_NOT_FOUND, "Supplier not found")
@@ -254,11 +255,10 @@ async def _apply_raw(
 async def create_batch(
     session: AsyncSession, actor: User, data: ProductionCreate
 ) -> ProductionBatch:
-    day = data.production_date or business_today()
     now = utcnow()
     batch = ProductionBatch(
-        code=await next_code(session, day),
-        production_date=day,
+        # Numbered per creation day; the code never changes.
+        code=await next_code(session, business_today(now)),
         created_by=actor.id,
         updated_by=actor.id,
         created_at=now,
@@ -272,7 +272,7 @@ async def create_batch(
         ),
     )
     session.add(batch)
-    await _apply_raw(session, batch, data, set(data.model_fields_set) - {"production_date"})
+    await _apply_raw(session, batch, data, set(data.model_fields_set))
     await session.flush()
     _audit(session, "production.create", actor, batch)
     await session.commit()
@@ -456,6 +456,7 @@ async def finish_step(
     row.status = "finished"
     row.finished_by = actor.id
     row.finished_at = now
+    setattr(row, STEP_DATE_ATTRS[step], business_today(now))
     if step == 1:
         if batch.output is None:
             batch.output = ProductionOutput(updated_by=actor.id, updated_at=now)
@@ -499,6 +500,8 @@ async def reopen_step(
         later.status = "draft"
         later.finished_by = None
         later.finished_at = None
+        # Recorded again (as that day) when the step is finished again.
+        setattr(later, STEP_DATE_ATTRS[n], None)
     batch.current_step = step
     if batch.status == "completed":
         batch.status = "in_progress"
@@ -560,7 +563,17 @@ async def list_batches(
     page: int,
     page_size: int,
 ) -> tuple[list[ProductionBatch], int]:
-    b, r, s = ProductionBatch, ProductionRawMaterial, Supplier
+    b, r, o, p, s = (
+        ProductionBatch,
+        ProductionRawMaterial,
+        ProductionOutput,
+        ProductionPackaging,
+        Supplier,
+    )
+    step_dates = (r.import_date, o.production_date, p.packaging_date)
+    # Steps finish in order, so the latest recorded date is the first non-null from step 3 back;
+    # a batch with no finished step falls back to its creation day.
+    latest_date = func.coalesce(p.packaging_date, o.production_date, r.import_date, _creation_day())
     conditions: list[Any] = []
     if status == "cancelled":
         conditions.append(b.status == "cancelled")
@@ -573,10 +586,22 @@ async def list_batches(
     if waiting_step is not None:
         # current_step == N on an in-progress batch: steps before N are finished, N is not.
         conditions += [b.status == "in_progress", b.current_step == waiting_step]
-    if date_from:
-        conditions.append(b.production_date >= date_from)
-    if date_to:
-        conditions.append(b.production_date <= date_to)
+    if date_from or date_to:
+        # Any step date in the range, or the creation day while no step is finished yet.
+        def _in_range(column):
+            parts = []
+            if date_from:
+                parts.append(column >= date_from)
+            if date_to:
+                parts.append(column <= date_to)
+            return and_(*parts)
+
+        conditions.append(
+            or_(
+                *(_in_range(d) for d in step_dates),
+                and_(r.import_date.is_(None), _in_range(_creation_day())),
+            )
+        )
     if q and q.strip():
         pattern = f"%{_escape_like(q.strip())}%"
         conditions.append(
@@ -584,11 +609,16 @@ async def list_batches(
         )
 
     def _from(stmt):
-        return stmt.join(r, r.batch_id == b.id).outerjoin(s, s.id == r.supplier_id)
+        return (
+            stmt.join(r, r.batch_id == b.id)
+            .outerjoin(o, o.batch_id == b.id)
+            .outerjoin(p, p.batch_id == b.id)
+            .outerjoin(s, s.id == r.supplier_id)
+        )
 
     order = {
-        "date": [b.production_date.asc(), b.code.asc()],
-        "-date": [b.production_date.desc(), b.code.desc()],
+        "date": [latest_date.asc(), b.code.asc()],
+        "-date": [latest_date.desc(), b.code.desc()],
         "code": [b.code.asc()],
         "-code": [b.code.desc()],
     }[sort]
@@ -608,11 +638,10 @@ async def stats(session: AsyncSession) -> ProductionStats:
     today = business_today()
     month_start = today.replace(day=1)
     next_month = (month_start + timedelta(days=32)).replace(day=1)
-    in_month = [
-        b.status != "cancelled",
-        b.production_date >= month_start,
-        b.production_date < next_month,
-    ]
+
+    def in_month(column) -> list[Any]:
+        return [b.status != "cancelled", column >= month_start, column < next_month]
+
     in_progress = await session.scalar(select(func.count(b.id)).where(b.status == "in_progress"))
     completed_today = await session.scalar(
         select(func.count(b.id)).where(
@@ -624,12 +653,12 @@ async def stats(session: AsyncSession) -> ProductionStats:
     chickens = await session.scalar(
         select(func.coalesce(func.sum(r.quantity), 0))
         .join(b, b.id == r.batch_id)
-        .where(r.status == "finished", *in_month)
+        .where(r.status == "finished", *in_month(r.import_date))
     )
     rejected = await session.scalar(
         select(func.coalesce(func.sum(p.rejected_wings + p.rejected_thighs), 0))
         .join(b, b.id == p.batch_id)
-        .where(p.status == "finished", *in_month)
+        .where(p.status == "finished", *in_month(p.packaging_date))
     )
     return ProductionStats(
         in_progress=in_progress or 0,
@@ -760,7 +789,6 @@ async def batch_out(session: AsyncSession, batch: ProductionBatch) -> BatchOut:
     return BatchOut(
         id=batch.id,
         code=batch.code,
-        production_date=batch.production_date,
         status=batch.status,
         current_step=batch.current_step,
         version=batch.version,
@@ -778,6 +806,7 @@ async def batch_out(session: AsyncSession, batch: ProductionBatch) -> BatchOut:
             material_kind=raw.material_kind,
             weight_kg=raw.weight_kg,
             quantity=raw.quantity,
+            import_date=raw.import_date,
         ),
         produced=None
         if output is None
@@ -788,6 +817,7 @@ async def batch_out(session: AsyncSession, batch: ProductionBatch) -> BatchOut:
             wings_count=output.wings_count,
             thighs_count=output.thighs_count,
             marinade_g=output.marinade_g,
+            production_date=output.production_date,
         ),
         standardize=None
         if packaging is None
@@ -798,6 +828,7 @@ async def batch_out(session: AsyncSession, batch: ProductionBatch) -> BatchOut:
             rejected_wings=packaging.rejected_wings,
             rejected_thighs=packaging.rejected_thighs,
             comment=packaging.comment,
+            packaging_date=packaging.packaging_date,
         ),
         byproducts=[
             ByproductOut(
@@ -826,7 +857,10 @@ async def list_items(session: AsyncSession, batches: list[ProductionBatch]) -> l
         BatchListItem(
             id=b.id,
             code=b.code,
-            production_date=b.production_date,
+            import_date=b.raw_material.import_date,
+            production_date=b.output.production_date if b.output else None,
+            packaging_date=b.packaging.packaging_date if b.packaging else None,
+            created_at=b.created_at,
             status=b.status,
             current_step=b.current_step,
             steps=[_status(b.raw_material), _status(b.output), _status(b.packaging)],

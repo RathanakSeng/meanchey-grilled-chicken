@@ -418,13 +418,13 @@
   },
   "production": {
     "title": "Production",
-    "description": "Record batches step by step: raw material, produced and packaging.",
+    "description": "Record batches step by step: intake, processing and packaging.",
     "new": "New production",
     "actions": "Batch actions",
     "searchPlaceholder": "Search by batch code or supplier",
     "noResults": "No batches match these filters.",
     "emptyTitle": "No production yet",
-    "emptyBody": "Start a new production to record raw material, produced pieces and packaging.",
+    "emptyBody": "Start a new production to record the intake, processing and packaging.",
     "emptyBodyReadOnly": "Batches will appear here once someone starts a production.",
     "chickensCount": "{{count}} chickens",
     "stepsDone": "{{count}} of 3 steps finished",
@@ -441,7 +441,9 @@
       "allStatuses": "All statuses",
       "from": "From date",
       "to": "To date",
-      "showCancelled": "Show cancelled"
+      "showCancelled": "Show cancelled",
+      "date": "Date",
+      "dateHint": "Matches any step date (import, production or packing)."
     },
     "columns": {
       "code": "Batch",
@@ -455,8 +457,8 @@
       "cancelled": "Cancelled"
     },
     "steps": {
-      "rawMaterial": "Raw material",
-      "produced": "Produced",
+      "rawMaterial": "Intake",
+      "produced": "Processing",
       "standardize": "Standardize"
     },
     "stepStatus": {
@@ -465,9 +467,8 @@
       "pending": "Not started"
     },
     "fields": {
-      "date": "Production date",
       "supplier": "Supplier",
-      "materialKind": "Raw material",
+      "materialKind": "Type",
       "weightKg": "Weight",
       "quantity": "Number of chickens",
       "wingsKg": "Wings weight",
@@ -535,7 +536,7 @@
     "noSuppliers": "No active suppliers found.",
     "pieces": "{{count}} pcs",
     "perChicken": "{{count}} per chicken × {{chickens}} chickens (set automatically)",
-    "yield": "Yield: {{percent}}% of the raw weight",
+    "yield": "Yield: {{percent}}% of the imported weight",
     "yieldLabel": "Yield",
     "byproductsTitle": "By-products",
     "byproductsHint": "Split each by-product into what is carried forward and what is rejected.",
@@ -567,6 +568,18 @@
     "reopenConfirmTitle": "Reopen {{step}}?",
     "reopenConfirmLater": "{{steps}} will go back to draft and need to be finished again.",
     "reopenConfirmSelf": "This step goes back to draft and needs to be finished again.",
-    "reopenConfirmCompleted": "The batch is in progress again until then."
+    "reopenConfirmCompleted": "The batch is in progress again until then.",
+    "dates": {
+      "import": "Import date",
+      "production": "Production date",
+      "packing": "Packing date"
+    },
+    "datesShort": {
+      "import": "Import",
+      "production": "Production",
+      "packing": "Packing"
+    },
+    "dateOnFinish": "{{date}} will be recorded when you finish this step.",
+    "started": "Started {{date}}"
   }
 }

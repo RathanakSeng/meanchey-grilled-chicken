@@ -3,7 +3,8 @@
 Weights are `Decimal`, never float. They are accepted as JSON numbers or strings and always
 returned as fixed-precision strings: kilograms with 3 decimals ("12.500"), grams with 1 ("350.0").
 Draft bodies are partial: only the fields present are applied, `null` clears a value. Piece counts
-are computed by the server and not accepted (`extra="forbid"` rejects them).
+are computed by the server and not accepted (`extra="forbid"` rejects them), and so are the step
+dates: each is recorded by the server when its step is finished.
 """
 
 import uuid
@@ -48,7 +49,6 @@ class _Body(BaseModel):
 
 
 class RawMaterialFields(_Body):
-    production_date: date | None = None
     supplier_id: uuid.UUID | None = None
     material_kind: Annotated[str, Field(max_length=32)] | None = None
     weight_kg: KgIn | None = None
@@ -56,7 +56,7 @@ class RawMaterialFields(_Body):
 
 
 class ProductionCreate(RawMaterialFields):
-    """Optional initial step 1 values. `production_date` defaults to today (BUSINESS_TIMEZONE)."""
+    """Optional initial step 1 values. The code is numbered per creation day (BUSINESS_TIMEZONE)."""
 
 
 class RawMaterialDraft(RawMaterialFields):
@@ -131,6 +131,8 @@ class RawMaterialOut(_StepOut):
     material_kind: str
     weight_kg: KgOut | None
     quantity: int | None
+    # ថ្ងៃនាំចូល: recorded when step 1 is finished (today, BUSINESS_TIMEZONE); null while a draft.
+    import_date: date | None
 
 
 class ProducedOut(_StepOut):
@@ -140,6 +142,8 @@ class ProducedOut(_StepOut):
     wings_count: int
     thighs_count: int
     marinade_g: GramsOut | None
+    # ថ្ងៃផលិត: recorded when step 2 is finished; null while a draft.
+    production_date: date | None
 
 
 class StandardizeOut(_StepOut):
@@ -148,6 +152,8 @@ class StandardizeOut(_StepOut):
     rejected_wings: int | None
     rejected_thighs: int | None
     comment: str | None
+    # ថ្ងៃវេចខ្ចប់: recorded when step 3 is finished; null while a draft.
+    packaging_date: date | None
 
 
 class ByproductOut(BaseModel):
@@ -189,7 +195,6 @@ class CatalogOut(BaseModel):
 class BatchOut(BaseModel):
     id: uuid.UUID
     code: str
-    production_date: date
     status: BatchStatus
     current_step: int
     version: int
@@ -213,7 +218,11 @@ class BatchOut(BaseModel):
 class BatchListItem(BaseModel):
     id: uuid.UUID
     code: str
-    production_date: date
+    # The three step dates; null until that step is finished.
+    import_date: date | None
+    production_date: date | None
+    packaging_date: date | None
+    created_at: datetime
     status: BatchStatus
     current_step: int
     # Status of steps 1–3: "draft", "finished", or "pending" (not started yet).
@@ -236,7 +245,9 @@ class ProductionStats(BaseModel):
     in_progress: int
     # Batches completed today (BUSINESS_TIMEZONE).
     completed_today: int
-    # Chickens (step 1 quantity) of finished step 1s dated this month; cancelled batches excluded.
+    # Chickens (step 1 quantity) of finished step 1s whose import date is this month;
+    # cancelled batches excluded.
     chickens_this_month: int
-    # Rejected wings + thighs of finished step 3s dated this month; cancelled batches excluded.
+    # Rejected wings + thighs of finished step 3s whose packing date is this month; cancelled
+    # batches excluded.
     rejected_pieces_this_month: int

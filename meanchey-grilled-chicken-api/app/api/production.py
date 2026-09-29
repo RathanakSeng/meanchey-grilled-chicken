@@ -50,7 +50,9 @@ async def list_batches(
     """Cancelled batches are left out unless `include_cancelled=true` (then they're added to the
     chosen status) or `status=cancelled` (only them). `waiting_step=2|3`: in-progress batches
     whose previous steps are finished and that step isn't. `q` matches the batch code and the
-    supplier name. Dates are production dates."""
+    supplier name. `date_from`/`date_to`: a batch matches if any of its step dates (import,
+    production, packing) is in the range or, while no step is finished, its creation day.
+    `date` sort: by the latest recorded step date (else the creation day), then the code."""
     items, total = await svc.list_batches(
         session,
         status=status,

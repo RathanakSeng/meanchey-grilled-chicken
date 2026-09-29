@@ -11,10 +11,29 @@ export const productionKeys = {
   supplierOptions: (q: string) => ['production-supplier-options', q] as const,
 }
 
-export const STEPS: { n: StepNumber; slug: StepSlug; labelKey: string }[] = [
-  { n: 1, slug: 'raw-material', labelKey: 'production.steps.rawMaterial' },
-  { n: 2, slug: 'produced', labelKey: 'production.steps.produced' },
-  { n: 3, slug: 'standardize', labelKey: 'production.steps.standardize' },
+/** `dateKey` / `dateShortKey`: the step's date label (ថ្ងៃនាំចូល…) and its short form (នាំចូល…). */
+export const STEPS: { n: StepNumber; slug: StepSlug; labelKey: string; dateKey: string; dateShortKey: string }[] = [
+  {
+    n: 1,
+    slug: 'raw-material',
+    labelKey: 'production.steps.rawMaterial',
+    dateKey: 'production.dates.import',
+    dateShortKey: 'production.datesShort.import',
+  },
+  {
+    n: 2,
+    slug: 'produced',
+    labelKey: 'production.steps.produced',
+    dateKey: 'production.dates.production',
+    dateShortKey: 'production.datesShort.production',
+  },
+  {
+    n: 3,
+    slug: 'standardize',
+    labelKey: 'production.steps.standardize',
+    dateKey: 'production.dates.packing',
+    dateShortKey: 'production.datesShort.packing',
+  },
 ]
 
 export function slugOf(step: StepNumber): StepSlug {
@@ -24,6 +43,15 @@ export function slugOf(step: StepNumber): StepSlug {
 /** The step's data, or null while it hasn't started (the previous step was never finished). */
 export function stepData(batch: ProductionBatch, step: StepNumber) {
   return step === 1 ? batch.raw_material : step === 2 ? batch.produced : batch.standardize
+}
+
+/** The step's date, recorded by the server when it was finished (null while a draft). */
+export function stepDate(batch: ProductionBatch, step: StepNumber): string | null {
+  return step === 1
+    ? batch.raw_material.import_date
+    : step === 2
+      ? (batch.produced?.production_date ?? null)
+      : (batch.standardize?.packaging_date ?? null)
 }
 
 /** Any finished step can be reopened unless the batch is cancelled; the API lists which steps

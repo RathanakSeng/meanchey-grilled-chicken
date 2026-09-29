@@ -169,25 +169,27 @@ Top to bottom:
 
 **Paths:** `/workstation/production` (list) and `/workstation/production/<id>?step=1|2|3` (a batch). **Who can open them:** Production access *View only* or higher (§10): by default the general manager and supervisors; staff once the general manager turns it on.
 
-A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Raw material** (វត្ថុធាតុដើម) → **Produced** (ការកែច្នៃ) → **Standardize** (ការវេចខ្ចប់). Each step is filled in as a draft that **saves itself**, and is locked with **Finish step**. A step opens only once the previous one is finished.
+A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ការនាំចូល) → **Processing** (ការផលិត) → **Standardize** (ការវេចខ្ចប់). Each step is filled in as a draft that **saves itself**, and is locked with **Finish step**. A step opens only once the previous one is finished.
+
+**Dates are recorded automatically.** Finishing a step records today's date for it (Cambodia calendar): **Import date** (ថ្ងៃនាំចូល) for step 1, **Production date** (ថ្ងៃផលិត) for step 2, **Packing date** (ថ្ងៃវេចខ្ចប់) for step 3. Nobody types or changes them; each form says so at the top (*"ថ្ងៃនាំចូល will be recorded when you finish this step"*). Reopening a step clears its date and the dates of the later steps it sends back to draft; finishing again records the new day. The batch code keeps the day the batch was started.
 
 **List page**
 
 1. **Header:** title, total and **New production** (Record or Full access). It creates the batch at once and opens step 1.
 2. **Figures:** *In progress*, *Completed today*, *Chickens this month*, *Rejected pieces this month* (Cambodia calendar; cancelled batches aren't counted). Four in a row on large screens, 2 × 2 on phones and in the Mini App, all visible without scrolling.
-3. **Quick filters** as chips: **Waiting for step 2** and **Waiting for step 3**: the batches whose previous step is finished, ready to pick up. Plus a status filter (All · In progress · Completed), a **Show cancelled** checkbox, a date range (production date) and a search box (batch code or supplier). **Cancelled batches are left out of the list** unless *Show cancelled* is ticked; then they're added, dimmed, to whatever status is chosen. All filters are kept in the address.
-4. **List,** 20 per page: batch code, date, supplier, step dots (●●○: filled = finished, ringed = draft), number of chickens and a status badge. A table on desktop, cards on mobile; tapping a batch opens it.
+3. **Quick filters** as chips: **Waiting for step 2** and **Waiting for step 3**: the batches whose previous step is finished, ready to pick up. Plus a status filter (All · In progress · Completed), a **Show cancelled** checkbox, a **Date** (ថ្ងៃ) range that *matches any step date* (import, production or packing; a batch with no finished step matches on the day it was started) and a search box (batch code or supplier). **Cancelled batches are left out of the list** unless *Show cancelled* is ticked; then they're added, dimmed, to whatever status is chosen. All filters are kept in the address.
+4. **List,** 20 per page, latest date first: batch code, the three dates (*Import date · Production date · Packing date*, "—" until recorded), supplier, step dots (●●○: filled = finished, ringed = draft), number of chickens and a status badge. A table on desktop (it scrolls sideways inside its card if the columns don't fit); on mobile, cards with one date line: the latest recorded date and its label (*"ផលិត 29 Sept"*), or *"Started 29 Sept"*. Tapping a batch opens it.
 
 **Batch page**
 
-- **Header:** code, production date, status badge, and a **⋮** menu with **Reopen \<step\>** for every finished step (Full access) and **Cancel batch** (general manager and superadmin only; in-progress batches, asks for a required reason).
-- **Stepper 1 · 2 · 3** (✓ when finished). Tapping a step shows it; steps not started yet are disabled. On mobile one step is shown at a time.
-- A finished step shows a **read-only summary** with *Finished by … · time*. **Reopen \<step\>** (⋮ menu) works on any finished step in one action: it and every later finished step go back to draft with their values kept, and must be finished again in order. The confirmation says which steps, e.g. *"Reopen Raw material? Produced and Standardize will go back to draft and need to be finished again."* A completed batch is in progress again until then. The page then switches to that step. The current step shows its **form** to users with Record or Full access; with *View only* every step is read-only (a notice says so).
+- **Header:** code, status badge and the recorded dates as compact chips (*"នាំចូល 28 Sept · ផលិត 29 Sept · វេចខ្ចប់ —"*; *"Started 29 Sept"* before any step is finished), and a **⋮** menu with **Reopen \<step\>** for every finished step (Full access) and **Cancel batch** (general manager and superadmin only; in-progress batches, asks for a required reason).
+- **Stepper 1 · 2 · 3** (✓ when finished, with the step's date: *"Finished · 27 Sept"*; on phones the date sits under the name). All three cards keep the same height. Tapping a step shows it; steps not started yet are disabled. On mobile one step is shown at a time.
+- A finished step shows a **read-only summary** with its date and *Finished by … · time* (*"ថ្ងៃនាំចូល · 27 Sept 2026 · Finished by …"*). **Reopen \<step\>** (⋮ menu) works on any finished step in one action: it and every later finished step go back to draft with their values kept, and must be finished again in order. The confirmation says which steps, e.g. *"Reopen Intake? Processing and Standardize will go back to draft and need to be finished again."* A completed batch is in progress again until then. The page then switches to that step. The current step shows its **form** to users with Record or Full access; with *View only* every step is read-only (a notice says so).
 - Cancelled batches show the reason and are read-only; completed ones show when they were completed.
 
-**Step 1: Raw material.** Supplier (a searchable list of active suppliers; no Suppliers access needed), production date (today by default), raw material (Chicken), weight (kg) and number of chickens.
+**Step 1: Intake.** Type (ប្រភេទ: Chicken), supplier (a searchable list of active suppliers; no Suppliers access needed), weight (kg) and number of chickens. No date field: the import date is recorded at Finish.
 
-**Step 2: Produced.** Wings and thighs weight (kg), each next to its **count, locked at 2 per chicken** (lock icon; set by the server from step 1), the four by-products in kg (gizzard កោះមាន់, liver ថ្លើមមាន់, heart បេះដូងមាន់, head ក្បាលមាន់; 0 is allowed) and the marinade in grams. The yield (wings + thighs ÷ raw weight) is shown live and in the summary.
+**Step 2: Processing.** Wings and thighs weight (kg), each next to its **count, locked at 2 per chicken** (lock icon; set by the server from step 1), the four by-products in kg (gizzard កោះមាន់, liver ថ្លើមមាន់, heart បេះដូងមាន់, head ក្បាលមាន់; 0 is allowed) and the marinade in grams. The yield (wings + thighs ÷ imported weight) is shown live and in the summary.
 
 **Step 3: Standardize.** Big packages (*1 big = 2 wings + 2 thighs*) and small packages (*1 small = 1 wing + 1 thigh*) with a live breakdown, rejected wings and thighs, and a **balance meter** per piece type (*"Wings: 3 left to assign"*, *"2 too many"*, *All assigned*). For each by-product: the produced kg, **carry forward** (យកទៅបន្ត) and **rejected** (ខូច/មិនប្រើ) inputs, and a per-row indicator. A comment is optional.
 
@@ -340,7 +342,7 @@ Supervisors and staff never see any permission or access information.
   - detailed permission grants and revokes, including automatic ones on deploy: **superadmin only** (the general manager sees access changes instead);
   - profile updates;
   - suppliers and customers added, edited, deactivated and reactivated;
-  - production: batch started, step finished and step reopened (*"Step 1 · Raw material"*, plus *"Also back to draft: step 2, 3"* when later steps were reopened with it), batch cancelled (with the reason). Draft saves aren't logged.
+  - production: batch started, step finished and step reopened (*"Step 1 · Intake"*, plus *"Also back to draft: step 2, 3"* when later steps were reopened with it), batch cancelled (with the reason). Draft saves aren't logged.
 - **Filters:** record type (All · Suppliers · Customers · Production batches) and action type.
 - Each entry shows:
   - the time, in the current language's format;

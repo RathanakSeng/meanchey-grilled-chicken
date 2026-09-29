@@ -2,13 +2,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import { Field, Input, Select, cx } from '@/components/ui'
+import { Icon } from '@/components/icons'
+import { Field, Select, cx } from '@/components/ui'
 import { api } from '@/lib/api'
 import { ClientError, getError } from '@/lib/errors'
 import { useLocalized } from '@/lib/format'
 import type { ProductionBatch, StepNumber } from '@/lib/types'
 import { PRODUCTION_COMMENT_MAX_LENGTH } from '@/lib/types'
-import { onBatchChanged, productionKeys, slugOf } from './api'
+import { STEPS, onBatchChanged, productionKeys, slugOf } from './api'
 import { KG_PLACES, formatScaled, parseDecimal, scaledOf, toInput, valueOf } from './numbers'
 import { SupplierPicker } from './SupplierPicker'
 import { LockedValue, NumberField, StepShell } from './StepShell'
@@ -95,6 +96,17 @@ function useByproductNames(batch: ProductionBatch) {
   )
 }
 
+/** "ថ្ងៃនាំចូល will be recorded when you finish this step" (dates are never typed in). */
+function DateNote({ step }: { step: StepNumber }) {
+  const { t } = useTranslation()
+  return (
+    <p className="flex items-center gap-1.5 text-sm text-stone-500">
+      <Icon name="calendar" width={16} height={16} className="shrink-0 text-stone-400" />
+      {t('production.dateOnFinish', { date: t(STEPS[step - 1].dateKey) })}
+    </p>
+  )
+}
+
 /** "Fill in: Supplier, Weight" for the blockers list. */
 function missingBlocker(errors: Errors, label: (key: string) => string, t: TFunction) {
   const keys = Object.keys(errors)
@@ -114,7 +126,6 @@ export function RawMaterialForm({ batch, onFinished }: FormProps) {
 
   const label = (key: string) =>
     ({
-      production_date: t('production.fields.date'),
       supplier: t('production.fields.supplier'),
       supplier_id: t('production.fields.supplier'),
       material_kind: t('production.fields.materialKind'),
@@ -137,18 +148,8 @@ export function RawMaterialForm({ batch, onFinished }: FormProps) {
       finishing={finish.isPending}
       finishError={finish.error}
     >
+      <DateNote step={1} />
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t('production.fields.date')}>
-          {(id) => (
-            <Input
-              id={id}
-              type="date"
-              className="h-12 text-base sm:h-10 sm:text-sm"
-              value={values.production_date}
-              onChange={(e) => set({ production_date: e.target.value })}
-            />
-          )}
-        </Field>
         <Field label={t('production.fields.materialKind')}>
           {(id) => (
             <Select
@@ -234,6 +235,7 @@ export function ProducedForm({ batch, onFinished }: FormProps) {
       finishing={finish.isPending}
       finishError={finish.error}
     >
+      <DateNote step={2} />
       <div className="grid gap-4 sm:grid-cols-2">
         <NumberField
           label={t('production.fields.wingsKg')}
@@ -389,6 +391,7 @@ export function StandardizeForm({ batch, onFinished }: FormProps) {
       finishing={finish.isPending}
       finishError={finish.error}
     >
+      <DateNote step={3} />
       <div className="grid gap-4 sm:grid-cols-2">
         <NumberField
           label={t('production.fields.bigPackages')}

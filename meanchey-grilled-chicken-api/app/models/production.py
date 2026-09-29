@@ -4,6 +4,10 @@ A batch (`production_batches`) has one row per step, created when the step becom
 raw material (created with the batch), produced (when step 1 is finished) and packaging (when
 step 2 is finished). By-products are one row per batch and catalog item (`production/catalog.py`).
 Weights are NUMERIC and handled as `Decimal` end to end.
+
+Each step has its own date (import / production / packaging), recorded by the server when the step
+is finished (today in BUSINESS_TIMEZONE) and cleared when it is reopened. A CHECK keeps it in step
+with the status: finished ⇔ a date.
 """
 
 import uuid
@@ -49,6 +53,16 @@ def _user_fk() -> Mapped[uuid.UUID | None]:
     return mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
 
+def _date_matches_status(column: str) -> CheckConstraint:
+    return CheckConstraint(
+        f"(status = 'finished') = ({column} IS NOT NULL)", name=f"{column}_matches_status"
+    )
+
+
+def _step_date() -> Mapped[date | None]:
+    return mapped_column(Date, index=True)
+
+
 def _batch_pk() -> Mapped[uuid.UUID]:
     return mapped_column(ForeignKey("production_batches.id", ondelete="CASCADE"), primary_key=True)
 
@@ -78,9 +92,8 @@ class ProductionBatch(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    # PR-YYYYMMDD-NNN, numbered per day of the date given at creation. Never renumbered.
+    # PR-YYYYMMDD-NNN, numbered per creation day (BUSINESS_TIMEZONE). Never changes.
     code: Mapped[str] = mapped_column(String(32), unique=True)
-    production_date: Mapped[date] = mapped_column(Date, index=True)
     status: Mapped[str] = mapped_column(
         String(16), default="in_progress", server_default=text("'in_progress'")
     )
@@ -116,11 +129,12 @@ class ProductionBatch(Base):
 
 
 class ProductionRawMaterial(StepMixin, Base):
-    """Step 1. The batch's `production_date` is edited with this step."""
+    """Step 1 (intake). `import_date` is recorded when it is finished."""
 
     __tablename__ = "production_raw_materials"
     __table_args__ = (
         CheckConstraint(_in("status", STEP_STATUSES), name="status"),
+        _date_matches_status("import_date"),
         CheckConstraint("weight_kg >= 0", name="weight_kg"),
         CheckConstraint("quantity >= 0", name="quantity"),
     )
@@ -133,14 +147,17 @@ class ProductionRawMaterial(StepMixin, Base):
     material_kind: Mapped[str] = mapped_column(String(32))
     weight_kg: Mapped[Decimal | None] = mapped_column(KG)
     quantity: Mapped[int | None] = mapped_column(Integer)
+    import_date: Mapped[date | None] = _step_date()
 
 
 class ProductionOutput(StepMixin, Base):
-    """Step 2. Piece counts are computed by the server from the step 1 quantity."""
+    """Step 2 (processing). Piece counts are computed by the server from the step 1 quantity;
+    `production_date` is recorded when it is finished."""
 
     __tablename__ = "production_outputs"
     __table_args__ = (
         CheckConstraint(_in("status", STEP_STATUSES), name="status"),
+        _date_matches_status("production_date"),
         CheckConstraint("wings_kg >= 0 AND thighs_kg >= 0 AND marinade_g >= 0", name="nonnegative"),
     )
 
@@ -150,14 +167,16 @@ class ProductionOutput(StepMixin, Base):
     wings_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     thighs_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     marinade_g: Mapped[Decimal | None] = mapped_column(GRAMS)
+    production_date: Mapped[date | None] = _step_date()
 
 
 class ProductionPackaging(StepMixin, Base):
-    """Step 3 (standardize)."""
+    """Step 3 (standardize). `packaging_date` is recorded when it is finished."""
 
     __tablename__ = "production_packaging"
     __table_args__ = (
         CheckConstraint(_in("status", STEP_STATUSES), name="status"),
+        _date_matches_status("packaging_date"),
         CheckConstraint(
             "big_packages >= 0 AND small_packages >= 0 "
             "AND rejected_wings >= 0 AND rejected_thighs >= 0",
@@ -171,6 +190,7 @@ class ProductionPackaging(StepMixin, Base):
     rejected_wings: Mapped[int | None] = mapped_column(Integer)
     rejected_thighs: Mapped[int | None] = mapped_column(Integer)
     comment: Mapped[str | None] = mapped_column(Text)
+    packaging_date: Mapped[date | None] = _step_date()
 
 
 class ProductionByproduct(Base):
@@ -191,7 +211,7 @@ class ProductionByproduct(Base):
 
 
 class ProductionBatchCounter(Base):
-    """Last batch number used per production date (codes PR-YYYYMMDD-NNN)."""
+    """Last batch number used per creation day (codes PR-YYYYMMDD-NNN)."""
 
     __tablename__ = "production_batch_counters"
 

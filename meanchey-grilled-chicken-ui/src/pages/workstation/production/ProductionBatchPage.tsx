@@ -9,10 +9,10 @@ import { Sheet } from '@/components/Sheet'
 import { Alert, Button, ConfirmDialog, Field, PageHeader, Spinner, cx } from '@/components/ui'
 import { api } from '@/lib/api'
 import { getError, useErrorMessage } from '@/lib/errors'
-import { useFormatDate } from '@/lib/format'
+import { useFormatDate, useFormatDay } from '@/lib/format'
 import { paths } from '@/lib/paths'
 import { CANCEL_REASON_MAX_LENGTH, type ProductionBatch, type StepNumber } from '@/lib/types'
-import { STEPS, canReopenStep, onBatchChanged, productionKeys, slugOf, stepData } from './api'
+import { STEPS, canReopenStep, onBatchChanged, productionKeys, slugOf, stepData, stepDate } from './api'
 import { BatchStatusBadge } from './badges'
 import { ProducedForm, RawMaterialForm, StandardizeForm } from './StepForms'
 import { StepSummary } from './StepSummaries'
@@ -27,11 +27,13 @@ function Stepper({
   onSelect(step: StepNumber): void
 }) {
   const { t } = useTranslation()
+  const formatDay = useFormatDay()
   return (
     <ol className="mb-4 grid grid-cols-3 gap-2">
       {STEPS.map(({ n, labelKey }) => {
         const data = stepData(batch, n)
         const finished = data?.status === 'finished'
+        const day = stepDate(batch, n)
         const active = n === selected
         return (
           <li key={n}>
@@ -41,7 +43,7 @@ function Stepper({
               onClick={() => onSelect(n)}
               aria-current={active ? 'step' : undefined}
               className={cx(
-                'flex w-full flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-center ring-1 transition sm:flex-row sm:gap-2 sm:text-left',
+                'flex h-full w-full flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-center ring-1 transition sm:flex-row sm:gap-2 sm:text-left',
                 active ? 'bg-brand-50 ring-2 ring-brand-500' : 'bg-white ring-stone-200 hover:ring-stone-300',
                 !data && 'cursor-not-allowed opacity-50 hover:ring-stone-200',
               )}
@@ -56,9 +58,17 @@ function Stepper({
               </span>
               <span className="min-w-0">
                 <span className="block truncate text-xs font-semibold text-stone-900 sm:text-sm">{t(labelKey)}</span>
-                <span className="hidden text-xs text-stone-500 sm:block">
+                {/* One status line: "Finished · 27 Sept" / "Draft", so every card has the same height. */}
+                <span className="hidden truncate text-xs text-stone-500 sm:block">
                   {t(`production.stepStatus.${data ? data.status : 'pending'}`)}
+                  {day && <span className="tabular-nums"> · {formatDay(day, { day: 'numeric', month: 'short' })}</span>}
                 </span>
+                {/* Phones: the ✓ is the status; the date sits under the name (cards stretch evenly). */}
+                {day && (
+                  <span className="block text-xs tabular-nums text-stone-500 sm:hidden">
+                    {formatDay(day, { day: 'numeric', month: 'short' })}
+                  </span>
+                )}
               </span>
             </button>
           </li>
@@ -68,8 +78,43 @@ function Stepper({
   )
 }
 
+/** Header chips: "នាំចូល 28 Sept · ផលិត 29 Sept · វេចខ្ចប់ —", or "Started 29 Sept" before any step
+ * is finished. Dates are recorded by the server at Finish. */
+function BatchDates({ batch }: { batch: ProductionBatch }) {
+  const { t } = useTranslation()
+  const formatDate = useFormatDate()
+  const formatDay = useFormatDay()
+  const short = { day: 'numeric', month: 'short' } as const
+  if (!batch.raw_material.import_date) {
+    return (
+      <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-600">
+        {t('production.started', { date: formatDate(batch.created_at, short) })}
+      </span>
+    )
+  }
+  return (
+    <>
+      {STEPS.map(({ n, dateKey, dateShortKey }) => {
+        const day = stepDate(batch, n)
+        return (
+          <span
+            key={n}
+            title={t(dateKey)}
+            className={cx(
+              'rounded-full bg-stone-100 px-2 py-0.5 text-xs tabular-nums',
+              day ? 'text-stone-700' : 'text-stone-400',
+            )}
+          >
+            {t(dateShortKey)} {day ? formatDay(day, short) : '—'}
+          </span>
+        )
+      })}
+    </>
+  )
+}
+
 /**
- * One batch: header (code, date, status, ⋮ cancel), the 1·2·3 stepper and the selected step
+ * One batch: header (code, status, step dates, ⋮ menu), the 1·2·3 stepper and the selected step
  * (`?step=`): its form while it's a draft the user may record, otherwise a summary. The ⋮ menu
  * has **Reopen <step>** for every finished step (`production.update`), which reopens it and every
  * later finished step in one go, and **Cancel batch** (`production.delete`, GM only).
@@ -219,9 +264,9 @@ export function ProductionBatchPage() {
         back={paths.production}
         title={<span className="tabular-nums">{batch.code}</span>}
         subtitle={
-          <span className="flex flex-wrap items-center gap-2">
-            {formatDate(batch.production_date, { dateStyle: 'medium' })}
+          <span className="flex flex-wrap items-center gap-1.5">
             <BatchStatusBadge status={batch.status} />
+            <BatchDates batch={batch} />
           </span>
         }
         actions={<ActionMenu items={actions} label={t('production.actions')} />}

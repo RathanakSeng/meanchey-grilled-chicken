@@ -1,7 +1,8 @@
-<UPDATE><BOTH><PRODUCTION-ACCESS>: reopen steps from the ⋮ menu, align Access tab level columns
+<UPDATE><BOTH><PRODUCTION>: step dates recorded at Finish, new step names
 
-- Batch page: "Reopen <step>" items in the ⋮ menu for every finished step (production.update) instead of an Edit button on the summary; same cascade (later steps back to draft, values kept) and confirmation naming the affected steps
-- "Reopen" wording in the Access legend, Finish confirmation, production.update name/description (km/en) and code comments
-- Access tab: every row uses the same columns (Off · View only · Record · Full access); a level a feature doesn't have is a muted "—" cell (tooltip "Not available for this feature"), aligned on desktop, 2×2 on phones
-- SegmentedControl: optional `slots` column list; i18n access.levelNotAvailable (km/en)
-- Docs updated in both projects
+- API: import / production / packing dates on each step, set by the server at Finish (today in BUSINESS_TIMEZONE), cleared on reopen, never accepted from clients (VALIDATION_ERROR); CHECKs finished ⇔ date
+- Migration 0006: step date columns backfilled from finished_at, production_batches.production_date dropped; batch code from the creation day (never changes)
+- List: three dates + created_at per item, date filter matches any step date (creation day while nothing is finished), sort by latest recorded date; stats by import / packing date
+- UI: date input removed from step 1, "recorded when you finish" note per step, dates in summaries, header chips ("Started …" before step 1), stepper dates with equal-height cards, three date columns on desktop, latest date on mobile cards, "Date" filter with hint
+- UI: steps renamed ការនាំចូល / Intake, ការផលិត / Processing, type dropdown ប្រភេទ / Type (km/en); useFormatDay for calendar dates; PageHeader keeps ⋮ on the title row on phones; list table scrolls inside its card
+- Tests for dates, timezone, reopen order, filter/sort, stats and the migration; docs updated in both projects

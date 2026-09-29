@@ -56,10 +56,10 @@ function byproductRow(batch: ProductionBatch, code: string) {
   return batch.byproducts.find((b) => b.item_code === code)
 }
 
-// --- Step 1: raw material ------------------------------------------------------------------------
+// --- Step 1: intake ------------------------------------------------------------------------------
+// No date here: the import date is recorded by the server when the step is finished.
 
 export interface RawValues {
-  production_date: string
   supplier: (SupplierOption & Partial<Pick<SupplierBrief, 'is_active'>>) | null
   material_kind: string
   weight_kg: string
@@ -69,7 +69,6 @@ export interface RawValues {
 export function rawFromBatch(batch: ProductionBatch): RawValues {
   const raw = batch.raw_material
   return {
-    production_date: batch.production_date,
     supplier: raw.supplier,
     material_kind: raw.material_kind,
     weight_kg: toInput(raw.weight_kg),
@@ -79,7 +78,6 @@ export function rawFromBatch(batch: ProductionBatch): RawValues {
 
 export function rawPayload(v: RawValues): Record<string, unknown> {
   return compact({
-    production_date: v.production_date || undefined,
     supplier_id: v.supplier?.id ?? null,
     material_kind: v.material_kind,
     weight_kg: decimalPayload(v.weight_kg, KG_PLACES),
@@ -97,14 +95,13 @@ export function rawInputErrors(v: RawValues): Errors {
 
 export function rawFinishErrors(v: RawValues): Errors {
   return collect([
-    ['production_date', v.production_date ? null : 'required'],
     ['supplier', v.supplier ? null : 'required'],
     ['weight_kg', kgError(v.weight_kg, { required: true, positive: true })],
     ['quantity', countError(v.quantity, { required: true, positive: true })],
   ])
 }
 
-// --- Step 2: produced ----------------------------------------------------------------------------
+// --- Step 2: processing --------------------------------------------------------------------------
 
 export interface ProducedValues {
   wings_kg: string

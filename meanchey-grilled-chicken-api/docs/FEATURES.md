@@ -560,26 +560,40 @@ Production records one **batch** as it moves through three steps. Each step is s
 
 ```
 New production → batch PR-YYYYMMDD-NNN
-  Step 1 Raw material (វត្ថុធាតុដើម)  → Finish
-  Step 2 Produced (ការកែច្នៃ)          → Finish   (only after step 1 is finished)
-  Step 3 Standardize (ការវេចខ្ចប់)     → Finish   (only after step 2 is finished) → batch completed
+  Step 1 Intake (ការនាំចូល)         → Finish → import date (ថ្ងៃនាំចូល) recorded
+  Step 2 Processing (ការផលិត)       → Finish → production date (ថ្ងៃផលិត) recorded   (only after step 1 is finished)
+  Step 3 Standardize (ការវេចខ្ចប់)   → Finish → packing date (ថ្ងៃវេចខ្ចប់) recorded   (only after step 2 is finished) → batch completed
 ```
+
+The API step codes stay `raw-material`, `produced` and `standardize` (URLs, `steps`, audit details); only the displayed names changed.
 
 ### 14.1 Steps and fields
 
 Weights are exact decimals (`NUMERIC`, `Decimal` in Python), accepted as JSON numbers or strings and **always returned as fixed-precision strings**: kg with 3 decimals (`"12.500"`), grams with 1 (`"350.0"`). Counts are whole numbers. Draft saves only check types and ≥ 0; Finish checks the rules below.
 
-**Step 1: Raw material** (one line per batch)
+**Step dates, recorded by the server at Finish.** Each step has one date, set when the step is finished to **today in `BUSINESS_TIMEZONE`** (17:30 UTC on 30 Sep is already 1 Oct in Phnom Penh) and returned inside that step's object:
+
+| Date | Step object field | Column |
+|---|---|---|
+| Import date (ថ្ងៃនាំចូល) | `raw_material.import_date` | `production_raw_materials.import_date` |
+| Production date (ថ្ងៃផលិត) | `produced.production_date` | `production_outputs.production_date` |
+| Packing date (ថ្ងៃវេចខ្ចប់) | `standardize.packaging_date` | `production_packaging.packaging_date` |
+
+- A draft step's date is `null`.
+- Dates are **never accepted from clients**: sending one in a create, draft or finish body is a `VALIDATION_ERROR` (like the computed counts), so nobody can type or backdate one.
+- Steps finish in order and reopening sends every later step back to draft (clearing its date, §14.2), so **import ≤ production ≤ packing** always holds and no date is in the future. No separate check or error code is needed; a test runs reopen / re-finish sequences to prove it.
+- There is no batch-level date any more; batch responses have `created_at` plus the three step dates.
+
+**Step 1: Intake** (one line per batch)
 
 | Field | Draft | Finish |
 |---|---|---|
-| `production_date` | defaults to today in `BUSINESS_TIMEZONE` | required |
 | `supplier_id` | optional (must exist) | required; the supplier must be **active** at finish time → else `SUPPLIER_INACTIVE` |
 | `material_kind` | `chicken` (the only kind today, from the catalog) | required, known kind |
 | `weight_kg` | optional, ≥ 0, max 3 decimals | required, > 0 |
 | `quantity` (chickens) | optional, whole ≥ 0 | required, > 0 |
 
-**Step 2: Produced**
+**Step 2: Processing**
 
 | Field | Unit | Rule |
 |---|---|---|
@@ -617,9 +631,9 @@ All of these are required at Finish.
 
 - Batch `status`: `in_progress` → `completed` (step 3 finished), or `cancelled`. `current_step` (1–3) is the step being worked on.
 - Step `status`: `draft` → `finished`. A step's row exists once the previous one has been finished (`produced` / `standardize` are `null` in responses until then). A finished step is read-only: saving or finishing it again → `PRODUCTION_STEP_FINISHED`. Saving or finishing a step whose previous one isn't finished → `PRODUCTION_STEP_NOT_READY`.
-- **Reopen** step N (`production.update`): allowed for any finished step of an in-progress or completed batch, whatever the later steps are. In one transaction (batch row locked), step N **and every later finished step** go back to `draft` (`finished_by` / `finished_at` cleared); **all values are kept**; `current_step` becomes N; a completed batch goes back to `in_progress` (`completed_at = null`); `version` + 1. The later steps are then finished again in order (`PRODUCTION_STEP_NOT_READY` otherwise), which recomputes the step 2 counts from step 1 and re-checks the piece balance at step 3. Each step in a batch response carries `reopens_steps` (the steps editing it would put back to draft; `[]` when it isn't finished or the batch is cancelled) so the UI can warn. Reopening a step that is already a draft changes nothing. `PRODUCTION_STEP_LOCKED` is no longer raised.
+- **Reopen** step N (`production.update`): allowed for any finished step of an in-progress or completed batch, whatever the later steps are. In one transaction (batch row locked), step N **and every later finished step** go back to `draft` (`finished_by` / `finished_at` and **the step's date** cleared; the next Finish records that new day); **all values are kept**; `current_step` becomes N; a completed batch goes back to `in_progress` (`completed_at = null`); `version` + 1. The later steps are then finished again in order (`PRODUCTION_STEP_NOT_READY` otherwise), which recomputes the step 2 counts from step 1 and re-checks the piece balance at step 3. Each step in a batch response carries `reopens_steps` (the steps editing it would put back to draft; `[]` when it isn't finished or the batch is cancelled) so the UI can warn. Reopening a step that is already a draft changes nothing. `PRODUCTION_STEP_LOCKED` is no longer raised.
 - **Cancel** (`production.delete`, general manager and superadmin only): only `in_progress` batches (`PRODUCTION_COMPLETED` for completed ones), with a required reason (1–500 characters). A cancelled batch is read-only (`PRODUCTION_CANCELLED` for any change) and excluded from the figures.
-- **Batch code** `PR-YYYYMMDD-NNN`: from the production date given at creation (default today in `BUSINESS_TIMEZONE`, e.g. 17:30 UTC on 30 Sep is already 1 Oct in Phnom Penh), numbered per day by a counter row (`production_batch_counters`, `INSERT … ON CONFLICT … RETURNING`), so concurrent creations get distinct numbers. The code never changes, even if the date is edited later.
+- **Batch code** `PR-YYYYMMDD-NNN`: from the **creation day** in `BUSINESS_TIMEZONE` (e.g. 17:30 UTC on 30 Sep is already 1 Oct in Phnom Penh), numbered per day by a counter row (`production_batch_counters`, `INSERT … ON CONFLICT … RETURNING`), so concurrent creations get distinct numbers. The code never changes, whenever the steps are finished or reopened.
 
 ### 14.3 Drafts and versions
 
@@ -631,11 +645,11 @@ All of these are required at Finish.
 
 | Endpoint | Notes |
 |---|---|
-| `GET /production` | **Cancelled batches are left out** unless `include_cancelled=true` (then added to the chosen status) or `status=cancelled` (only them). Filters: `status` (`in_progress`, `completed`, `cancelled`, `all` = default: in progress + completed), `include_cancelled` (default `false`), `waiting_step` (2 or 3: in-progress batches whose previous steps are finished and that step isn't), `date_from` / `date_to` (production date, inclusive), `q` (batch code or supplier name). `sort`: `-date` (default), `date`, `code`, `-code`. Paging: 20 by default, at most 100. Items: `code`, `production_date`, `status`, `current_step`, `steps` (`pending` / `draft` / `finished` for steps 1–3), `supplier`, `quantity`, `created_by`. |
-| `GET /production/stats` | `in_progress`; `completed_today` (completed since midnight, Cambodia time); `chickens_this_month` (quantity of finished step 1s dated this month); `rejected_pieces_this_month` (rejected wings + thighs of finished step 3s dated this month). Months and days follow `BUSINESS_TIMEZONE`; cancelled batches are excluded. |
-| `POST /production` | Creates the batch with a draft step 1; optional initial step 1 fields. `201` with the batch. |
+| `GET /production` | **Cancelled batches are left out** unless `include_cancelled=true` (then added to the chosen status) or `status=cancelled` (only them). Filters: `status` (`in_progress`, `completed`, `cancelled`, `all` = default: in progress + completed), `include_cancelled` (default `false`), `waiting_step` (2 or 3: in-progress batches whose previous steps are finished and that step isn't), `date_from` / `date_to` (inclusive; a batch matches if **any** of its three step dates is in the range, or, while no step is finished, its **creation day**), `q` (batch code or supplier name). `sort`: `-date` (default), `date` — by the batch's **latest recorded step date**, falling back to its creation day, then by code — `code`, `-code`. Paging: 20 by default, at most 100. Items: `code`, `import_date`, `production_date`, `packaging_date` (null until recorded), `created_at`, `status`, `current_step`, `steps` (`pending` / `draft` / `finished` for steps 1–3), `supplier`, `quantity`, `created_by`. |
+| `GET /production/stats` | `in_progress`; `completed_today` (completed since midnight, Cambodia time); `chickens_this_month` (quantity of finished step 1s whose **import date** is this month); `rejected_pieces_this_month` (rejected wings + thighs of finished step 3s whose **packing date** is this month). Months and days follow `BUSINESS_TIMEZONE`; cancelled batches are excluded. |
+| `POST /production` | Creates the batch with a draft step 1; optional initial step 1 fields (no date). `201` with the batch. |
 | `GET /production/{id}` | The batch, all steps, by-products, catalogs and `computed` (`wings_count` / `thighs_count` from the current quantity, `yield_percent` = (wings kg + thighs kg) ÷ raw kg × 100, one decimal, or null). |
-| `POST /production/{id}/{step}/finish` | `step` ∈ `raw-material`, `produced`, `standardize`; body `{version}`. |
+| `POST /production/{id}/{step}/finish` | `step` ∈ `raw-material`, `produced`, `standardize`; body `{version}`. Records the step's date (today, `BUSINESS_TIMEZONE`). |
 | `POST /production/{id}/{step}/reopen` | Body `{version}`. Reopens a finished step: it and every later finished step go back to draft (§14.2). |
 | `POST /production/{id}/cancel` | Body `{version, reason}`. |
 | `GET /production/supplier-options` | Active suppliers `{id, name, phone_display}` (at most 20, `q` on name or phone digits), for picking the step 1 supplier **without** Suppliers access. |

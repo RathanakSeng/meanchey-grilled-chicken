@@ -1,7 +1,9 @@
-"""Production batches: steps, drafts and versions, finish / reopen / cancel, codes, stats, list."""
+"""Production batches: steps, drafts and versions, finish / reopen / cancel, step dates, codes,
+stats, list."""
 
 import asyncio
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from httpx import Response
@@ -12,6 +14,13 @@ from app.services import production_service
 from tests.conftest import assert_error, auth
 
 BYPRODUCTS = ["gizzard", "liver", "heart", "head"]
+STEP_KEYS = ("raw_material", "produced", "standardize")
+DATE_KEYS = {
+    "raw_material": "import_date",
+    "produced": "production_date",
+    "standardize": "packaging_date",
+}
+PHNOM_PENH = ZoneInfo("Asia/Phnom_Penh")
 PRODUCED = {
     "wings_kg": "4.2",
     "thighs_kg": "6.8",
@@ -91,6 +100,29 @@ class Api:
         return ok(await self.finish(batch, "standardize"))
 
 
+class Clock:
+    """Sets the service's "now" (creation, finish, stats). `day()` = noon that day in Phnom Penh."""
+
+    def __init__(self, monkeypatch) -> None:
+        self.now: datetime | None = None
+        monkeypatch.setattr(production_service, "utcnow", lambda: self.now or datetime.now(UTC))
+
+    def at(self, moment: datetime | None) -> None:
+        self.now = moment
+
+    def day(self, iso: str) -> None:
+        self.now = datetime.combine(date.fromisoformat(iso), time(12), tzinfo=PHNOM_PENH)
+
+
+@pytest.fixture
+def clock(monkeypatch) -> Clock:
+    return Clock(monkeypatch)
+
+
+def step_dates(batch: dict) -> list[str | None]:
+    return [batch[k][DATE_KEYS[k]] if batch[k] is not None else None for k in STEP_KEYS]
+
+
 @pytest.fixture
 async def gm(make_user):
     return await make_user(Role.GENERAL_MANAGER)
@@ -117,12 +149,14 @@ async def test_create_starts_a_draft_step_1(api, session) -> None:
     batch = await api.create()
     today = production_service.business_today()
     assert batch["code"] == f"PR-{today:%Y%m%d}-001"
-    assert batch["production_date"] == today.isoformat()
+    assert "production_date" not in batch
+    assert batch["created_at"]
     assert (batch["status"], batch["current_step"], batch["version"]) == ("in_progress", 1, 1)
     raw = batch["raw_material"]
     assert raw["status"] == "draft"
     assert raw["material_kind"] == "chicken"
     assert raw["supplier"] is None and raw["weight_kg"] is None and raw["quantity"] is None
+    assert raw["import_date"] is None  # a draft has no date
     assert batch["produced"] is None and batch["standardize"] is None
     assert batch["byproducts"] == []
     assert [b["code"] for b in batch["catalog"]["byproducts"]] == BYPRODUCTS
@@ -136,10 +170,9 @@ async def test_create_starts_a_draft_step_1(api, session) -> None:
     assert log.details == {"code": batch["code"]}
 
 
-async def test_create_with_initial_values(api, supplier) -> None:
-    batch = await api.create(
-        production_date="2026-05-04", supplier_id=supplier["id"], weight_kg=12.25, quantity=6
-    )
+async def test_create_with_initial_values(api, supplier, clock) -> None:
+    clock.day("2026-05-04")
+    batch = await api.create(supplier_id=supplier["id"], weight_kg=12.25, quantity=6)
     assert batch["code"] == "PR-20260504-001"
     raw = batch["raw_material"]
     assert raw["supplier"] == {
@@ -153,32 +186,35 @@ async def test_create_with_initial_values(api, supplier) -> None:
     assert raw["quantity"] == 6
 
 
-async def test_codes_are_sequential_per_day(api) -> None:
-    codes = [(await api.create(production_date="2026-03-01"))["code"] for _ in range(3)]
+async def test_codes_are_sequential_per_creation_day(api, clock) -> None:
+    clock.day("2026-03-01")
+    codes = [(await api.create())["code"] for _ in range(3)]
     assert codes == ["PR-20260301-001", "PR-20260301-002", "PR-20260301-003"]
-    assert (await api.create(production_date="2026-03-02"))["code"] == "PR-20260302-001"
+    clock.day("2026-03-02")
+    assert (await api.create())["code"] == "PR-20260302-001"
 
 
-async def test_codes_are_unique_under_concurrent_creation(api) -> None:
-    batches = await asyncio.gather(*(api.create(production_date="2026-03-05") for _ in range(8)))
+async def test_codes_are_unique_under_concurrent_creation(api, clock) -> None:
+    clock.day("2026-03-05")
+    batches = await asyncio.gather(*(api.create() for _ in range(8)))
     codes = sorted(b["code"] for b in batches)
     assert codes == [f"PR-20260305-{n:03d}" for n in range(1, 9)]
 
 
-async def test_code_day_follows_business_timezone(api, monkeypatch) -> None:
+async def test_code_day_follows_business_timezone(api, clock) -> None:
     # 17:30 UTC on 30 Sep is 00:30 on 1 Oct in Phnom Penh (UTC+7).
-    monkeypatch.setattr(
-        production_service, "utcnow", lambda: datetime(2026, 9, 30, 17, 30, tzinfo=UTC)
-    )
+    clock.at(datetime(2026, 9, 30, 17, 30, tzinfo=UTC))
     batch = await api.create()
-    assert batch["production_date"] == "2026-10-01"
     assert batch["code"] == "PR-20261001-001"
+    assert batch["created_at"].startswith("2026-09-30T17:30")
 
 
-async def test_editing_the_date_keeps_the_code(api) -> None:
-    batch = await api.create(production_date="2026-03-01")
-    batch = ok(await api.patch(batch, "raw-material", production_date="2026-03-02"))
-    assert batch["production_date"] == "2026-03-02"
+async def test_the_code_never_changes(api, supplier, clock) -> None:
+    clock.day("2026-03-01")
+    batch = await api.create(supplier_id=supplier["id"], weight_kg="5", quantity=2)
+    clock.day("2026-03-04")  # finished (and dated) days later
+    batch = ok(await api.finish(batch, "raw-material"))
+    batch = ok(await api.reopen(batch, "raw-material"))
     assert batch["code"] == "PR-20260301-001"
 
 
@@ -216,7 +252,6 @@ async def test_draft_save_is_partial_and_bumps_version(api, supplier) -> None:
         {"weight_kg": "abc"},
         {"quantity": -1},
         {"quantity": 1.5},
-        {"production_date": None},
     ],
 )
 async def test_draft_relaxed_validation(api, fields) -> None:
@@ -283,6 +318,118 @@ async def test_finished_step_is_read_only(api, supplier) -> None:
         await api.patch(batch, "raw-material", quantity=3), 409, "PRODUCTION_STEP_FINISHED"
     )
     assert_error(await api.finish(batch, "raw-material"), 409, "PRODUCTION_STEP_FINISHED")
+
+
+# --- Step dates ----------------------------------------------------------------------------------
+
+
+async def test_finish_records_the_business_day_for_each_step(api, supplier, clock) -> None:
+    clock.at(datetime(2026, 9, 30, 16, 0, tzinfo=UTC))  # 23:00 on 30 Sep in Phnom Penh
+    batch = await api.create(supplier_id=supplier["id"], weight_kg="25.5", quantity=10)
+    assert batch["code"] == "PR-20260930-001"
+    # 17:30 UTC on 30 Sep is already 1 Oct there.
+    clock.at(datetime(2026, 9, 30, 17, 30, tzinfo=UTC))
+    batch = ok(await api.finish(batch, "raw-material"))
+    assert step_dates(batch) == ["2026-10-01", None, None]  # step 2 is a draft: no date yet
+    batch = ok(await api.patch(batch, "produced", **PRODUCED))
+    clock.at(datetime(2026, 10, 1, 17, 30, tzinfo=UTC))
+    batch = ok(await api.finish(batch, "produced"))
+    assert step_dates(batch) == ["2026-10-01", "2026-10-02", None]
+    batch = ok(await api.patch(batch, "standardize", **standardize_body()))
+    clock.at(datetime(2026, 10, 2, 16, 59, tzinfo=UTC))  # 23:59 on 2 Oct there
+    batch = ok(await api.finish(batch, "standardize"))
+    assert step_dates(batch) == ["2026-10-01", "2026-10-02", "2026-10-02"]
+    assert batch["code"] == "PR-20260930-001"  # still the creation day
+
+
+@pytest.mark.parametrize(
+    ("step", "field"),
+    [
+        ("raw-material", "import_date"),
+        ("raw-material", "production_date"),
+        ("produced", "production_date"),
+        ("standardize", "packaging_date"),
+    ],
+)
+async def test_step_dates_are_never_accepted_from_the_client(api, supplier, step, field) -> None:
+    batch = await api.step2(supplier)
+    if step == "raw-material":
+        batch = ok(await api.reopen(batch, "raw-material"))  # a draft again
+    assert_error(await api.patch(batch, step, **{field: "2026-01-01"}), 422, "VALIDATION_ERROR")
+    r = await api.client.post(
+        f"/production/{batch['id']}/{step}/finish",
+        json={"version": batch["version"], field: "2026-01-01"},
+        headers=api.headers,
+    )
+    assert_error(r, 422, "VALIDATION_ERROR")
+
+
+@pytest.mark.parametrize("field", ["production_date", "import_date"])
+async def test_create_rejects_a_date(api, field) -> None:
+    r = await api.client.post("/production", json={field: "2026-01-01"}, headers=api.headers)
+    assert_error(r, 422, "VALIDATION_ERROR")
+
+
+async def test_reopen_clears_the_dates_of_reopened_steps(api, supplier, clock) -> None:
+    clock.day("2026-06-01")
+    batch = await api.step1(supplier)
+    clock.day("2026-06-02")
+    batch = ok(await api.patch(batch, "produced", **PRODUCED))
+    batch = ok(await api.finish(batch, "produced"))
+    clock.day("2026-06-03")
+    batch = ok(await api.patch(batch, "standardize", **standardize_body()))
+    batch = ok(await api.finish(batch, "standardize"))
+    assert step_dates(batch) == ["2026-06-01", "2026-06-02", "2026-06-03"]
+
+    clock.day("2026-06-05")
+    batch = ok(await api.reopen(batch, "produced"))
+    assert step_dates(batch) == ["2026-06-01", None, None]  # step 1 keeps its date
+    batch = ok(await api.finish(batch, "produced"))
+    assert step_dates(batch) == ["2026-06-01", "2026-06-05", None]
+    clock.day("2026-06-06")
+    batch = ok(await api.finish(batch, "standardize"))
+    assert step_dates(batch) == ["2026-06-01", "2026-06-05", "2026-06-06"]
+
+    batch = ok(await api.reopen(batch, "raw-material"))
+    assert step_dates(batch) == [None, None, None]
+
+
+async def test_step_dates_stay_in_order_through_reopen_sequences(api, supplier, clock) -> None:
+    """import ≤ production ≤ packing and nothing in the future, whatever is reopened when."""
+    clock.day("2026-07-01")
+    batch = await api.create(supplier_id=supplier["id"], weight_kg="25.5", quantity=10)
+    script = [
+        ("2026-07-01", "finish", "raw-material"),
+        ("2026-07-02", "finish", "produced"),
+        ("2026-07-03", "reopen", "raw-material"),
+        ("2026-07-04", "finish", "raw-material"),
+        ("2026-07-04", "finish", "produced"),
+        ("2026-07-05", "finish", "standardize"),
+        ("2026-07-06", "reopen", "standardize"),
+        ("2026-07-07", "reopen", "produced"),
+        ("2026-07-08", "finish", "produced"),
+        ("2026-07-09", "reopen", "raw-material"),
+        ("2026-07-10", "finish", "raw-material"),
+        ("2026-07-10", "finish", "produced"),
+        ("2026-07-11", "finish", "standardize"),
+    ]
+    for day, action, step in script:
+        clock.day(day)
+        if action == "finish" and step == "produced" and batch["produced"]["wings_kg"] is None:
+            batch = ok(await api.patch(batch, "produced", **PRODUCED))
+        standardize = batch["standardize"]
+        if action == "finish" and step == "standardize" and standardize["big_packages"] is None:
+            batch = ok(await api.patch(batch, "standardize", **standardize_body()))
+        do = api.finish if action == "finish" else api.reopen
+        batch = ok(await do(batch, step))
+        recorded = [d for d in step_dates(batch) if d is not None]
+        assert recorded == sorted(recorded), (day, action, step, recorded)
+        assert all(d <= day for d in recorded), (day, action, step, recorded)
+        for key in STEP_KEYS:  # finished steps have a date; drafts don't
+            if batch[key] is not None:
+                finished = batch[key]["status"] == "finished"
+                assert finished == (batch[key][DATE_KEYS[key]] is not None), (day, key)
+    assert step_dates(batch) == ["2026-07-10", "2026-07-10", "2026-07-11"]
 
 
 # --- Step 1 --------------------------------------------------------------------------------------
@@ -614,40 +761,59 @@ async def test_completed_batches_cannot_be_cancelled(api, supplier) -> None:
 # --- Stats ---------------------------------------------------------------------------------------
 
 
-async def test_stats(api, client, gm, supplier) -> None:
+async def test_stats(api, client, gm, supplier, clock) -> None:
     today = production_service.business_today()
     last_month = today.replace(day=1) - timedelta(days=1)
+    clock.day(last_month.isoformat())
+    await api.step1(supplier, quantity=100)  # imported last month
+    clock.at(None)
     await api.completed(supplier, rejected_wings=1, rejected_thighs=1)  # 10 chickens, 2 rejected
     await api.step1(supplier, quantity=5)  # in progress
     await api.create()  # in progress, step 1 draft: its quantity doesn't count
     cancelled = await api.step1(supplier, quantity=7)
     ok(await api.cancel(cancelled))
-    await api.step1(supplier, quantity=100, production_date=last_month.isoformat())
 
     stats = ok(await client.get("/production/stats", headers=auth(gm)))
     assert stats == {
-        "in_progress": 3,
+        "in_progress": 3,  # incl. last month's batch
         "completed_today": 1,
         "chickens_this_month": 15,
         "rejected_pieces_this_month": 2,
     }
 
 
-async def test_stats_month_boundary(api, client, gm, supplier, monkeypatch) -> None:
-    await api.step1(supplier, quantity=4, production_date="2026-09-30")
-    await api.step1(supplier, quantity=6, production_date="2026-10-01")
+async def test_stats_month_boundary(api, client, gm, supplier, clock) -> None:
+    clock.day("2026-09-30")
+    await api.step1(supplier, quantity=4)
+    clock.day("2026-10-01")
+    await api.step1(supplier, quantity=6)
     # 00:30 on 1 Oct in Phnom Penh: September no longer counts.
-    monkeypatch.setattr(
-        production_service, "utcnow", lambda: datetime(2026, 9, 30, 17, 30, tzinfo=UTC)
-    )
+    clock.at(datetime(2026, 9, 30, 17, 30, tzinfo=UTC))
     stats = ok(await client.get("/production/stats", headers=auth(gm)))
     assert stats["chickens_this_month"] == 6
     # One minute earlier it's still September there.
-    monkeypatch.setattr(
-        production_service, "utcnow", lambda: datetime(2026, 9, 30, 16, 59, tzinfo=UTC)
-    )
+    clock.at(datetime(2026, 9, 30, 16, 59, tzinfo=UTC))
     stats = ok(await client.get("/production/stats", headers=auth(gm)))
     assert stats["chickens_this_month"] == 4
+
+
+async def test_stats_use_the_import_and_packing_dates(api, client, gm, supplier, clock) -> None:
+    # Imported on 30 Sep; processed and packed on 1 Oct with 3 + 3 rejected pieces.
+    clock.day("2026-09-30")
+    batch = await api.step1(supplier)
+    clock.day("2026-10-01")
+    batch = ok(await api.patch(batch, "produced", **PRODUCED))
+    batch = ok(await api.finish(batch, "produced"))
+    body = standardize_body(small=3, rejected_wings=3, rejected_thighs=3)
+    batch = ok(await api.patch(batch, "standardize", **body))
+    ok(await api.finish(batch, "standardize"))
+
+    clock.day("2026-10-15")
+    stats = ok(await client.get("/production/stats", headers=auth(gm)))
+    assert (stats["chickens_this_month"], stats["rejected_pieces_this_month"]) == (0, 6)
+    clock.day("2026-09-15")
+    stats = ok(await client.get("/production/stats", headers=auth(gm)))
+    assert (stats["chickens_this_month"], stats["rejected_pieces_this_month"]) == (10, 0)
 
 
 # --- List and supplier options -------------------------------------------------------------------
@@ -657,21 +823,25 @@ async def _list(client, gm, **params) -> dict:
     return ok(await client.get("/production", params=params, headers=auth(gm)))
 
 
-async def test_list_filters(api, client, gm, supplier) -> None:
+async def test_list_filters(api, client, gm, supplier, clock) -> None:
     other = ok(
         await client.post("/suppliers", json={"name": "Dara Poultry"}, headers=auth(gm)), 201
     )
-    draft = await api.create(production_date="2026-04-01")
-    waiting2 = await api.step1(supplier, production_date="2026-04-02")
-    waiting3 = await api.step2(other, production_date="2026-04-03")
-    cancelled = await api.step1(supplier, production_date="2026-04-04")
+    clock.day("2026-04-01")
+    draft = await api.create()
+    clock.day("2026-04-02")
+    waiting2 = await api.step1(supplier)
+    clock.day("2026-04-03")
+    waiting3 = await api.step2(other)
+    clock.day("2026-04-04")
+    cancelled = await api.step1(supplier)
     ok(await api.cancel(cancelled))
 
     def codes(page: dict) -> list[str]:
         return [item["code"] for item in page["items"]]
 
     page = await _list(client, gm)
-    # Cancelled batches are left out by default; newest production date first.
+    # Cancelled batches are left out by default; latest date first.
     assert page["total"] == 3 and page["page_size"] == 20
     assert codes(page) == [b["code"] for b in (waiting3, waiting2, draft)]
     assert codes(await _list(client, gm, sort="date"))[0] == draft["code"]
@@ -707,6 +877,12 @@ async def test_list_filters(api, client, gm, supplier) -> None:
 
     item = (await _list(client, gm, waiting_step=3))["items"][0]
     assert item["steps"] == ["finished", "finished", "draft"]
+    assert (item["import_date"], item["production_date"], item["packaging_date"]) == (
+        "2026-04-03",
+        "2026-04-03",
+        None,
+    )
+    assert item["created_at"]
     assert item["supplier"]["name"] == "Dara Poultry"
     assert item["quantity"] == 10
     assert (await _list(client, gm, q=draft["code"]))["items"][0]["steps"] == [
@@ -717,6 +893,55 @@ async def test_list_filters(api, client, gm, supplier) -> None:
     assert_error(
         await client.get("/production?waiting_step=1", headers=auth(gm)), 422, "VALIDATION_ERROR"
     )
+
+
+async def test_list_dates_filter_and_sort(api, client, gm, supplier, clock) -> None:
+    """The date filter matches any step date (the creation day while nothing is finished); the
+    date sort uses the latest recorded date."""
+    # A: created 1 May, imported 2 May, processed 5 May, packed 9 May.
+    clock.day("2026-05-01")
+    a = await api.create(supplier_id=supplier["id"], weight_kg="25.5", quantity=10)
+    clock.day("2026-05-02")
+    a = ok(await api.finish(a, "raw-material"))
+    clock.day("2026-05-05")
+    a = ok(await api.patch(a, "produced", **PRODUCED))
+    a = ok(await api.finish(a, "produced"))
+    clock.day("2026-05-09")
+    a = ok(await api.patch(a, "standardize", **standardize_body()))
+    a = ok(await api.finish(a, "standardize"))
+    # B: created and imported 6 May.
+    clock.day("2026-05-06")
+    b = await api.step1(supplier)
+    # C: created 7 May, nothing finished.
+    clock.day("2026-05-07")
+    c = await api.create()
+
+    def codes(page: dict) -> list[str]:
+        return [item["code"] for item in page["items"]]
+
+    # Latest dates: A 9 May, C 7 May (creation day), B 6 May.
+    assert codes(await _list(client, gm)) == [a["code"], c["code"], b["code"]]
+    assert codes(await _list(client, gm, sort="date")) == [b["code"], c["code"], a["code"]]
+
+    async def matching(date_from: str | None, date_to: str | None) -> set[str]:
+        params = {k: v for k, v in (("date_from", date_from), ("date_to", date_to)) if v}
+        return set(codes(await _list(client, gm, **params)))
+
+    assert await matching("2026-05-05", "2026-05-05") == {a["code"]}  # A's production date
+    assert await matching("2026-05-01", "2026-05-01") == set()  # A's creation day: not a step date
+    assert await matching("2026-05-03", "2026-05-04") == set()  # between A's step dates
+    assert await matching("2026-05-06", "2026-05-06") == {b["code"]}
+    assert await matching("2026-05-07", "2026-05-07") == {c["code"]}  # C's creation day
+    assert await matching("2026-05-08", None) == {a["code"]}
+    assert await matching(None, "2026-05-02") == {a["code"]}
+    # Once C's step 1 is finished, its creation day no longer counts.
+    clock.day("2026-05-12")
+    c = ok(
+        await api.patch(c, "raw-material", supplier_id=supplier["id"], weight_kg="5", quantity=2)
+    )
+    ok(await api.finish(c, "raw-material"))
+    assert await matching("2026-05-07", "2026-05-07") == set()
+    assert codes(await _list(client, gm))[0] == c["code"]
 
 
 async def test_supplier_options(client, gm) -> None:

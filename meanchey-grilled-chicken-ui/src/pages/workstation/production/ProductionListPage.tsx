@@ -11,11 +11,11 @@ import { Alert, Button, Card, Input, PageHeader, Select, Spinner, cx } from '@/c
 import { useIsMobileLayout } from '@/layouts/useIsMobileLayout'
 import { api } from '@/lib/api'
 import { useErrorMessage } from '@/lib/errors'
-import { useFormatDate } from '@/lib/format'
+import { useFormatDate, useFormatDay } from '@/lib/format'
 import { paths } from '@/lib/paths'
 import type { Page, ProductionBatch, ProductionBatchListItem, ProductionStats } from '@/lib/types'
 import { useDebounced } from '@/lib/useDebounced'
-import { onBatchChanged, productionKeys } from './api'
+import { STEPS, onBatchChanged, productionKeys } from './api'
 import { BatchStatusBadge, StepDots } from './badges'
 
 // Cancelled batches aren't a status choice: they're shown only with "Show cancelled".
@@ -45,6 +45,25 @@ function Kpis({ stats, loading }: { stats: ProductionStats | undefined; loading:
   )
 }
 
+const itemDates = (item: ProductionBatchListItem) => [item.import_date, item.production_date, item.packaging_date]
+
+/** Mobile card line: the latest recorded date with its label ("ផលិត 29 Sept"), or "Started …". */
+function LatestDate({ item }: { item: ProductionBatchListItem }) {
+  const { t } = useTranslation()
+  const formatDate = useFormatDate()
+  const formatDay = useFormatDay()
+  const short = { day: 'numeric', month: 'short' } as const
+  const dates = itemDates(item)
+  const last = dates.map((d, i) => (d ? i : -1)).reduce((a, b) => Math.max(a, b), -1)
+  return last < 0 ? (
+    <>{t('production.started', { date: formatDate(item.created_at, short) })}</>
+  ) : (
+    <>
+      {t(STEPS[last].dateShortKey)} {formatDay(dates[last], short)}
+    </>
+  )
+}
+
 function Chip({ active, onClick, children }: { active: boolean; onClick(): void; children: string }) {
   return (
     <button
@@ -71,7 +90,7 @@ export function ProductionListPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const isMobile = useIsMobileLayout()
-  const formatDate = useFormatDate()
+  const formatDay = useFormatDay()
   const errorMessage = useErrorMessage()
   const queryClient = useQueryClient()
   const canCreate = usePermission('production.create')
@@ -183,7 +202,7 @@ export function ProductionListPage() {
         </Chip>
       </div>
 
-      <div className="mb-4 grid gap-2 lg:grid-cols-[1fr_auto_auto_auto_auto]">
+      <div className="mb-4 grid gap-2 xl:grid-cols-[1fr_auto_auto_auto]">
         <div className="relative">
           <Icon
             name="search"
@@ -200,7 +219,7 @@ export function ProductionListPage() {
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
-        <div className="grid grid-cols-3 gap-2 lg:contents">
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,14rem)_1fr] xl:contents">
           <Select
             aria-label={t('production.filters.status')}
             value={status}
@@ -212,28 +231,43 @@ export function ProductionListPage() {
               </option>
             ))}
           </Select>
-          <Input
-            type="date"
-            aria-label={t('production.filters.from')}
-            title={t('production.filters.from')}
-            value={dateFrom}
-            max={dateTo || undefined}
-            onChange={(e) => update({ from: e.target.value || null })}
-          />
-          <Input
-            type="date"
-            aria-label={t('production.filters.to')}
-            title={t('production.filters.to')}
-            value={dateTo}
-            min={dateFrom || undefined}
-            onChange={(e) => update({ to: e.target.value || null })}
-          />
+          {/* One range over every step date (import, production, packing). */}
+          <div
+            role="group"
+            aria-label={`${t('production.filters.date')} (${t('production.filters.dateHint')})`}
+            title={t('production.filters.dateHint')}
+            className="flex min-w-0 items-center gap-2"
+          >
+            <span className="shrink-0 text-sm font-medium text-stone-600">{t('production.filters.date')}</span>
+            <Input
+              type="date"
+              className="min-w-0 flex-1 xl:w-40 xl:flex-none"
+              aria-label={t('production.filters.from')}
+              title={t('production.filters.from')}
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(e) => update({ from: e.target.value || null })}
+            />
+            <span aria-hidden className="text-stone-400">–</span>
+            <Input
+              type="date"
+              className="min-w-0 flex-1 xl:w-40 xl:flex-none"
+              aria-label={t('production.filters.to')}
+              title={t('production.filters.to')}
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(e) => update({ to: e.target.value || null })}
+            />
+          </div>
         </div>
         <CheckboxFilter
           label={t('production.filters.showCancelled')}
           checked={showCancelled}
           onChange={(on) => update({ cancelled: on ? '1' : null })}
         />
+        {(dateFrom || dateTo) && (
+          <p className="text-xs text-stone-500 xl:col-span-4">{t('production.filters.dateHint')}</p>
+        )}
       </div>
 
       {list.isError && <Alert tone="error">{errorMessage(list.error)}</Alert>}
@@ -284,7 +318,7 @@ export function ProductionListPage() {
                     <span className="min-w-0">
                       <span className="block font-semibold tabular-nums text-stone-900">{item.code}</span>
                       <span className="block text-sm text-stone-500">
-                        {formatDate(item.production_date, { dateStyle: 'medium' })}
+                        <LatestDate item={item} />
                         {item.supplier && ` · ${item.supplier.name}`}
                       </span>
                     </span>
@@ -301,12 +335,22 @@ export function ProductionListPage() {
             ))}
           </ul>
         ) : (
-          <div className={cx('rounded-xl bg-white shadow-sm ring-1 ring-stone-200', list.isPlaceholderData && 'opacity-60')}>
+          <div
+            className={cx(
+              // Scrolls sideways inside the card if the three date columns don't fit.
+              'overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone-200',
+              list.isPlaceholderData && 'opacity-60',
+            )}
+          >
             <table className="min-w-full divide-y divide-stone-200 text-sm">
               <thead className="bg-stone-50 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">
                 <tr>
                   <th className="rounded-tl-xl px-4 py-3">{t('production.columns.code')}</th>
-                  <th className="px-4 py-3">{t('production.fields.date')}</th>
+                  {STEPS.map(({ n, dateKey }) => (
+                    <th key={n} className="whitespace-nowrap px-4 py-3">
+                      {t(dateKey)}
+                    </th>
+                  ))}
                   <th className="px-4 py-3">{t('production.fields.supplier')}</th>
                   <th className="px-4 py-3">{t('production.columns.steps')}</th>
                   <th className="px-4 py-3 text-right">{t('production.columns.chickens')}</th>
@@ -332,9 +376,11 @@ export function ProductionListPage() {
                         {item.code}
                       </a>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {formatDate(item.production_date, { dateStyle: 'medium' })}
-                    </td>
+                    {itemDates(item).map((day, i) => (
+                      <td key={i} className="whitespace-nowrap px-4 py-3 tabular-nums">
+                        {day ? formatDay(day) : <span className="text-stone-400">—</span>}
+                      </td>
+                    ))}
                     <td className="px-4 py-3">{item.supplier?.name ?? t('common.none')}</td>
                     <td className="px-4 py-3">
                       <StepDots steps={item.steps} />
