@@ -10,7 +10,9 @@ from app.permissions.features import current_level
 from tests.conftest import assert_error, auth
 
 PRODUCTION = registry.FEATURES_BY_CODE["production"]
-ALL = {"production.view", "production.create", "production.update", "production.delete"}
+FULL = {"production.view", "production.create", "production.update"}
+# production.delete (cancel) is general-manager only and outside the feature levels.
+ALL = FULL | {"production.delete"}
 
 
 async def _me_perms(client, user) -> set[str]:
@@ -31,9 +33,11 @@ async def _set_level(client, actor, target, level: str) -> None:
 def test_production_levels() -> None:
     assert [level for level, _ in PRODUCTION.levels] == ["off", "view", "record", "full"]
     assert PRODUCTION.level_map["record"] == {"production.view", "production.create"}
-    assert PRODUCTION.level_map["full"] == ALL
+    assert PRODUCTION.level_map["full"] == FULL
     assert PRODUCTION.menu == "workstation"
-    assert PRODUCTION.applies_to == (Role.SUPERVISOR, Role.STAFF)
+    assert PRODUCTION.applies_to == (Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF)
+    delete = registry.PERMISSIONS[[p.code for p in registry.PERMISSIONS].index("production.delete")]
+    assert delete.assignable_to == (Role.GENERAL_MANAGER,)
     # Existing features keep off / view / full.
     for code in ("suppliers", "customers", "staff_management"):
         levels = [level for level, _ in registry.FEATURES_BY_CODE[code].levels]
@@ -46,10 +50,14 @@ def test_production_levels() -> None:
         (set(), "off"),
         ({"production.view"}, "view"),
         ({"production.view", "production.create"}, "record"),
+        (FULL, "full"),
+        # A supervisor holding the four grants from before cancel became GM-only: still "full",
+        # because production.delete no longer counts for their role (filtered at read time).
         (ALL, "full"),
         ({"production.view", "production.update"}, "custom"),
         ({"production.create"}, "custom"),
-        ({"production.view", "production.create", "production.delete"}, "custom"),
+        # production.delete is outside the feature, so it doesn't make a level "custom".
+        ({"production.view", "production.create", "production.delete"}, "record"),
     ],
 )
 def test_record_level_detection(held, expected) -> None:
@@ -96,7 +104,7 @@ async def test_gm_sets_every_level_and_me_reflects_it(client, make_user) -> None
     expected = {
         "view": {"production.view"},
         "record": {"production.view", "production.create"},
-        "full": ALL,
+        "full": FULL,
         "off": set(),
     }
     for level, codes in expected.items():
@@ -109,7 +117,7 @@ async def test_defaults(client, make_user) -> None:
     sup = await make_user(Role.SUPERVISOR)
     staff = await make_user(Role.STAFF)
     assert (await _me_perms(client, gm)) >= ALL
-    assert (await _me_perms(client, sup)) >= ALL
+    assert (await _me_perms(client, sup)) & ALL == FULL
     assert not (await _me_perms(client, staff)) & ALL
 
 
@@ -135,7 +143,7 @@ async def test_backfill_grants_production_to_existing_managers_only(session, mak
         )
 
     assert await held(gm) == ALL
-    assert await held(sup) == ALL
+    assert await held(sup) == FULL
     assert await held(staff) == set()
 
 
@@ -256,12 +264,53 @@ async def test_record_can_fill_and_finish_but_not_reopen_or_cancel(
     assert batch["standardize"]["finished_by"]["id"] == str(staff.id)
 
 
-async def test_full_can_reopen_and_cancel(client, make_user, world) -> None:
-    staff = await _staff_at(client, make_user, world["gm"], "full")
-    batch = world["batch"]
+async def _finish_step_1(client, actor, batch) -> dict:
     r = await client.post(
+        f"/production/{batch['id']}/raw-material/finish",
+        json={"version": batch["version"]},
+        headers=auth(actor),
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _cancel(client, actor, batch):
+    return client.post(
         f"/production/{batch['id']}/cancel",
         json={"version": batch["version"], "reason": "Test"},
+        headers=auth(actor),
+    )
+
+
+async def test_full_can_edit_finished_steps_but_not_cancel(client, make_user, world) -> None:
+    staff = await _staff_at(client, make_user, world["gm"], "full")
+    sup = await make_user(Role.SUPERVISOR)  # defaults: Full access
+    batch = await _finish_step_1(client, world["gm"], world["batch"])
+    r = await client.post(
+        f"/production/{batch['id']}/raw-material/reopen",
+        json={"version": batch["version"]},
         headers=auth(staff),
     )
+    assert r.status_code == 200, r.text
+    batch = r.json()
+    for user in (staff, sup):
+        assert_error(await _cancel(client, user, batch), 403, "MISSING_PERMISSION")
+
+
+async def test_old_supervisor_cancel_grant_has_no_effect(client, session, make_user, world) -> None:
+    """Supervisors granted production.delete before it became GM-only keep the row only."""
+    sup = await make_user(Role.SUPERVISOR, perms=sorted(ALL))
+    assert "production.delete" not in await _me_perms(client, sup)
+    r = await client.get(f"/users/{sup.id}/features", headers=auth(world["gm"]))
+    levels = {f["code"]: f["current_level"] for m in r.json()["menus"] for f in m["features"]}
+    assert levels["production"] == "full"
+    assert_error(await _cancel(client, sup, world["batch"]), 403, "MISSING_PERMISSION")
+
+
+async def test_gm_and_superadmin_can_cancel(client, make_user, superadmin, world) -> None:
+    r = await _cancel(client, world["gm"], world["batch"])
+    assert r.status_code == 200, r.text
+    r = await client.post("/production", json={}, headers=auth(superadmin))
+    assert r.status_code == 201, r.text
+    r = await _cancel(client, superadmin, r.json())
     assert r.status_code == 200, r.text

@@ -26,14 +26,10 @@ export function stepData(batch: ProductionBatch, step: StepNumber) {
   return step === 1 ? batch.raw_material : step === 2 ? batch.produced : batch.standardize
 }
 
-export function stepFinished(batch: ProductionBatch, step: StepNumber): boolean {
-  return stepData(batch, step)?.status === 'finished'
-}
-
-/** A step can be reopened while the next one isn't finished (and the batch isn't cancelled). */
-export function canReopenStep(batch: ProductionBatch, step: StepNumber): boolean {
-  if (batch.status === 'cancelled' || !stepFinished(batch, step)) return false
-  return step === 3 || !stepFinished(batch, (step + 1) as StepNumber)
+/** A finished step can be edited (reopened) unless the batch is cancelled; the API lists which
+ * steps that puts back to draft (`reopens_steps`). */
+export function canEditStep(batch: ProductionBatch, step: StepNumber): boolean {
+  return (stepData(batch, step)?.reopens_steps.length ?? 0) > 0
 }
 
 /** After any change: the batch itself is fresh; lists and figures are refetched. */

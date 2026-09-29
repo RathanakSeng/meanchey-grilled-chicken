@@ -6,7 +6,7 @@ import { Alert, Badge, Card, EmptyState, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useErrorMessage } from '@/lib/errors'
 import { useLocalized } from '@/lib/format'
-import type { Feature, FeatureLevel, UserFeatures } from '@/lib/types'
+import type { Feature, FeatureLevel, Role, UserFeatures } from '@/lib/types'
 
 export function userFeaturesKey(userId: string) {
   return ['user-features', userId] as const
@@ -17,7 +17,15 @@ export function userFeaturesKey(userId: string) {
  * Each feature lists its own levels (Production has Record; the others don't).
  * The data comes from the parent (`UserDetailPage`), which also decides whether to show the tab.
  */
-export function UserAccessTab({ userId, data }: { userId: string; data: UserFeatures }) {
+export function UserAccessTab({
+  userId,
+  data,
+  targetRole,
+}: {
+  userId: string
+  data: UserFeatures
+  targetRole: Role
+}) {
   const { t } = useTranslation()
   const localized = useLocalized()
   const errorMessage = useErrorMessage()
@@ -71,6 +79,10 @@ export function UserAccessTab({ userId, data }: { userId: string; data: UserFeat
         <p>{t('access.legendView')}</p>
         {hasRecord && <p>{t('access.legendRecord')}</p>}
         <p>{t('access.legendFull')}</p>
+        {/* Only the superadmin manages the GM: GM-only powers aren't feature levels. */}
+        {targetRole === 'general_manager' && (
+          <p className="mt-2 text-stone-700">{t('access.gmHint')}</p>
+        )}
       </div>
 
       {setLevel.isError && <Alert tone="error">{errorMessage(setLevel.error)}</Alert>}

@@ -118,9 +118,17 @@ function Details({ log }: { log: AuditLog }) {
   if (log.action === 'feature.set') return <FeatureChange details={d} />
   if (log.action === 'production.step_finish' || log.action === 'production.step_reopen') {
     const step = Number(d.step)
+    const later = Array.isArray(d.reopened_steps)
+      ? (d.reopened_steps as number[]).filter((n) => n !== step)
+      : []
     return (
       <span className="block text-sm text-stone-700">
         {t('audit.productionStep', { step, name: t(STEP_LABELS[step - 1] ?? '', { defaultValue: '' }) })}
+        {later.length > 0 && (
+          <span className="block text-xs text-stone-500">
+            {t('audit.alsoReopened', { steps: later.join(', ') })}
+          </span>
+        )}
       </span>
     )
   }

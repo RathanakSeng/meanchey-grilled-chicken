@@ -2,9 +2,9 @@
 
 Adding a feature:
   1. Add its module to MODULES and its permissions to PERMISSIONS below.
-  2. Add a FeatureDef to FEATURES so the general manager can set it (Off / View only /
-     [Record /] Full access) on the Access tab. Detailed permissions are managed by the
-     superadmin only.
+  2. Add a FeatureDef to FEATURES so the general manager (for the GM itself: the superadmin)
+     can set it (Off / View only / [Record /] Full access) on the Access tab. Detailed
+     permissions are managed by the superadmin only.
   3. Optionally add defaults to DEFAULT_PERMISSIONS. Defaults for a newly added permission are
      also backfilled once to existing active users of those roles (see permissions/sync.py).
   4. Guard the endpoints with `require_permission("<code>")`.
@@ -191,10 +191,16 @@ PERMISSIONS += [
     PermissionDef(
         code="production.update",
         module="production",
-        name_en="Reopen production steps",
-        name_km="បើកជំហានផលិតកម្មឡើងវិញ",
-        description_en="Reopen a finished step so it can be corrected.",
-        description_km="បើកជំហានដែលបានបញ្ចប់ឡើងវិញ ដើម្បីកែតម្រូវ។",
+        name_en="Edit finished production steps",
+        name_km="កែប្រែជំហានផលិតកម្មដែលបានបញ្ចប់",
+        description_en=(
+            "Edit a finished step: it and every later step go back to draft (values kept) "
+            "and are finished again in order."
+        ),
+        description_km=(
+            "កែប្រែជំហានដែលបានបញ្ចប់៖ ជំហាននោះ និងជំហានបន្ទាប់ៗត្រឡប់ទៅជាព្រាងវិញ (តម្លៃនៅដដែល) "
+            "ហើយត្រូវបញ្ចប់ម្តងទៀតតាមលំដាប់។"
+        ),
         assignable_to=_EVERYONE,
     ),
     PermissionDef(
@@ -202,9 +208,12 @@ PERMISSIONS += [
         module="production",
         name_en="Cancel production batches",
         name_km="លុបចោលបាច់ផលិតកម្ម",
-        description_en="Cancel a batch that is still in progress, with a reason.",
-        description_km="លុបចោលបាច់ដែលកំពុងដំណើរការ ដោយបញ្ជាក់មូលហេតុ។",
-        assignable_to=_EVERYONE,
+        description_en=(
+            "Cancel a batch that is still in progress, with a reason. General manager only."
+        ),
+        description_km="លុបចោលបាច់ដែលកំពុងដំណើរការ ដោយបញ្ជាក់មូលហេតុ។ សម្រាប់អ្នកគ្រប់គ្រងទូទៅតែប៉ុណ្ណោះ។",
+        # Cancelling is a management decision: never part of a feature level.
+        assignable_to=_GM_ONLY,
     ),
 ]
 
@@ -260,7 +269,7 @@ def _partner_feature(
         name_km=name_km,
         description_en=desc_en,
         description_km=desc_km,
-        applies_to=(Role.SUPERVISOR, Role.STAFF),
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF),
         levels=(
             ("off", ()),
             ("view", (f"{entity}.view",)),
@@ -291,21 +300,19 @@ FEATURES: list[FeatureDef] = [
         name_km="ផលិតកម្ម",
         description_en=(
             "Production batches: raw material, produced and standardize steps. Record lets "
-            "someone fill in and finish steps; full access also reopens steps and cancels batches."
+            "someone fill in and finish steps; full access also edits finished steps."
         ),
         description_km=(
             "បាច់ផលិតកម្ម៖ វត្ថុធាតុដើម ការកែច្នៃ និងការវេចខ្ចប់។ កម្រិតកត់ត្រាអាចបំពេញ និងបញ្ចប់ជំហាន "
-            "ចំណែកសិទ្ធិពេញលេញអាចបើកជំហានឡើងវិញ និងលុបចោលបាច់បានផងដែរ។"
+            "ចំណែកសិទ្ធិពេញលេញអាចកែប្រែជំហានដែលបានបញ្ចប់បានផងដែរ។"
         ),
-        applies_to=(Role.SUPERVISOR, Role.STAFF),
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF),
         levels=(
             ("off", ()),
             ("view", ("production.view",)),
             ("record", ("production.view", "production.create")),
-            (
-                "full",
-                ("production.view", "production.create", "production.update", "production.delete"),
-            ),
+            # production.delete (cancel) is general-manager only, outside the levels.
+            ("full", ("production.view", "production.create", "production.update")),
         ),
     ),
     FeatureDef(
@@ -315,7 +322,7 @@ FEATURES: list[FeatureDef] = [
         name_km="គ្រប់គ្រងបុគ្គលិក",
         description_en="See staff accounts; with full access, also add and edit them.",
         description_km="មើលគណនីបុគ្គលិក។ បើមានសិទ្ធិពេញលេញ អាចបន្ថែម និងកែប្រែបានផងដែរ។",
-        applies_to=(Role.SUPERVISOR,),
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
         # Supervisors never deactivate users (users.delete is general-manager only).
         levels=(
             ("off", ()),

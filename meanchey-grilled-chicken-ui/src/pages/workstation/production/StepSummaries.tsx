@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Badge, Card } from '@/components/ui'
+import { Icon } from '@/components/icons'
+import { Badge, Button, Card } from '@/components/ui'
 import { useFormatDate, useLocalized } from '@/lib/format'
 import type { ProductionBatch, StepNumber, UserRef } from '@/lib/types'
 import { STEPS, stepData } from './api'
@@ -23,9 +24,18 @@ const kg = (v: string | null) => (v === null ? '—' : `${toInput(v)} kg`)
 const num = (v: number | null) => (v === null ? '—' : String(v))
 
 /**
- * Read-only view of a step: finished steps, and drafts for people who can only view.
+ * Read-only view of a step: finished steps, and drafts for people who can only view. `onEdit`
+ * (finished steps, `production.update`) shows an **Edit** button.
  */
-export function StepSummary({ batch, step }: { batch: ProductionBatch; step: StepNumber }) {
+export function StepSummary({
+  batch,
+  step,
+  onEdit,
+}: {
+  batch: ProductionBatch
+  step: StepNumber
+  onEdit?: () => void
+}) {
   const { t } = useTranslation()
   const formatDate = useFormatDate()
   const localized = useLocalized()
@@ -119,11 +129,19 @@ export function StepSummary({ batch, step }: { batch: ProductionBatch; step: Ste
     <Card
       title={t(STEPS[step - 1].labelKey)}
       actions={
-        data.status === 'finished' ? (
-          <Badge tone="green">{t('production.stepStatus.finished')}</Badge>
-        ) : (
-          <Badge tone="amber">{t('production.stepStatus.draft')}</Badge>
-        )
+        <span className="flex items-center gap-2">
+          {data.status === 'finished' ? (
+            <Badge tone="green">{t('production.stepStatus.finished')}</Badge>
+          ) : (
+            <Badge tone="amber">{t('production.stepStatus.draft')}</Badge>
+          )}
+          {onEdit && (
+            <Button variant="secondary" className="px-3 py-1.5" onClick={onEdit}>
+              <Icon name="pencil" width={16} height={16} />
+              {t('production.editStep')}
+            </Button>
+          )}
+        </span>
       }
     >
       <dl className="-my-2 divide-y divide-stone-100">{rows}</dl>

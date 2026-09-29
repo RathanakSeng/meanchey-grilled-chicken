@@ -50,7 +50,7 @@ async def test_supervisor_defaults(client, superadmin, make_user) -> None:
         "users.create",
         "users.update",
         *PARTNERS,
-        *PRODUCTION,
+        *(PRODUCTION - {"production.delete"}),  # cancelling batches is GM-only
     }
 
 

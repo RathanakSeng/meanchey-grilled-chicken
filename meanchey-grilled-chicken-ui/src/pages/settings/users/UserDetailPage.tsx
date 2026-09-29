@@ -239,7 +239,7 @@ export function UserDetailPage() {
           </dl>
         </Card>
       ) : tab === 'access' && features.data ? (
-        <UserAccessTab userId={user.id} data={features.data} />
+        <UserAccessTab userId={user.id} data={features.data} targetRole={user.role} />
       ) : tab === 'permissions' ? (
         <UserPermissionsTab userId={user.id} />
       ) : null}

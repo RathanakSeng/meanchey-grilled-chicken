@@ -330,7 +330,7 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 | `['supplier', id]` / `['customer', id]` | Single record; written with `setQueryData` from mutation responses |
 | `['production', params]` | `GET /production` (`keepPreviousData`) |
 | `['production-stats']` | `GET /production/stats` (KPI cards) |
-| `['production-batch', id]` | `GET /production/{id}`; written with `setQueryData` by every draft save, finish, reopen and cancel |
+| `['production-batch', id]` | `GET /production/{id}`; written with `setQueryData` by every draft save, finish, edit (reopen) and cancel |
 | `['production-supplier-options', q]` | `GET /production/supplier-options` (supplier picker, only while it's open) |
 
 - Mutations use `useMutation`. After a change they either write the response straight into the cache (`setQueryData`, e.g. after editing a user or the profile) or invalidate the affected keys: `users`, `user`, `user-permissions`. Creating or editing a user also invalidates `user-positions`, so a newly typed position shows up in the suggestions and filter. A role change (`RoleChangeSheet`, `POST /users/{id}/role`) writes the returned user into `['user', id]` and invalidates `users`, `user-features`, `user-permissions` and `user-positions`.

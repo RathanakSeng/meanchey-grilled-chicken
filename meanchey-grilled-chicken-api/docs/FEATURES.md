@@ -239,8 +239,10 @@ The general manager can give any of these to supervisors **and staff** through f
 |---|---|---|---|
 | `production.view` | See batches, their steps and figures | GM, supervisor, staff | Production (View only and up) |
 | `production.create` | Start batches; save drafts and finish steps | GM, supervisor, staff | Production (Record and up) |
-| `production.update` | Reopen a finished step | GM, supervisor, staff | Production (Full access) |
-| `production.delete` | Cancel a batch | GM, supervisor, staff | Production (Full access) |
+| `production.update` | Edit a finished step (reopens it and every later finished step) | GM, supervisor, staff | Production (Full access) |
+| `production.delete` | Cancel a batch | **GM only** | — (detailed permission) |
+
+Cancelling batches is a general-manager decision, like deactivating users: `production.delete` is assignable to the GM only and belongs to no feature level. Supervisors or staff granted it before this change keep the row, but it has no effect (read-time `assignable_to` filter, §5.5), and their Production level still reads as *Full access*.
 
 ### 5.3 Defaults
 
@@ -248,7 +250,7 @@ The general manager can give any of these to supervisors **and staff** through f
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
 | General manager | All `users` permissions (incl. `users.delete`, `users.reset_password`, `permissions.grant`), all partner permissions and all four `production.*` permissions. |
-| Supervisor | Every feature at **Full access**: Suppliers, Customers, Production, Staff management (= `users.view/create/update`). Limited to what the creator holds. |
+| Supervisor | Every feature at **Full access**: Suppliers, Customers, Production (view, record, edit finished steps; not cancel), Staff management (= `users.view/create/update`). Limited to what the creator holds. |
 | Staff | Every feature **Off** (no permissions). |
 
 `DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing.
@@ -293,7 +295,7 @@ Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `ta
 | Access | `feature.set`: one entry per change, `details = {feature, from, to, added, removed}` (`from` may be `custom`). No individual `permission.*` entries are written for it. |
 | Suppliers | `supplier.create`, `supplier.update` (field diff), `supplier.deactivate`, `supplier.reactivate`. `details.name` holds the record's name. |
 | Customers | `customer.create`, `customer.update` (field diff), `customer.deactivate`, `customer.reactivate`. `details.name` holds the record's name. |
-| Production | `production.create`, `production.step_finish` (`step`: 1–3), `production.step_reopen` (`step`), `production.cancel` (`reason`). `details.code` holds the batch code. **Draft saves are not audited.** |
+| Production | `production.create`, `production.step_finish` (`step`: 1–3), `production.step_reopen` (`step`, `reopened_steps`: e.g. `[1, 2, 3]`), `production.cancel` (`reason`). `details.code` holds the batch code. **Draft saves are not audited.** |
 | Profile | `profile.update` |
 
 `GET /audit-logs` is available to the **superadmin and general manager only** (§13 for what the general manager doesn't see). This is a role check, not a permission. It supports filters (`action`, `actor_id`, `target_user_id`, `entity_type`, `entity_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references, and `entity: {type, id, name}` for supplier / customer / production batch entries (the record's current name, or the batch code, falling back to the logged one).
@@ -380,7 +382,7 @@ Every error has the same shape:
 | Access levels | `FEATURE_NOT_FOUND` (404), `FEATURE_NOT_APPLICABLE` (422) |
 | Users | `USER_NOT_FOUND`, `USER_INACTIVE`, `INVALID_TELEGRAM_USERNAME`, `DUPLICATE_TELEGRAM_USERNAME`, `GM_ALREADY_EXISTS`, `POSITION_REQUIRED`, `POSITION_NOT_ALLOWED` |
 | Suppliers & customers | `SUPPLIER_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `DUPLICATE_PHONE` (409), `INVALID_PHONE` (422, `details.min_digits` / `max_digits`), `SUPPLIER_INACTIVE` (422, production step 1 finish) |
-| Production | `PRODUCTION_NOT_FOUND` (404), `PRODUCTION_STEP_NOT_READY` (409), `PRODUCTION_STEP_FINISHED` (409), `PRODUCTION_STEP_LOCKED` (409), `PRODUCTION_BALANCE_MISMATCH` (422, `details.wings` / `details.thighs`), `PRODUCTION_CONFLICT` (409, `details.batch`), `PRODUCTION_CANCELLED` (409), `PRODUCTION_COMPLETED` (409) |
+| Production | `PRODUCTION_NOT_FOUND` (404), `PRODUCTION_STEP_NOT_READY` (409), `PRODUCTION_STEP_FINISHED` (409), `PRODUCTION_STEP_LOCKED` (409; no longer raised, kept for compatibility), `PRODUCTION_BALANCE_MISMATCH` (422, `details.wings` / `details.thighs`), `PRODUCTION_CONFLICT` (409, `details.batch`), `PRODUCTION_CANCELLED` (409), `PRODUCTION_COMPLETED` (409) |
 | Generic | `VALIDATION_ERROR` (with `details.fields`), `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `HTTP_ERROR` |
 
 Codes are defined in `app/core/errors.py`. **Never rename a code:** the UI depends on them.
@@ -499,12 +501,14 @@ The general manager's way to give access. Each feature switches a group of detai
 
 | Feature | Menu | Applies to | View only | Record | Full access |
 |---|---|---|---|---|---|
-| `suppliers` | workstation | supervisor, staff | `suppliers.view` | — | `suppliers.view/create/update/delete` |
-| `customers` | workstation | supervisor, staff | `customers.view` | — | `customers.view/create/update/delete` |
-| `production` | workstation | supervisor, staff | `production.view` | `production.view/create` | `production.view/create/update/delete` |
-| `staff_management` | settings | supervisor | `users.view` | — | `users.view/create/update` |
+| `suppliers` | workstation | GM, supervisor, staff | `suppliers.view` | — | `suppliers.view/create/update/delete` |
+| `customers` | workstation | GM, supervisor, staff | `customers.view` | — | `customers.view/create/update/delete` |
+| `production` | workstation | GM, supervisor, staff | `production.view` | `production.view/create` | `production.view/create/update` |
+| `staff_management` | settings | GM, supervisor | `users.view` | — | `users.view/create/update` |
 
-**Record** means "can start batches and fill in steps, but can't reopen or cancel".
+**Record** means "can start batches and fill in steps, but can't edit finished steps". **Full access** in Production adds editing finished steps; cancelling batches (`production.delete`) is GM-only and outside the levels.
+
+**Feature levels for the general manager.** Every feature also applies to the GM, but only the superadmin manages the GM (role scope), so only the superadmin sets them, on the GM's Access tab. The GM never sees or changes its own levels (`FORBIDDEN_SCOPE` on `/users/{own id}/features`). A GM with default permissions reads as **Full access** everywhere. The GM-only powers (`users.delete`, `users.reset_password`, `permissions.grant`, `production.delete`) are not in any feature and stay detailed permissions, set by the superadmin on **Permissions (advanced)**; level changes never touch them. Note that Staff management below *Full access* takes creating / editing users (or, at *Off*, the Users list) away from the GM, and revoking `permissions.grant` removes the GM's Access tab for everyone it manages.
 
 - `users.delete`, `users.reset_password` and `permissions.grant` belong to **no** feature: they stay general-manager-only and are managed as detailed permissions by the superadmin.
 - **Startup validation** (`validate_features`, at import and in bootstrap): every code a feature uses exists, is assignable to every role in `applies_to`, and has no `grantable_by`; the first level is `off` with no codes; levels are unique and follow the order `off` → `view` → `record` → `full` (`LEVELS`), where any after `off` may be omitted (only production uses `record`). A mismatch stops the API from starting.
@@ -515,7 +519,7 @@ A user's level for a feature is the level whose code set **exactly equals** the 
 
 ### 12.3 Endpoints
 
-**The general manager can set any level of any feature** that applies to a supervisor or staff member. Unlike detailed grants, the GM's own feature permissions don't matter here: the Access layer is theirs. (Detailed permissions, §5.4, stay superadmin-only.)
+**The general manager can set any level of any feature** that applies to a supervisor or staff member (the superadmin also to the GM). Unlike detailed grants, the GM's own feature permissions don't matter here: the Access layer is theirs. (Detailed permissions, §5.4, stay superadmin-only.)
 
 `GET /users/{id}/features` (`permissions.grant` + scope) returns the features that apply to the target's role, grouped by menu (workstation first, then settings; empty menus omitted). Each feature: `code`, `menu`, names/descriptions, `levels` (in order: 4 for production, 3 for the others), `current_level` (`off` / `view` / `record` / `full` / `custom`) and `can_edit` (the actor manages access and the target, and the target is active).
 
@@ -539,6 +543,7 @@ The superadmin can use these endpoints too.
 **The superadmin is invisible to everyone else.** Nothing the general manager, supervisors or staff can reach reveals the superadmin's id, login name, full name or role.
 
 - **User references** in every response use one schema (`schemas.common.UserRef`: `id`, `full_name`, `role`, `telegram_username`, `is_system`). For a viewer who isn't the superadmin, a reference to the superadmin serializes as `{ "id": null, "full_name": "System", "role": null, "telegram_username": null, "is_system": true }`. This covers `created_by` on users (including the GM's own record in `/auth/me`) and on suppliers/customers, `updated_by`, and the audit log's `actor` / `target`. It is applied at serialization time (`services/redaction.py`), so new endpoints are covered as long as they use `UserRef`. Without a known viewer it fails closed (hidden).
+- **GM feature levels** are visible only to the superadmin: only it manages the GM, and `feature.set` entries it makes are left out of the GM's audit log like everything else it does.
 - **Lookups by id:** every per-user endpoint (`GET/PATCH /users/{id}`, deactivate, reactivate, reset-password, features, …) answers `404 USER_NOT_FOUND` when a non-superadmin asks for the superadmin, not `403 FORBIDDEN_SCOPE`, which would confirm it exists.
 - **Audit log for the general manager:** left out are every entry **made by** the superadmin, every entry whose **target** is the superadmin (e.g. its sign-ins), and all `permission.grant` / `permission.revoke` entries (incl. `default_backfill`); the GM sees `feature.set` instead. Entries without an actor (failed sign-ins, lockouts) stay. The `actor_id` / `target_user_id` filters never match the superadmin.
 - **Wording:** no error message, detail or schema text reachable by non-superadmins names the superadmin or lists roles. `FORBIDDEN_ROLE` carries no `allowed_roles`; `FORBIDDEN_SCOPE` doesn't name the role; `422` messages for enum/literal fields don't list the allowed values.
@@ -612,8 +617,8 @@ All of these are required at Finish.
 
 - Batch `status`: `in_progress` → `completed` (step 3 finished), or `cancelled`. `current_step` (1–3) is the step being worked on.
 - Step `status`: `draft` → `finished`. A step's row exists once the previous one has been finished (`produced` / `standardize` are `null` in responses until then). A finished step is read-only: saving or finishing it again → `PRODUCTION_STEP_FINISHED`. Saving or finishing a step whose previous one isn't finished → `PRODUCTION_STEP_NOT_READY`.
-- **Reopen** step N: only while step N+1 isn't finished → else `PRODUCTION_STEP_LOCKED`. The step goes back to draft, `current_step` becomes N, and later steps keep their draft values. Reopening step 3 of a completed batch puts it back to `in_progress`. Reopening a step that is already a draft changes nothing.
-- **Cancel**: only `in_progress` batches (`PRODUCTION_COMPLETED` for completed ones), with a required reason (1–500 characters). A cancelled batch is read-only (`PRODUCTION_CANCELLED` for any change) and excluded from the figures.
+- **Edit (reopen)** step N (`production.update`): allowed for any finished step of an in-progress or completed batch, whatever the later steps are. In one transaction (batch row locked), step N **and every later finished step** go back to `draft` (`finished_by` / `finished_at` cleared); **all values are kept**; `current_step` becomes N; a completed batch goes back to `in_progress` (`completed_at = null`); `version` + 1. The later steps are then finished again in order (`PRODUCTION_STEP_NOT_READY` otherwise), which recomputes the step 2 counts from step 1 and re-checks the piece balance at step 3. Each step in a batch response carries `reopens_steps` (the steps editing it would put back to draft; `[]` when it isn't finished or the batch is cancelled) so the UI can warn. Reopening a step that is already a draft changes nothing. `PRODUCTION_STEP_LOCKED` is no longer raised.
+- **Cancel** (`production.delete`, general manager and superadmin only): only `in_progress` batches (`PRODUCTION_COMPLETED` for completed ones), with a required reason (1–500 characters). A cancelled batch is read-only (`PRODUCTION_CANCELLED` for any change) and excluded from the figures.
 - **Batch code** `PR-YYYYMMDD-NNN`: from the production date given at creation (default today in `BUSINESS_TIMEZONE`, e.g. 17:30 UTC on 30 Sep is already 1 Oct in Phnom Penh), numbered per day by a counter row (`production_batch_counters`, `INSERT … ON CONFLICT … RETURNING`), so concurrent creations get distinct numbers. The code never changes, even if the date is edited later.
 
 ### 14.3 Drafts and versions
@@ -631,7 +636,7 @@ All of these are required at Finish.
 | `POST /production` | Creates the batch with a draft step 1; optional initial step 1 fields. `201` with the batch. |
 | `GET /production/{id}` | The batch, all steps, by-products, catalogs and `computed` (`wings_count` / `thighs_count` from the current quantity, `yield_percent` = (wings kg + thighs kg) ÷ raw kg × 100, one decimal, or null). |
 | `POST /production/{id}/{step}/finish` | `step` ∈ `raw-material`, `produced`, `standardize`; body `{version}`. |
-| `POST /production/{id}/{step}/reopen` | Body `{version}`. |
+| `POST /production/{id}/{step}/reopen` | Body `{version}`. Edits a finished step: it and every later finished step go back to draft (§14.2). |
 | `POST /production/{id}/cancel` | Body `{version, reason}`. |
 | `GET /production/supplier-options` | Active suppliers `{id, name, phone_display}` (at most 20, `q` on name or phone digits), for picking the step 1 supplier **without** Suppliers access. |
 
@@ -644,6 +649,7 @@ Every user reference (`created_by`, `finished_by`, …) is a `UserRef` and redac
 | Off | nothing |
 | View only | list, open batches and see figures |
 | Record | also start batches, fill in steps (drafts) and finish them, pick suppliers |
-| Full access | also reopen steps and cancel batches |
+| Full access | also edit finished steps (one action; later steps go back to draft) |
+| (GM only, detailed permission) | cancel batches |
 
-Defaults: the general manager holds all four permissions, supervisors Full access, staff Off (§5.3). Anyone with `production.create` can fill in any in-progress batch, not only their own.
+Defaults: the general manager holds all four permissions (and reads as Full access; the superadmin can lower it), supervisors Full access, staff Off (§5.3). Anyone with `production.create` can fill in any in-progress batch, not only their own.

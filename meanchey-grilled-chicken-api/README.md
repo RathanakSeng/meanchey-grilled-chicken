@@ -128,12 +128,14 @@ The general manager gives access per feature: **Off**, **View only**, **Record**
 
 | Feature | For | View only | Record | Full access | Default |
 |---|---|---|---|---|---|
-| Suppliers | supervisor, staff | `suppliers.view` | — | + create, update, delete | supervisor: Full · staff: Off |
-| Customers | supervisor, staff | `customers.view` | — | + create, update, delete | supervisor: Full · staff: Off |
-| Production | supervisor, staff | `production.view` | + create (start batches, fill in and finish steps) | + update (reopen), delete (cancel) | supervisor: Full · staff: Off |
-| Staff management | supervisor | `users.view` | — | + create, update | supervisor: Full |
+| Suppliers | GM*, supervisor, staff | `suppliers.view` | — | + create, update, delete | supervisor: Full · staff: Off |
+| Customers | GM*, supervisor, staff | `customers.view` | — | + create, update, delete | supervisor: Full · staff: Off |
+| Production | GM*, supervisor, staff | `production.view` | + create (start batches, fill in and finish steps) | + update (edit finished steps) | supervisor: Full · staff: Off |
+| Staff management | GM*, supervisor | `users.view` | — | + create, update | supervisor: Full |
 
-**General-manager-only permissions** (no feature; managed by the superadmin as detailed permissions): `users.delete` (deactivate / reactivate), `users.reset_password`, `permissions.grant` (set access levels). Supervisors never deactivate users and never grant access.
+\* For the GM, set by the superadmin only (the GM starts at Full access everywhere).
+
+**General-manager-only permissions** (no feature; managed by the superadmin as detailed permissions): `users.delete` (deactivate / reactivate), `users.reset_password`, `permissions.grant` (set access levels), `production.delete` (cancel production batches). Supervisors never deactivate users and never grant access.
 
 **Defaults**
 

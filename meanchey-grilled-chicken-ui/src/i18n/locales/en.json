@@ -165,7 +165,7 @@
   "access": {
     "legendTitle": "Access levels",
     "legendView": "View only: can see the list.",
-    "legendFull": "Full access: can add, edit and deactivate.",
+    "legendFull": "Full access: can add, edit and deactivate; in Production, also edit finished steps.",
     "levels": {
       "off": "Off",
       "view": "View only",
@@ -186,7 +186,8 @@
       "staff_management": "Staff management",
       "production": "Production"
     },
-    "legendRecord": "Record: can start batches and fill in steps, but can't reopen or cancel."
+    "legendRecord": "Record: can start batches and fill in steps, but can't edit finished steps.",
+    "gmHint": "Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced)."
   },
   "audit": {
     "title": "Audit log",
@@ -241,7 +242,8 @@
     "featureChange": "{{feature}}: {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
     "productionStep": "Step {{step}} · {{name}}",
-    "cancelReason": "Reason: {{reason}}"
+    "cancelReason": "Reason: {{reason}}",
+    "alsoReopened": "Also back to draft: step {{steps}}"
   },
   "profile": {
     "title": "My profile",
@@ -523,7 +525,7 @@
     },
     "finishStep": "Finish step",
     "finishConfirmTitle": "Finish this step?",
-    "finishConfirmBody": "You can't edit this step after finishing.",
+    "finishConfirmBody": "The step is locked after finishing. Only someone with Full access can edit it again.",
     "blockers": {
       "fillIn": "Fill in: {{fields}}",
       "supplierInactive": "The supplier is deactivated. Choose another one.",
@@ -557,15 +559,17 @@
     },
     "finishedBy": "Finished by {{name}} · {{time}}",
     "lastSavedBy": "Last saved by {{name}} · {{time}}",
-    "reopen": "Reopen",
-    "reopenStep": "Reopen {{step}}",
-    "reopenBody": "The step becomes editable again. Steps after it stay as they are.",
-    "reopenCompletedBody": "The batch goes back to in progress until this step is finished again.",
     "cancelBatch": "Cancel batch",
     "cancelBody": "Batch {{code}} will be read-only and left out of the figures.",
     "cancelReason": "Reason",
     "cancelledNotice": "This batch was cancelled.",
     "completedNotice": "Completed on {{time}}.",
-    "readOnlyNotice": "You can view this batch but not record steps."
+    "readOnlyNotice": "You can view this batch but not record steps.",
+    "editStep": "Edit",
+    "editConfirmTitle": "Edit {{step}}?",
+    "editConfirmLater": "{{steps}} will go back to draft and need to be finished again.",
+    "editConfirmSelf": "This step goes back to draft and needs to be finished again.",
+    "editConfirmCompleted": "The batch is in progress again until then.",
+    "andList": "{{first}} and {{last}}"
   }
 }

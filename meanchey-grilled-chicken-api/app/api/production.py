@@ -130,7 +130,8 @@ async def finish_step(
 async def reopen_step(
     batch_id: uuid.UUID, step: StepSlug, body: VersionIn, actor: CanReopen, session: SessionDep
 ) -> BatchOut:
-    """Only while the next step isn't finished. Reopening standardize un-completes the batch."""
+    """Edit a finished step: it and every later finished step go back to draft (values kept),
+    `current_step` becomes this step and a completed batch is in progress again."""
     batch = await svc.reopen_step(session, actor, batch_id, svc.STEP_NUMBERS[step], body.version)
     return await svc.batch_out(session, batch)
 

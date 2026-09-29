@@ -1,18 +1,8 @@
-<ADD, UPDATE, FIX><BOTH><PRODUCTION, PERFORMANCE, WORKSTATION>: 
+<UPDATE><BOTH><ACCESS-PRODUCTION>: GM-only cancel, edit any finished step, superadmin ⊇ GM, GM feature levels
 
-3-step production batches with autosave and a Record access level
-- Access: new "record" level (off/view/record/full; features may omit it); production feature (view, record = view+create, full = +reopen/cancel); GM all, supervisor Full, staff Off, backfilled to existing GM/supervisors
-- API: batches with raw material / produced / standardize steps, by-products and a per-day code counter (migration 0005); by-product and material catalogs; Decimal weights; drafts with version (409 PRODUCTION_CONFLICT), finish / reopen / cancel, piece balance at finish (by-product balance is UI-only); list filters, stats, supplier options; audit entries; redaction sweep covers the new routes
-- UI: Workstation → Production list (KPIs, waiting-for-step chips, filters in URL) and batch page (stepper, step forms and summaries, reopen/cancel menu); useAutosaveDraft (debounce, keepalive flush on hide/close/Telegram deactivated, local backup with restore, conflict handling); 4-level SegmentedControl on the Access tab; audit log labels and batch links; km/en strings
-- Docs updated in both projects; 67 new API tests
-
-lazy-load production pages and split vendor chunk
-- Production list and batch pages load on first visit (React.lazy inside RequireAccess), never for users without access
-- Libraries in a separate cached vendor chunk; main bundle 546 kB → 145 kB, no Vite size warning
-- Docs: routing and build sections in UI ARCHITECTURE.md
-
-consistent access controls, mobile KPI grid, remove calling
-- Access tab: equal fixed-width level buttons on desktop so 3- and 4-level controls line up without clipping Khmer labels; stacked full width below lg, 2×2 for 4 levels on phones
-- KPI cards: shared KpiGrid (3 across / 2×2 on phones, no horizontal scroll) for suppliers, customers and production
-- Suppliers/customers: remove Call button and tap-to-call; phone shown as text
-- Docs: UI FEATURES and ARCHITECTURE
+- production.delete assignable to GM only, removed from Production Full; old supervisor/staff grants lose effect at read time
+- Edit (reopen) any finished step: it and every later finished step go back to draft (values kept), batch back in progress; audit reopened_steps; reopens_steps in responses; PRODUCTION_STEP_LOCKED no longer raised
+- Features apply to the GM too; only the superadmin sets them (GM reads Full by default; GM-only powers stay detailed permissions)
+- New test_superadmin_superset (every route: superadmin never 403 where the GM isn't), test_gm_features; production tests updated
+- UI: Edit button on finished step summaries with a confirmation naming the steps it reopens; ⋮ keeps Cancel (GM); Access legend and GM hint; audit detail for reopened steps
+- Docs updated in both projects

@@ -185,6 +185,8 @@ export interface SupplierOption {
 
 interface StepBase {
   status: StepStatus
+  /** Steps that go back to draft if this one is edited (itself + later finished steps); [] if not finished. */
+  reopens_steps: StepNumber[]
   finished_by: UserRef | null
   finished_at: string | null
   updated_by: UserRef | null

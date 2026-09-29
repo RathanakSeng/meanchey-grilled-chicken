@@ -180,9 +180,9 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Raw material** 
 
 **Batch page**
 
-- **Header:** code, production date, status badge, and a **⋮** menu with **Reopen \<step\>** (Full access; only a finished step whose next step isn't finished) and **Cancel batch** (Full access; in-progress batches, asks for a required reason).
+- **Header:** code, production date, status badge, and a **⋮** menu with **Cancel batch** (general manager and superadmin only; in-progress batches, asks for a required reason).
 - **Stepper 1 · 2 · 3** (✓ when finished). Tapping a step shows it; steps not started yet are disabled. On mobile one step is shown at a time.
-- A finished step shows a **read-only summary** with *Finished by … · time*. The current step shows its **form** to users with Record or Full access; with *View only* every step is read-only (a notice says so).
+- A finished step shows a **read-only summary** with *Finished by … · time* and, with Full access, an **Edit** button. Editing works on any finished step in one action: it and every later finished step go back to draft with their values kept, and must be finished again in order. The confirmation says which steps, e.g. *"Edit Raw material? Produced and Standardize will go back to draft and need to be finished again."* A completed batch is in progress again until then. The page then switches to that step. The current step shows its **form** to users with Record or Full access; with *View only* every step is read-only (a notice says so).
 - Cancelled batches show the reason and are read-only; completed ones show when they were completed.
 
 **Step 1: Raw material.** Supplier (a searchable list of active suppliers; no Suppliers access needed), production date (today by default), raw material (Chicken), weight (kg) and number of chickens.
@@ -191,7 +191,7 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Raw material** 
 
 **Step 3: Standardize.** Big packages (*1 big = 2 wings + 2 thighs*) and small packages (*1 small = 1 wing + 1 thigh*) with a live breakdown, rejected wings and thighs, and a **balance meter** per piece type (*"Wings: 3 left to assign"*, *"2 too many"*, *All assigned*). For each by-product: the produced kg, **carry forward** (យកទៅបន្ត) and **rejected** (ខូច/មិនប្រើ) inputs, and a per-row indicator. A comment is optional.
 
-**Finish step** is disabled until the step is complete; a list under the form says what's missing (*"Fill in: Weight, Supplier"*, *"Wings don't add up yet"*). It asks for confirmation: *"You can't edit this step after finishing."*
+**Finish step** is disabled until the step is complete; a list under the form says what's missing (*"Fill in: Weight, Supplier"*, *"Wings don't add up yet"*). It asks for confirmation: *"The step is locked after finishing. Only someone with Full access can edit it again."*
 
 - Wings and thighs must balance exactly: 2 × big + small + rejected = count. The API enforces this too.
 - **By-products must balance exactly** (carry forward + rejected = produced kg). **This rule is enforced by the UI only**; the API accepts unbalanced by-products (it may be relaxed later).
@@ -296,7 +296,9 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Raw material** 
   |---|---|---|---|
   | General manager (supervisor / staff) | ✅ | ✅ | — |
   | Supervisor (staff) | ✅ | — | — |
-  | Superadmin | ✅ | ✅ | ✅ |
+  | Superadmin (general manager, supervisor, staff) | ✅ | ✅ | ✅ |
+
+  When the superadmin opens the **general manager**, the Access tab shows the GM's levels for Suppliers, Customers, Production and Staff management (only the superadmin can change them); the GM-only powers are on Permissions (advanced).
 
   A `?tab=` the viewer can't open falls back to Details.
 - Success and error messages are shown inline and are translated.
@@ -305,22 +307,23 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Raw material** 
 
 ### Access tab (ការចូលប្រើ)
 
-How the general manager decides what supervisors and staff can use. Shown when the viewer may manage access (*can manage features*) and at least one feature applies to the user. The general manager can set **any level of any feature** available to that user's role; nothing here depends on the general manager's own permissions.
+How the general manager decides what supervisors and staff can use (and how the superadmin decides what the general manager can use). Shown when the viewer may manage access (*can manage features*) and at least one feature applies to the user. The general manager can set **any level of any feature** available to that user's role; nothing here depends on the general manager's own permissions.
 
-- **Grouped by menu:** **Workstation** (Suppliers, Customers, Production), then **Settings** (Staff management, supervisors only).
+- **Grouped by menu:** **Workstation** (Suppliers, Customers, Production), then **Settings** (Staff management: supervisors, and the general manager when the superadmin views it).
 - Each row: the feature's name and a one-line description (from the server, in the current language), and a segmented control with the levels the server lists for that feature: **Off · View only · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · ពេញលេញ*), and for Production **Off · View only · Record · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · កត់ត្រា · ពេញលេញ*).
-- A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't reopen or cancel (shown when a feature has it); *Full access* = can add, edit and deactivate. For Staff management, Full access means add and edit staff: supervisors never deactivate people.
+- A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't edit finished steps (shown when a feature has it); *Full access* = can add, edit and deactivate, and in Production also edit finished steps. For Staff management, Full access means add and edit staff: supervisors never deactivate people.
 - **Each click saves** immediately, with a spinner on that row. On error the previous level comes back and a translated message is shown.
 - From *Off*, *View only* has a dashed outline as the suggested next step; it still takes a click.
 - **Custom:** if a user's permissions match no level (only possible through the superadmin's detailed permissions), a neutral *Custom* badge is shown and no level is selected. Picking a level replaces it.
 - Rows are disabled only when the user is deactivated. No explanation mentions other roles.
-- Defaults: supervisors start with everything at **Full access**, staff with everything **Off**.
+- Defaults: supervisors start with everything at **Full access**, staff with everything **Off**; the general manager at **Full access**.
+- **General manager as the target** (superadmin only): a hint under the legend says *"Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced)."* Lowering Staff management takes creating / editing users (at *Off*, the Users list) away from the GM.
 - Changes take effect on the user's next menu refresh (within a minute, or at once on their next "no permission" answer). If you change your own access, your menus refresh immediately.
 - On large screens every level button has the same width in every row (whether a feature has 3 or 4 levels), so the controls line up on the right and no label is cut off. On tablets, phones and in the Mini App the control sits under the name, full width, with large touch targets; on phones the four Production levels wrap into a 2 × 2 grid.
 
 ### Permissions (advanced), superadmin only
 
-Only for the superadmin. Shows the detailed permissions under the feature levels: grouped by module, each with its localized name, description and code, a checkbox, and a lock reason from the server when it can't be changed (e.g. the user is deactivated). Clicking a checkbox grants or revokes that one permission immediately. General-manager-only permissions (deactivate users, reset passwords, manage access) are managed here.
+Only for the superadmin. Shows the detailed permissions under the feature levels: grouped by module, each with its localized name, description and code, a checkbox, and a lock reason from the server when it can't be changed (e.g. the user is deactivated). Clicking a checkbox grants or revokes that one permission immediately. General-manager-only permissions (deactivate users, reset passwords, manage access, cancel production batches) are managed here. Revoking *manage access* from the GM removes the GM's Access tab.
 
 Supervisors and staff never see any permission or access information.
 
@@ -337,7 +340,7 @@ Supervisors and staff never see any permission or access information.
   - detailed permission grants and revokes, including automatic ones on deploy: **superadmin only** (the general manager sees access changes instead);
   - profile updates;
   - suppliers and customers added, edited, deactivated and reactivated;
-  - production: batch started, step finished and step reopened (*"Step 2 · Produced"*), batch cancelled (with the reason). Draft saves aren't logged.
+  - production: batch started, step finished and step reopened (*"Step 1 · Raw material"*, plus *"Also back to draft: step 2, 3"* when editing reopened later steps), batch cancelled (with the reason). Draft saves aren't logged.
 - **Filters:** record type (All · Suppliers · Customers · Production batches) and action type.
 - Each entry shows:
   - the time, in the current language's format;
@@ -414,7 +417,8 @@ Supervisors and staff never see any permission or access information.
 | Add / edit / deactivate customers | ✅ | ✅ | Customers = Full (default) | Customers = Full |
 | Workstation → Production (list, batches, figures) | ✅ | ✅ | Production ≥ View only (default Full) | Production ≥ View only (default Off) |
 | Start batches, fill in and finish steps | ✅ | ✅ | Production ≥ Record (default Full) | Production ≥ Record |
-| Reopen steps, cancel batches | ✅ | ✅ | Production = Full (default) | Production = Full |
+| Edit finished steps (later steps go back to draft) | ✅ | Production = Full (default; set by the superadmin) | Production = Full (default) | Production = Full |
+| Cancel production batches | ✅ | ✅ | ❌ never | ❌ never |
 
 "Suppliers = Full" etc. refers to the levels the general manager sets on the Access tab (§10). "(default)" is the level a new account starts with.
 

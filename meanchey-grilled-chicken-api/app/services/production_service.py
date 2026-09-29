@@ -3,10 +3,11 @@
 Every write locks the batch row (`SELECT … FOR UPDATE`), checks its state, then compares the
 client's `version` with the stored one (stale → PRODUCTION_CONFLICT with the current batch), and
 increments `version`. Checks run in this order: not found, cancelled, step state (not ready /
-finished / locked), version, then the values.
+finished), version, then the values.
 
 Rules enforced here:
 - A step can be edited or finished only after the previous one is finished.
+- Editing (reopening) a finished step puts it and every later finished step back to draft.
 - Piece counts (step 2) are always quantity × pieces per unit; clients can't set them.
 - Finishing step 3 requires the piece balance (PRODUCTION_BALANCE_MISMATCH). The by-product
   balance (carry + rejected = produced) is a UI-only rule and deliberately NOT checked here.
@@ -480,30 +481,45 @@ async def finish_step(
 async def reopen_step(
     session: AsyncSession, actor: User, batch_id: uuid.UUID, step: int, version: int
 ) -> ProductionBatch:
+    """Edit a finished step: it and every later finished step go back to draft in one go.
+
+    Values are kept; the steps are finished again in order (PRODUCTION_STEP_NOT_READY otherwise),
+    which recomputes step 2 counts and re-checks the piece balance at step 3.
+    """
     batch = await _for_write(session, batch_id)
     row = _step_row(batch, step)
     if row is None or not row.finished:
         # Nothing to reopen: already editable (or not started).
         return batch
-    following = _step_row(batch, step + 1) if step < 3 else None
-    if following is not None and following.finished:
-        raise AppError(
-            409,
-            ErrorCode.PRODUCTION_STEP_LOCKED,
-            "Reopen the next step first: it is already finished",
-        )
     await _check_version(session, batch, version)
-    row.status = "draft"
-    row.finished_by = None
-    row.finished_at = None
+    reopened = reopens_steps(batch, step)
+    for n in reopened:
+        later = _step_row(batch, n)
+        assert later is not None
+        later.status = "draft"
+        later.finished_by = None
+        later.finished_at = None
     batch.current_step = step
     if batch.status == "completed":
         batch.status = "in_progress"
         batch.completed_at = None
     _touch(batch, row, actor)
-    _audit(session, "production.step_reopen", actor, batch, step=step)
+    _audit(session, "production.step_reopen", actor, batch, step=step, reopened_steps=reopened)
     await session.commit()
     return await get_batch(session, batch_id)
+
+
+def reopens_steps(batch: ProductionBatch, step: int) -> list[int]:
+    """Steps that go back to draft when `step` is edited: it and every later finished step.
+    Empty when `step` isn't finished (nothing to reopen)."""
+    row = _step_row(batch, step)
+    if row is None or not row.finished:
+        return []
+    return [step] + [
+        n
+        for n in range(step + 1, 4)
+        if (later := _step_row(batch, n)) is not None and later.finished
+    ]
 
 
 async def cancel_batch(
@@ -673,8 +689,11 @@ def _brief(supplier: Supplier | None) -> SupplierBrief | None:
     )
 
 
-def _step_common(row: StepRow, users: dict[uuid.UUID, User]) -> dict[str, Any]:
+def _step_common(
+    row: StepRow, users: dict[uuid.UUID, User], batch: ProductionBatch, step: int
+) -> dict[str, Any]:
     return {
+        "reopens_steps": reopens_steps(batch, step) if batch.status != "cancelled" else [],
         "status": row.status,
         "finished_by": _ref(users, row.finished_by),
         "finished_at": row.finished_at,
@@ -747,7 +766,7 @@ async def batch_out(session: AsyncSession, batch: ProductionBatch) -> BatchOut:
         updated_by=_ref(users, batch.updated_by),
         cancelled_by=_ref(users, batch.cancelled_by),
         raw_material=RawMaterialOut(
-            **_step_common(raw, users),
+            **_step_common(raw, users, batch, 1),
             supplier=_brief(supplier),
             material_kind=raw.material_kind,
             weight_kg=raw.weight_kg,
@@ -756,7 +775,7 @@ async def batch_out(session: AsyncSession, batch: ProductionBatch) -> BatchOut:
         produced=None
         if output is None
         else ProducedOut(
-            **_step_common(output, users),
+            **_step_common(output, users, batch, 2),
             wings_kg=output.wings_kg,
             thighs_kg=output.thighs_kg,
             wings_count=output.wings_count,
@@ -766,7 +785,7 @@ async def batch_out(session: AsyncSession, batch: ProductionBatch) -> BatchOut:
         standardize=None
         if packaging is None
         else StandardizeOut(
-            **_step_common(packaging, users),
+            **_step_common(packaging, users, batch, 3),
             big_packages=packaging.big_packages,
             small_packages=packaging.small_packages,
             rejected_wings=packaging.rejected_wings,

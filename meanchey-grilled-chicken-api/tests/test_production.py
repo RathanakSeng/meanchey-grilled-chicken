@@ -479,14 +479,77 @@ async def test_step_3_draft_keeps_other_byproduct_fields(api, supplier) -> None:
 # --- Reopen --------------------------------------------------------------------------------------
 
 
-async def test_reopen_is_blocked_by_a_finished_next_step(api, supplier) -> None:
-    batch = await api.step2(supplier)
-    assert_error(await api.reopen(batch, "raw-material"), 409, "PRODUCTION_STEP_LOCKED")
+def _statuses(batch: dict) -> list[str]:
+    return [batch[k]["status"] for k in ("raw_material", "produced", "standardize")]
+
+
+async def test_reopens_steps_in_responses(api, supplier) -> None:
+    batch = await api.completed(supplier)
+    assert [batch[k]["reopens_steps"] for k in ("raw_material", "produced", "standardize")] == [
+        [1, 2, 3],
+        [2, 3],
+        [3],
+    ]
+    batch = await api.step1(supplier)
+    assert batch["raw_material"]["reopens_steps"] == [1]
+    assert batch["produced"]["reopens_steps"] == []  # a draft: nothing to reopen
+
+
+async def test_editing_step_1_of_a_completed_batch_reopens_everything(
+    api, session, supplier
+) -> None:
+    batch = await api.completed(supplier, comment="Keep me")
+    batch = ok(await api.reopen(batch, "raw-material"))
+    assert _statuses(batch) == ["draft", "draft", "draft"]
+    assert (batch["status"], batch["completed_at"], batch["current_step"]) == (
+        "in_progress",
+        None,
+        1,
+    )
+    assert all(
+        batch[k]["finished_by"] is None and batch[k]["finished_at"] is None
+        for k in ("raw_material", "produced", "standardize")
+    )
+    # Every value is kept.
+    assert batch["raw_material"]["quantity"] == 10
+    assert batch["produced"]["wings_kg"] == "4.200"
+    assert batch["standardize"]["big_packages"] == 7
+    assert batch["standardize"]["comment"] == "Keep me"
+    assert {b["item_code"]: b["carry_kg"] for b in batch["byproducts"]}["liver"] == "0.400"
+
+    log = await session.scalar(select(AuditLog).where(AuditLog.action == "production.step_reopen"))
+    assert log.details == {"code": batch["code"], "step": 1, "reopened_steps": [1, 2, 3]}
+
+    # Later steps are finished again in order; the rules still apply.
+    assert_error(await api.finish(batch, "produced"), 409, "PRODUCTION_STEP_NOT_READY")
+    assert_error(await api.patch(batch, "produced", wings_kg="1"), 409, "PRODUCTION_STEP_NOT_READY")
+    batch = ok(await api.patch(batch, "raw-material", quantity=11))
+    batch = ok(await api.finish(batch, "raw-material"))
+    assert batch["produced"]["wings_count"] == 22  # recomputed
+    batch = ok(await api.finish(batch, "produced"))
+    # 20 wings were balanced; 22 now need assigning again.
+    assert_error(await api.finish(batch, "standardize"), 422, "PRODUCTION_BALANCE_MISMATCH")
+    batch = ok(await api.patch(batch, "standardize", small_packages=7))
+    assert ok(await api.finish(batch, "standardize"))["status"] == "completed"
+
+
+async def test_editing_a_middle_step_keeps_earlier_steps_finished(api, session, supplier) -> None:
+    batch = await api.completed(supplier)
+    batch = ok(await api.reopen(batch, "produced"))
+    assert _statuses(batch) == ["finished", "draft", "draft"]
+    assert batch["current_step"] == 2
+    log = await session.scalar(select(AuditLog).where(AuditLog.action == "production.step_reopen"))
+    assert log.details["reopened_steps"] == [2, 3]
+
+
+async def test_editing_step_1_while_step_3_is_a_draft(api, supplier) -> None:
+    batch = await api.step2(supplier)  # step 3 is an unfinished draft
+    batch = ok(await api.reopen(batch, "raw-material"))
+    assert _statuses(batch) == ["draft", "draft", "draft"]
 
 
 async def test_reopen_step_3_puts_the_batch_back_in_progress(api, session, supplier) -> None:
     batch = await api.completed(supplier)
-    assert_error(await api.reopen(batch, "produced"), 409, "PRODUCTION_STEP_LOCKED")
     batch = ok(await api.reopen(batch, "standardize"))
     assert (batch["status"], batch["completed_at"], batch["current_step"]) == (
         "in_progress",
@@ -508,7 +571,10 @@ async def test_reopen_step_3_puts_the_batch_back_in_progress(api, session, suppl
             .order_by(AuditLog.id)
         )
     )
-    assert [log.details["step"] for log in logs] == [3, 2]
+    assert [(log.details["step"], log.details["reopened_steps"]) for log in logs] == [
+        (3, [3]),
+        (2, [2]),
+    ]
 
 
 async def test_reopening_a_draft_step_changes_nothing(api) -> None:
