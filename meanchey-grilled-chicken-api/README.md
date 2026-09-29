@@ -130,7 +130,7 @@ The general manager gives access per feature: **Off**, **View only**, **Record**
 |---|---|---|---|---|---|
 | Suppliers | GM*, supervisor, staff | `suppliers.view` | — | + create, update, delete | supervisor: Full · staff: Off |
 | Customers | GM*, supervisor, staff | `customers.view` | — | + create, update, delete | supervisor: Full · staff: Off |
-| Production | GM*, supervisor, staff | `production.view` | + create (start batches, fill in and finish steps) | + update (edit finished steps) | supervisor: Full · staff: Off |
+| Production | GM*, supervisor, staff | `production.view` | + create (start batches, fill in and finish steps) | + update (reopen finished steps) | supervisor: Full · staff: Off |
 | Staff management | GM*, supervisor | `users.view` | — | + create, update | supervisor: Full |
 
 \* For the GM, set by the superadmin only (the GM starts at Full access everywhere).

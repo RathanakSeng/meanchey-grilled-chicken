@@ -38,6 +38,7 @@ async def list_batches(
     _: CanView,
     session: SessionDep,
     status: ListStatus = "all",
+    include_cancelled: bool = False,
     waiting_step: Annotated[int | None, Query(ge=2, le=3)] = None,
     date_from: date | None = None,
     date_to: date | None = None,
@@ -46,11 +47,14 @@ async def list_batches(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> BatchPage:
-    """`waiting_step=2|3`: in-progress batches whose previous steps are finished and that step
-    isn't. `q` matches the batch code and the supplier name. Dates are production dates."""
+    """Cancelled batches are left out unless `include_cancelled=true` (then they're added to the
+    chosen status) or `status=cancelled` (only them). `waiting_step=2|3`: in-progress batches
+    whose previous steps are finished and that step isn't. `q` matches the batch code and the
+    supplier name. Dates are production dates."""
     items, total = await svc.list_batches(
         session,
         status=status,
+        include_cancelled=include_cancelled,
         waiting_step=waiting_step,
         date_from=date_from,
         date_to=date_to,
@@ -130,7 +134,7 @@ async def finish_step(
 async def reopen_step(
     batch_id: uuid.UUID, step: StepSlug, body: VersionIn, actor: CanReopen, session: SessionDep
 ) -> BatchOut:
-    """Edit a finished step: it and every later finished step go back to draft (values kept),
+    """Reopen a finished step: it and every later finished step go back to draft (values kept),
     `current_step` becomes this step and a completed batch is in progress again."""
     batch = await svc.reopen_step(session, actor, batch_id, svc.STEP_NUMBERS[step], body.version)
     return await svc.batch_out(session, batch)

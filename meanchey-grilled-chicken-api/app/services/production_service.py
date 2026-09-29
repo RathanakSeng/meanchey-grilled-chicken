@@ -7,7 +7,7 @@ finished), version, then the values.
 
 Rules enforced here:
 - A step can be edited or finished only after the previous one is finished.
-- Editing (reopening) a finished step puts it and every later finished step back to draft.
+- Reopening a finished step puts it and every later finished step back to draft.
 - Piece counts (step 2) are always quantity × pieces per unit; clients can't set them.
 - Finishing step 3 requires the piece balance (PRODUCTION_BALANCE_MISMATCH). The by-product
   balance (carry + rejected = produced) is a UI-only rule and deliberately NOT checked here.
@@ -481,7 +481,7 @@ async def finish_step(
 async def reopen_step(
     session: AsyncSession, actor: User, batch_id: uuid.UUID, step: int, version: int
 ) -> ProductionBatch:
-    """Edit a finished step: it and every later finished step go back to draft in one go.
+    """Reopen a finished step: it and every later finished step go back to draft in one go.
 
     Values are kept; the steps are finished again in order (PRODUCTION_STEP_NOT_READY otherwise),
     which recomputes step 2 counts and re-checks the piece balance at step 3.
@@ -551,6 +551,7 @@ async def list_batches(
     session: AsyncSession,
     *,
     status: ListStatus,
+    include_cancelled: bool = False,
     waiting_step: int | None,
     date_from: date | None,
     date_to: date | None,
@@ -561,8 +562,14 @@ async def list_batches(
 ) -> tuple[list[ProductionBatch], int]:
     b, r, s = ProductionBatch, ProductionRawMaterial, Supplier
     conditions: list[Any] = []
-    if status != "all":
-        conditions.append(b.status == status)
+    if status == "cancelled":
+        conditions.append(b.status == "cancelled")
+    else:
+        # Cancelled batches are left out unless asked for explicitly.
+        shown = ["in_progress", "completed"] if status == "all" else [status]
+        if include_cancelled:
+            shown.append("cancelled")
+        conditions.append(b.status.in_(shown))
     if waiting_step is not None:
         # current_step == N on an in-progress batch: steps before N are finished, N is not.
         conditions += [b.status == "in_progress", b.current_step == waiting_step]

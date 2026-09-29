@@ -86,7 +86,7 @@ src/
 │   └── useDebounced.ts
 ├── i18n/                  # i18next init + locales/{km,en}.json
 ├── layouts/               # AppShell → DesktopLayout | MobileLayout, nav.ts (menu tree), Brand
-├── components/            # ui.tsx kit, Sheet, ActionMenu, SegmentedControl, icons, badges, NavTile, LanguageSwitcher, ProfileMenu,
+├── components/            # ui.tsx kit, Sheet, ActionMenu, SegmentedControl, KpiGrid, CheckboxFilter, icons, badges, NavTile, LanguageSwitcher, ProfileMenu,
 │                          #   ChangePasswordForm
 ├── pages/
 │   ├── HomePage.tsx, LoginPage.tsx, ChangePasswordPage.tsx, StatusPages.tsx, AuthLayout.tsx
@@ -330,7 +330,7 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 | `['supplier', id]` / `['customer', id]` | Single record; written with `setQueryData` from mutation responses |
 | `['production', params]` | `GET /production` (`keepPreviousData`) |
 | `['production-stats']` | `GET /production/stats` (KPI cards) |
-| `['production-batch', id]` | `GET /production/{id}`; written with `setQueryData` by every draft save, finish, edit (reopen) and cancel |
+| `['production-batch', id]` | `GET /production/{id}`; written with `setQueryData` by every draft save, finish, reopen and cancel |
 | `['production-supplier-options', q]` | `GET /production/supplier-options` (supplier picker, only while it's open) |
 
 - Mutations use `useMutation`. After a change they either write the response straight into the cache (`setQueryData`, e.g. after editing a user or the profile) or invalidate the affected keys: `users`, `user`, `user-permissions`. Creating or editing a user also invalidates `user-positions`, so a newly typed position shows up in the suggestions and filter. A role change (`RoleChangeSheet`, `POST /users/{id}/role`) writes the returned user into `['user', id]` and invalidates `users`, `user-features`, `user-permissions` and `user-positions`.
@@ -415,11 +415,12 @@ useErrorMessage()(err) → t(`errors.${code}`, { ...details, time, min })
   - page structure: `PageHeader` (optional back button), and `ConfirmDialog` (bottom sheet on mobile, centered on desktop, Escape to close);
   - `useEscapeKey(open, onClose)`, shared by the dialogs.
 - **`components/Sheet.tsx`** extends the `ConfirmDialog` pattern for forms and longer content: a full-height **side drawer** on desktop and a **bottom sheet** (max 90 % height, grab handle, safe-area padding) on mobile, chosen with `useIsMobileLayout()`. It has a title bar with a close button, a scrollable body and an optional sticky footer. Escape and backdrop clicks close it unless `busy`, and page scrolling is locked while it's open. The footer's submit button targets the form with `form="<id>"`.
-- **`components/SegmentedControl.tsx`:** a radio group of buttons (`role="radiogroup"`) with 40 px touch targets. Below `lg` it's full width with equal segments (four segments, e.g. Production's Off · View only · Record · Full access, become a 2 × 2 grid below `sm`). From `lg` every segment has the same fixed width (`9.5rem`, enough for the longest Khmer label), so a column of controls with 3 and 4 levels lines up and never clips a label; the Access tab rows switch to side-by-side at `lg` too. `value` may match no segment (the *Custom* state). `suggested` adds a dashed outline as a hint only.
+- **`components/SegmentedControl.tsx`:** a radio group of buttons (`role="radiogroup"`) with 40 px touch targets. Optional `slots`: the full ordered column list shared by stacked controls; a slot the control has no segment for is an empty `—` cell (`aria-hidden`), so values align across rows. The Access tab passes every level present on the tab (`off, view, record, full`), so 3- and 4-level features share the same columns. Below `lg` it's full width with equal segments (four segments, e.g. Production's Off · View only · Record · Full access, become a 2 × 2 grid below `sm`). From `lg` every segment has the same fixed width (`9.5rem`, enough for the longest Khmer label), so a column of controls with 3 and 4 levels lines up and never clips a label; the Access tab rows switch to side-by-side at `lg` too. `value` may match no segment (the *Custom* state). `suggested` adds a dashed outline as a hint only.
 - **`components/ActionMenu.tsx`:** a **⋮** button with a small menu of `{label, icon, tone, onSelect}` items. It uses fixed positioning, so it isn't clipped by tables or scroll containers, and it opens upwards near the bottom of the screen. It renders nothing when there are no items, so permission-filtered item lists need no extra check.
 - **Production form parts** (`production/StepShell.tsx`): `NumberField` (`inputMode="decimal"` for kg / g, `"numeric"` for counts; 48 px tall on mobile, unit suffix, inline error), `LockedValue` (computed counts with a lock), `AutosaveStatus`, and `StepShell` (header with status, restore / conflict notices, blockers list, Finish with confirmation; on mobile Finish sits in a fixed bar above the bottom nav, with a spacer so it never covers the last field).
 - **Icons:** inline SVG paths in `components/icons.tsx`, with no icon dependency.
-- **`components/KpiGrid.tsx`:** the figures above the Suppliers, Customers and Production lists. A grid on every screen, never a sideways scroller: 3 figures → 3 columns, 4 → 2 × 2 (4 columns from `lg`). On phones each card is compact (icon and a label of up to two lines above the number); from `sm` the icon sits beside the text. Cards with `onClick` are buttons (`aria-pressed`, outlined when selected), e.g. Active / Deactivated filter the partner lists.
+- **`components/KpiGrid.tsx`:** the figures above the Suppliers, Customers and Production lists. A grid on every screen, never a sideways scroller: 3 figures → 3 columns, 4 → 2 × 2 (4 columns from `lg`). On phones each card is compact (icon and a label of up to two lines above the number); from `sm` the icon sits beside the text. Cards with `onClick` become buttons (`aria-pressed`, outlined when selected); the current pages use figures only.
+- **`components/CheckboxFilter.tsx`:** a labelled checkbox sized like the other filter controls. Lists leave removed records out by default and show them only when it's ticked: *Show deactivated* (suppliers, customers: `?deactivated=1` → `status=all`) and *Show cancelled* (production: `?cancelled=1` → `include_cancelled=true`). A new Workstation list with soft-deleted records should do the same.
 - **`scrollbar-none`** (in `index.css`): horizontal scrollers (e.g. the production filter chips) swipe without a visible scrollbar.
 - **Accessibility:**
   - labelled controls;
@@ -479,7 +480,7 @@ The Access tab, the Permissions (advanced) tab and the Telegram back button need
 - `entity` is the single-record query key and the audit `entity_type`.
 - `partnerKeys(config)` builds the query keys; `permission(config, action)` the permission codes; `partnerSearchLink(config, q)` the audit log's deep link.
 
-The page brings the KPI cards (`KpiGrid`), URL-driven filters (`?q&status&sort&page`), table/card list, `ActionMenu`, the `PartnerFormSheet` and confirm dialogs. Another list with the same fields needs a config, a route, a nav child and its `<resource>.*` translations.
+The page brings the KPI cards (`KpiGrid`), URL-driven filters (`?q&deactivated=1&sort&page`; deactivated records only with the *Show deactivated* `CheckboxFilter`, like *Show cancelled* on Production), table/card list, `ActionMenu`, the `PartnerFormSheet` and confirm dialogs. Another list with the same fields needs a config, a route, a nav child and its `<resource>.*` translations.
 
 **Pattern: step flow with autosave.** Production (`pages/workstation/production/`) is the reference for multi-step records: one form component per step built on `useStep` (autosave + Finish), pure `fromBatch` / `toPayload` / finish-rule functions in `steps.ts`, and `StepShell` for the chrome. A new by-product needs no UI change (it comes from the API catalog).
 

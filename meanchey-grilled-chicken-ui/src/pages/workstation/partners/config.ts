@@ -48,7 +48,7 @@ export function permission(config: PartnerConfig, action: 'view' | 'create' | 'u
   return `${config.resource}.${action}`
 }
 
-/** Link to a list with the search box prefilled (used by the audit log). */
+/** Link to a list with the search box prefilled, deactivated records included (audit log). */
 export function partnerSearchLink(config: PartnerConfig, q: string) {
-  return `${config.path}?${new URLSearchParams({ q, status: 'all' })}`
+  return `${config.path}?${new URLSearchParams({ q, deactivated: '1' })}`
 }

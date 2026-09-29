@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Icon } from '@/components/icons'
-import { Badge, Button, Card } from '@/components/ui'
+import { Badge, Card } from '@/components/ui'
 import { useFormatDate, useLocalized } from '@/lib/format'
 import type { ProductionBatch, StepNumber, UserRef } from '@/lib/types'
 import { STEPS, stepData } from './api'
@@ -24,18 +23,10 @@ const kg = (v: string | null) => (v === null ? '—' : `${toInput(v)} kg`)
 const num = (v: number | null) => (v === null ? '—' : String(v))
 
 /**
- * Read-only view of a step: finished steps, and drafts for people who can only view. `onEdit`
- * (finished steps, `production.update`) shows an **Edit** button.
+ * Read-only view of a step: finished steps, and drafts for people who can only view.
+ * (Reopening a finished step is in the batch page's ⋮ menu.)
  */
-export function StepSummary({
-  batch,
-  step,
-  onEdit,
-}: {
-  batch: ProductionBatch
-  step: StepNumber
-  onEdit?: () => void
-}) {
+export function StepSummary({ batch, step }: { batch: ProductionBatch; step: StepNumber }) {
   const { t } = useTranslation()
   const formatDate = useFormatDate()
   const localized = useLocalized()
@@ -129,19 +120,11 @@ export function StepSummary({
     <Card
       title={t(STEPS[step - 1].labelKey)}
       actions={
-        <span className="flex items-center gap-2">
-          {data.status === 'finished' ? (
-            <Badge tone="green">{t('production.stepStatus.finished')}</Badge>
-          ) : (
-            <Badge tone="amber">{t('production.stepStatus.draft')}</Badge>
-          )}
-          {onEdit && (
-            <Button variant="secondary" className="px-3 py-1.5" onClick={onEdit}>
-              <Icon name="pencil" width={16} height={16} />
-              {t('production.editStep')}
-            </Button>
-          )}
-        </span>
+        data.status === 'finished' ? (
+          <Badge tone="green">{t('production.stepStatus.finished')}</Badge>
+        ) : (
+          <Badge tone="amber">{t('production.stepStatus.draft')}</Badge>
+        )
       }
     >
       <dl className="-my-2 divide-y divide-stone-100">{rows}</dl>

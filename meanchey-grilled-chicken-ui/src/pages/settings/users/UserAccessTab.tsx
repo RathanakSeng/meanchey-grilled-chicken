@@ -8,6 +8,8 @@ import { useErrorMessage } from '@/lib/errors'
 import { useLocalized } from '@/lib/format'
 import type { Feature, FeatureLevel, Role, UserFeatures } from '@/lib/types'
 
+const LEVEL_ORDER: FeatureLevel[] = ['off', 'view', 'record', 'full']
+
 export function userFeaturesKey(userId: string) {
   return ['user-features', userId] as const
 }
@@ -63,6 +65,11 @@ export function UserAccessTab({
   })
 
   const hasRecord = data.menus.some((m) => m.features.some((f) => f.levels.includes('record')))
+  // Same columns in every row (a level a feature doesn't have is an empty "—" cell), so each
+  // level sits in the same place for every feature.
+  const slots = LEVEL_ORDER.filter((level) =>
+    data.menus.some((m) => m.features.some((f) => f.levels.includes(level))),
+  )
 
   if (data.menus.length === 0) {
     return (
@@ -106,6 +113,8 @@ export function UserAccessTab({
                     <p className="text-sm text-stone-500">{localized(f, 'description')}</p>
                   </div>
                   <SegmentedControl<FeatureLevel>
+                    slots={slots}
+                    unavailableLabel={t('access.levelNotAvailable')}
                     label={localized(f)}
                     segments={f.levels.map((level) => ({
                       value: level,

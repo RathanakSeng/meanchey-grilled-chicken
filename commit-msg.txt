@@ -1,8 +1,7 @@
-<UPDATE><BOTH><ACCESS-PRODUCTION>: GM-only cancel, edit any finished step, superadmin ⊇ GM, GM feature levels
+<UPDATE><BOTH><PRODUCTION-ACCESS>: reopen steps from the ⋮ menu, align Access tab level columns
 
-- production.delete assignable to GM only, removed from Production Full; old supervisor/staff grants lose effect at read time
-- Edit (reopen) any finished step: it and every later finished step go back to draft (values kept), batch back in progress; audit reopened_steps; reopens_steps in responses; PRODUCTION_STEP_LOCKED no longer raised
-- Features apply to the GM too; only the superadmin sets them (GM reads Full by default; GM-only powers stay detailed permissions)
-- New test_superadmin_superset (every route: superadmin never 403 where the GM isn't), test_gm_features; production tests updated
-- UI: Edit button on finished step summaries with a confirmation naming the steps it reopens; ⋮ keeps Cancel (GM); Access legend and GM hint; audit detail for reopened steps
+- Batch page: "Reopen <step>" items in the ⋮ menu for every finished step (production.update) instead of an Edit button on the summary; same cascade (later steps back to draft, values kept) and confirmation naming the affected steps
+- "Reopen" wording in the Access legend, Finish confirmation, production.update name/description (km/en) and code comments
+- Access tab: every row uses the same columns (Off · View only · Record · Full access); a level a feature doesn't have is a muted "—" cell (tooltip "Not available for this feature"), aligned on desktop, 2×2 on phones
+- SegmentedControl: optional `slots` column list; i18n access.levelNotAvailable (km/en)
 - Docs updated in both projects

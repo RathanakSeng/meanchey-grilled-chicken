@@ -671,10 +671,23 @@ async def test_list_filters(api, client, gm, supplier) -> None:
         return [item["code"] for item in page["items"]]
 
     page = await _list(client, gm)
-    assert page["total"] == 4 and page["page_size"] == 20
-    # Newest production date first by default.
-    assert codes(page) == [b["code"] for b in (cancelled, waiting3, waiting2, draft)]
+    # Cancelled batches are left out by default; newest production date first.
+    assert page["total"] == 3 and page["page_size"] == 20
+    assert codes(page) == [b["code"] for b in (waiting3, waiting2, draft)]
     assert codes(await _list(client, gm, sort="date"))[0] == draft["code"]
+    # ...and shown when asked for, alone or added to a status.
+    page = await _list(client, gm, include_cancelled="true")
+    assert codes(page) == [b["code"] for b in (cancelled, waiting3, waiting2, draft)]
+    assert set(codes(await _list(client, gm, status="in_progress", include_cancelled="true"))) == {
+        draft["code"],
+        waiting2["code"],
+        waiting3["code"],
+        cancelled["code"],
+    }
+    assert codes(await _list(client, gm, q="20260404")) == []
+    assert codes(await _list(client, gm, q="20260404", include_cancelled="true")) == [
+        cancelled["code"]
+    ]
 
     assert codes(await _list(client, gm, waiting_step=2)) == [waiting2["code"]]
     assert codes(await _list(client, gm, waiting_step=3)) == [waiting3["code"]]
@@ -690,7 +703,7 @@ async def test_list_filters(api, client, gm, supplier) -> None:
     ]
     assert codes(await _list(client, gm, q="dara")) == [waiting3["code"]]
     assert codes(await _list(client, gm, q="20260401")) == [draft["code"]]
-    assert codes(await _list(client, gm, page_size=1, page=2)) == [waiting3["code"]]
+    assert codes(await _list(client, gm, page_size=1, page=2)) == [waiting2["code"]]
 
     item = (await _list(client, gm, waiting_step=3))["items"][0]
     assert item["steps"] == ["finished", "finished", "draft"]

@@ -191,14 +191,14 @@ PERMISSIONS += [
     PermissionDef(
         code="production.update",
         module="production",
-        name_en="Edit finished production steps",
-        name_km="កែប្រែជំហានផលិតកម្មដែលបានបញ្ចប់",
+        name_en="Reopen finished production steps",
+        name_km="បើកជំហានផលិតកម្មដែលបានបញ្ចប់ឡើងវិញ",
         description_en=(
-            "Edit a finished step: it and every later step go back to draft (values kept) "
+            "Reopen a finished step: it and every later step go back to draft (values kept) "
             "and are finished again in order."
         ),
         description_km=(
-            "កែប្រែជំហានដែលបានបញ្ចប់៖ ជំហាននោះ និងជំហានបន្ទាប់ៗត្រឡប់ទៅជាព្រាងវិញ (តម្លៃនៅដដែល) "
+            "បើកជំហានដែលបានបញ្ចប់ឡើងវិញ៖ ជំហាននោះ និងជំហានបន្ទាប់ៗត្រឡប់ទៅជាព្រាងវិញ (តម្លៃនៅដដែល) "
             "ហើយត្រូវបញ្ចប់ម្តងទៀតតាមលំដាប់។"
         ),
         assignable_to=_EVERYONE,
@@ -300,11 +300,11 @@ FEATURES: list[FeatureDef] = [
         name_km="ផលិតកម្ម",
         description_en=(
             "Production batches: raw material, produced and standardize steps. Record lets "
-            "someone fill in and finish steps; full access also edits finished steps."
+            "someone fill in and finish steps; full access also reopens finished steps."
         ),
         description_km=(
             "បាច់ផលិតកម្ម៖ វត្ថុធាតុដើម ការកែច្នៃ និងការវេចខ្ចប់។ កម្រិតកត់ត្រាអាចបំពេញ និងបញ្ចប់ជំហាន "
-            "ចំណែកសិទ្ធិពេញលេញអាចកែប្រែជំហានដែលបានបញ្ចប់បានផងដែរ។"
+            "ចំណែកសិទ្ធិពេញលេញអាចបើកជំហានដែលបានបញ្ចប់ឡើងវិញបានផងដែរ។"
         ),
         applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF),
         levels=(

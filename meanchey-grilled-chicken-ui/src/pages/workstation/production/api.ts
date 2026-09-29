@@ -26,10 +26,11 @@ export function stepData(batch: ProductionBatch, step: StepNumber) {
   return step === 1 ? batch.raw_material : step === 2 ? batch.produced : batch.standardize
 }
 
-/** A finished step can be edited (reopened) unless the batch is cancelled; the API lists which
- * steps that puts back to draft (`reopens_steps`). */
-export function canEditStep(batch: ProductionBatch, step: StepNumber): boolean {
-  return (stepData(batch, step)?.reopens_steps.length ?? 0) > 0
+/** Any finished step can be reopened unless the batch is cancelled; the API lists which steps
+ * that puts back to draft (`reopens_steps`: it and every later finished step). */
+export function canReopenStep(batch: ProductionBatch, step: StepNumber): boolean {
+  // `?.` on reopens_steps too: an older API without the field must not crash the page.
+  return (stepData(batch, step)?.reopens_steps?.length ?? 0) > 0
 }
 
 /** After any change: the batch itself is fresh; lists and figures are refetched. */

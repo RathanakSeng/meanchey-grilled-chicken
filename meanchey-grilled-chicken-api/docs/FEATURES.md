@@ -239,7 +239,7 @@ The general manager can give any of these to supervisors **and staff** through f
 |---|---|---|---|
 | `production.view` | See batches, their steps and figures | GM, supervisor, staff | Production (View only and up) |
 | `production.create` | Start batches; save drafts and finish steps | GM, supervisor, staff | Production (Record and up) |
-| `production.update` | Edit a finished step (reopens it and every later finished step) | GM, supervisor, staff | Production (Full access) |
+| `production.update` | Reopen a finished step (and every later finished step with it) | GM, supervisor, staff | Production (Full access) |
 | `production.delete` | Cancel a batch | **GM only** | — (detailed permission) |
 
 Cancelling batches is a general-manager decision, like deactivating users: `production.delete` is assignable to the GM only and belongs to no feature level. Supervisors or staff granted it before this change keep the row, but it has no effect (read-time `assignable_to` filter, §5.5), and their Production level still reads as *Full access*.
@@ -250,7 +250,7 @@ Cancelling batches is a general-manager decision, like deactivating users: `prod
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
 | General manager | All `users` permissions (incl. `users.delete`, `users.reset_password`, `permissions.grant`), all partner permissions and all four `production.*` permissions. |
-| Supervisor | Every feature at **Full access**: Suppliers, Customers, Production (view, record, edit finished steps; not cancel), Staff management (= `users.view/create/update`). Limited to what the creator holds. |
+| Supervisor | Every feature at **Full access**: Suppliers, Customers, Production (view, record, reopen finished steps; not cancel), Staff management (= `users.view/create/update`). Limited to what the creator holds. |
 | Staff | Every feature **Off** (no permissions). |
 
 `DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing.
@@ -506,7 +506,7 @@ The general manager's way to give access. Each feature switches a group of detai
 | `production` | workstation | GM, supervisor, staff | `production.view` | `production.view/create` | `production.view/create/update` |
 | `staff_management` | settings | GM, supervisor | `users.view` | — | `users.view/create/update` |
 
-**Record** means "can start batches and fill in steps, but can't edit finished steps". **Full access** in Production adds editing finished steps; cancelling batches (`production.delete`) is GM-only and outside the levels.
+**Record** means "can start batches and fill in steps, but can't reopen finished steps". **Full access** in Production adds reopening finished steps; cancelling batches (`production.delete`) is GM-only and outside the levels.
 
 **Feature levels for the general manager.** Every feature also applies to the GM, but only the superadmin manages the GM (role scope), so only the superadmin sets them, on the GM's Access tab. The GM never sees or changes its own levels (`FORBIDDEN_SCOPE` on `/users/{own id}/features`). A GM with default permissions reads as **Full access** everywhere. The GM-only powers (`users.delete`, `users.reset_password`, `permissions.grant`, `production.delete`) are not in any feature and stay detailed permissions, set by the superadmin on **Permissions (advanced)**; level changes never touch them. Note that Staff management below *Full access* takes creating / editing users (or, at *Off*, the Users list) away from the GM, and revoking `permissions.grant` removes the GM's Access tab for everyone it manages.
 
@@ -617,7 +617,7 @@ All of these are required at Finish.
 
 - Batch `status`: `in_progress` → `completed` (step 3 finished), or `cancelled`. `current_step` (1–3) is the step being worked on.
 - Step `status`: `draft` → `finished`. A step's row exists once the previous one has been finished (`produced` / `standardize` are `null` in responses until then). A finished step is read-only: saving or finishing it again → `PRODUCTION_STEP_FINISHED`. Saving or finishing a step whose previous one isn't finished → `PRODUCTION_STEP_NOT_READY`.
-- **Edit (reopen)** step N (`production.update`): allowed for any finished step of an in-progress or completed batch, whatever the later steps are. In one transaction (batch row locked), step N **and every later finished step** go back to `draft` (`finished_by` / `finished_at` cleared); **all values are kept**; `current_step` becomes N; a completed batch goes back to `in_progress` (`completed_at = null`); `version` + 1. The later steps are then finished again in order (`PRODUCTION_STEP_NOT_READY` otherwise), which recomputes the step 2 counts from step 1 and re-checks the piece balance at step 3. Each step in a batch response carries `reopens_steps` (the steps editing it would put back to draft; `[]` when it isn't finished or the batch is cancelled) so the UI can warn. Reopening a step that is already a draft changes nothing. `PRODUCTION_STEP_LOCKED` is no longer raised.
+- **Reopen** step N (`production.update`): allowed for any finished step of an in-progress or completed batch, whatever the later steps are. In one transaction (batch row locked), step N **and every later finished step** go back to `draft` (`finished_by` / `finished_at` cleared); **all values are kept**; `current_step` becomes N; a completed batch goes back to `in_progress` (`completed_at = null`); `version` + 1. The later steps are then finished again in order (`PRODUCTION_STEP_NOT_READY` otherwise), which recomputes the step 2 counts from step 1 and re-checks the piece balance at step 3. Each step in a batch response carries `reopens_steps` (the steps editing it would put back to draft; `[]` when it isn't finished or the batch is cancelled) so the UI can warn. Reopening a step that is already a draft changes nothing. `PRODUCTION_STEP_LOCKED` is no longer raised.
 - **Cancel** (`production.delete`, general manager and superadmin only): only `in_progress` batches (`PRODUCTION_COMPLETED` for completed ones), with a required reason (1–500 characters). A cancelled batch is read-only (`PRODUCTION_CANCELLED` for any change) and excluded from the figures.
 - **Batch code** `PR-YYYYMMDD-NNN`: from the production date given at creation (default today in `BUSINESS_TIMEZONE`, e.g. 17:30 UTC on 30 Sep is already 1 Oct in Phnom Penh), numbered per day by a counter row (`production_batch_counters`, `INSERT … ON CONFLICT … RETURNING`), so concurrent creations get distinct numbers. The code never changes, even if the date is edited later.
 
@@ -631,12 +631,12 @@ All of these are required at Finish.
 
 | Endpoint | Notes |
 |---|---|
-| `GET /production` | Filters: `status` (`in_progress`, `completed`, `cancelled`, `all` = default), `waiting_step` (2 or 3: in-progress batches whose previous steps are finished and that step isn't), `date_from` / `date_to` (production date, inclusive), `q` (batch code or supplier name). `sort`: `-date` (default), `date`, `code`, `-code`. Paging: 20 by default, at most 100. Items: `code`, `production_date`, `status`, `current_step`, `steps` (`pending` / `draft` / `finished` for steps 1–3), `supplier`, `quantity`, `created_by`. |
+| `GET /production` | **Cancelled batches are left out** unless `include_cancelled=true` (then added to the chosen status) or `status=cancelled` (only them). Filters: `status` (`in_progress`, `completed`, `cancelled`, `all` = default: in progress + completed), `include_cancelled` (default `false`), `waiting_step` (2 or 3: in-progress batches whose previous steps are finished and that step isn't), `date_from` / `date_to` (production date, inclusive), `q` (batch code or supplier name). `sort`: `-date` (default), `date`, `code`, `-code`. Paging: 20 by default, at most 100. Items: `code`, `production_date`, `status`, `current_step`, `steps` (`pending` / `draft` / `finished` for steps 1–3), `supplier`, `quantity`, `created_by`. |
 | `GET /production/stats` | `in_progress`; `completed_today` (completed since midnight, Cambodia time); `chickens_this_month` (quantity of finished step 1s dated this month); `rejected_pieces_this_month` (rejected wings + thighs of finished step 3s dated this month). Months and days follow `BUSINESS_TIMEZONE`; cancelled batches are excluded. |
 | `POST /production` | Creates the batch with a draft step 1; optional initial step 1 fields. `201` with the batch. |
 | `GET /production/{id}` | The batch, all steps, by-products, catalogs and `computed` (`wings_count` / `thighs_count` from the current quantity, `yield_percent` = (wings kg + thighs kg) ÷ raw kg × 100, one decimal, or null). |
 | `POST /production/{id}/{step}/finish` | `step` ∈ `raw-material`, `produced`, `standardize`; body `{version}`. |
-| `POST /production/{id}/{step}/reopen` | Body `{version}`. Edits a finished step: it and every later finished step go back to draft (§14.2). |
+| `POST /production/{id}/{step}/reopen` | Body `{version}`. Reopens a finished step: it and every later finished step go back to draft (§14.2). |
 | `POST /production/{id}/cancel` | Body `{version, reason}`. |
 | `GET /production/supplier-options` | Active suppliers `{id, name, phone_display}` (at most 20, `q` on name or phone digits), for picking the step 1 supplier **without** Suppliers access. |
 
@@ -649,7 +649,7 @@ Every user reference (`created_by`, `finished_by`, …) is a `UserRef` and redac
 | Off | nothing |
 | View only | list, open batches and see figures |
 | Record | also start batches, fill in steps (drafts) and finish them, pick suppliers |
-| Full access | also edit finished steps (one action; later steps go back to draft) |
+| Full access | also reopen finished steps (one action; later steps go back to draft) |
 | (GM only, detailed permission) | cancel batches |
 
 Defaults: the general manager holds all four permissions (and reads as Full access; the superadmin can lower it), supervisors Full access, staff Off (§5.3). Anyone with `production.create` can fill in any in-progress batch, not only their own.

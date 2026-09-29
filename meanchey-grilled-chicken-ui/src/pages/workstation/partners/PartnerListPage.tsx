@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Can } from '@/auth/Can'
 import { usePermission } from '@/auth/usePermission'
 import { ActionMenu, type ActionMenuItem } from '@/components/ActionMenu'
+import { CheckboxFilter } from '@/components/CheckboxFilter'
 import { Icon } from '@/components/icons'
 import {
   Alert,
@@ -26,7 +27,7 @@ import { paths } from '@/lib/paths'
 import type { Page, Partner, PartnerStats } from '@/lib/types'
 import { useDebounced } from '@/lib/useDebounced'
 import { partnerKeys, permission, type PartnerConfig } from './config'
-import { KpiCards, type PartnerStatus } from './KpiCards'
+import { KpiCards } from './KpiCards'
 import { PartnerFormSheet } from './PartnerFormSheet'
 
 type Sort = 'name' | '-name' | 'created_at' | '-created_at'
@@ -36,7 +37,6 @@ const SORTS: { value: Sort; labelKey: string }[] = [
   { value: '-created_at', labelKey: 'partners.sort.newest' },
   { value: 'created_at', labelKey: 'partners.sort.oldest' },
 ]
-const STATUSES: PartnerStatus[] = ['active', 'inactive', 'all']
 const PAGE_SIZE = 20
 
 function oneOf<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
@@ -44,8 +44,9 @@ function oneOf<T extends string>(value: string | null, allowed: readonly T[], fa
 }
 
 /**
- * List page shared by Suppliers and Customers. Filters live in the URL (?q=&status=&sort=&page=)
- * so links (e.g. from the audit log) can open a prefilled search, and Back keeps them.
+ * List page shared by Suppliers and Customers. Filters live in the URL
+ * (?q=&deactivated=1&sort=&page=) so links (e.g. from the audit log) can open a prefilled search,
+ * and Back keeps them. Deactivated records are left out unless "Show deactivated" is ticked.
  */
 export function PartnerListPage({ config }: { config: PartnerConfig }) {
   const { t } = useTranslation()
@@ -61,7 +62,8 @@ export function PartnerListPage({ config }: { config: PartnerConfig }) {
 
   // --- Filters (URL state) ---
   const [searchParams, setSearchParams] = useSearchParams()
-  const status = oneOf(searchParams.get('status'), STATUSES, 'active')
+  const showDeactivated = searchParams.get('deactivated') === '1'
+  const status = showDeactivated ? 'all' : 'active'
   const sort = oneOf(
     searchParams.get('sort'),
     SORTS.map((s) => s.value),
@@ -97,7 +99,7 @@ export function PartnerListPage({ config }: { config: PartnerConfig }) {
     if (urlQ.trim() !== search) setQ(urlQ)
   }, [urlQ])
 
-  const filtersActive = urlQ.trim() !== '' || status !== 'active'
+  const filtersActive = urlQ.trim() !== '' || showDeactivated
   const clearFilters = () => {
     setQ('')
     setSearchParams({}, { replace: true })
@@ -205,12 +207,7 @@ export function PartnerListPage({ config }: { config: PartnerConfig }) {
         actions={newButton}
       />
 
-      <KpiCards
-        stats={stats.data}
-        loading={stats.isPending}
-        status={status}
-        onStatus={(s) => update({ status: s === 'active' ? null : s })}
-      />
+      <KpiCards stats={stats.data} loading={stats.isPending} />
 
       <div className="mb-4 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
         <div className="relative">
@@ -231,17 +228,6 @@ export function PartnerListPage({ config }: { config: PartnerConfig }) {
         </div>
         <div className="grid grid-cols-2 gap-2 sm:contents">
           <Select
-            aria-label={t('partners.filterStatus')}
-            value={status}
-            onChange={(e) => update({ status: e.target.value === 'active' ? null : e.target.value })}
-          >
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {t(`partners.status.${s}`)}
-              </option>
-            ))}
-          </Select>
-          <Select
             aria-label={t('partners.sort.label')}
             value={sort}
             onChange={(e) => update({ sort: e.target.value === 'name' ? null : e.target.value })}
@@ -252,6 +238,11 @@ export function PartnerListPage({ config }: { config: PartnerConfig }) {
               </option>
             ))}
           </Select>
+          <CheckboxFilter
+            label={t('partners.showDeactivated')}
+            checked={showDeactivated}
+            onChange={(on) => update({ deactivated: on ? '1' : null })}
+          />
         </div>
       </div>
 
@@ -295,7 +286,7 @@ export function PartnerListPage({ config }: { config: PartnerConfig }) {
                   <Button
                     variant="secondary"
                     className="mt-4"
-                    onClick={() => update({ status: 'inactive' })}
+                    onClick={() => update({ deactivated: '1' })}
                   >
                     {t('partners.showDeactivated')}
                   </Button>

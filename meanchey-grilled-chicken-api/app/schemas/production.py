@@ -117,7 +117,7 @@ class SupplierOption(BaseModel):
 
 class _StepOut(BaseModel):
     status: StepStatus
-    # Editing (reopening) this step puts these steps back to draft: itself and every later
+    # Reopening this step puts these steps back to draft: itself and every later
     # finished step. Empty when the step isn't finished or the batch is cancelled.
     reopens_steps: list[int]
     finished_by: UserRef | None

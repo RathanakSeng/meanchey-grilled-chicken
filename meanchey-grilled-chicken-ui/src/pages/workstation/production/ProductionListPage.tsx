@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Can } from '@/auth/Can'
 import { usePermission } from '@/auth/usePermission'
+import { CheckboxFilter } from '@/components/CheckboxFilter'
 import { Icon, type IconName } from '@/components/icons'
 import { KpiGrid } from '@/components/KpiGrid'
 import { Alert, Button, Card, Input, PageHeader, Select, Spinner, cx } from '@/components/ui'
@@ -17,7 +18,8 @@ import { useDebounced } from '@/lib/useDebounced'
 import { onBatchChanged, productionKeys } from './api'
 import { BatchStatusBadge, StepDots } from './badges'
 
-const STATUSES = ['all', 'in_progress', 'completed', 'cancelled'] as const
+// Cancelled batches aren't a status choice: they're shown only with "Show cancelled".
+const STATUSES = ['all', 'in_progress', 'completed'] as const
 type ListStatus = (typeof STATUSES)[number]
 const PAGE_SIZE = 20
 
@@ -62,7 +64,8 @@ function Chip({ active, onClick, children }: { active: boolean; onClick(): void;
 
 /**
  * Production batches: figures, quick filters ("waiting for step 2 / 3"), status, dates and search.
- * Filters live in the URL (?waiting=&status=&from=&to=&q=&page=).
+ * Filters live in the URL (?waiting=&status=&from=&to=&q=&cancelled=1&page=). Cancelled batches
+ * are left out unless "Show cancelled" is ticked.
  */
 export function ProductionListPage() {
   const { t } = useTranslation()
@@ -77,6 +80,7 @@ export function ProductionListPage() {
   const waiting = ['2', '3'].includes(searchParams.get('waiting') ?? '') ? searchParams.get('waiting') : null
   const statusParam = searchParams.get('status') as ListStatus | null
   const status: ListStatus = statusParam && STATUSES.includes(statusParam) ? statusParam : 'all'
+  const showCancelled = searchParams.get('cancelled') === '1'
   const dateFrom = searchParams.get('from') ?? ''
   const dateTo = searchParams.get('to') ?? ''
   const page = Math.max(1, Number(searchParams.get('page')) || 1)
@@ -106,7 +110,9 @@ export function ProductionListPage() {
     if (urlQ.trim() !== search) setQ(urlQ)
   }, [urlQ])
 
-  const filtersActive = Boolean(waiting || status !== 'all' || dateFrom || dateTo || urlQ.trim())
+  const filtersActive = Boolean(
+    waiting || status !== 'all' || dateFrom || dateTo || urlQ.trim() || showCancelled,
+  )
   const clearFilters = () => {
     setQ('')
     setSearchParams({}, { replace: true })
@@ -115,6 +121,7 @@ export function ProductionListPage() {
   const params = {
     waiting_step: waiting ?? undefined,
     status,
+    include_cancelled: showCancelled || undefined,
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
     q: urlQ.trim() || undefined,
@@ -176,7 +183,7 @@ export function ProductionListPage() {
         </Chip>
       </div>
 
-      <div className="mb-4 grid gap-2 lg:grid-cols-[1fr_auto_auto_auto]">
+      <div className="mb-4 grid gap-2 lg:grid-cols-[1fr_auto_auto_auto_auto]">
         <div className="relative">
           <Icon
             name="search"
@@ -222,6 +229,11 @@ export function ProductionListPage() {
             onChange={(e) => update({ to: e.target.value || null })}
           />
         </div>
+        <CheckboxFilter
+          label={t('production.filters.showCancelled')}
+          checked={showCancelled}
+          onChange={(on) => update({ cancelled: on ? '1' : null })}
+        />
       </div>
 
       {list.isError && <Alert tone="error">{errorMessage(list.error)}</Alert>}

@@ -144,17 +144,17 @@ Top to bottom:
 1. **Header:** title, total, and **New supplier** / **New customer** (with `*.create`).
 2. **Figures (KPI cards):** **Active**, **New this month** and **Deactivated**.
    - Always all visible: three in a row on every screen (compact on phones and in the Mini App, with the label above the number). Grey placeholders while loading.
-   - Tapping **Active** or **Deactivated** filters the list; the selected card is outlined.
+   - The figures are information only; the list is filtered with the controls below.
    - "This month" follows the calendar month in Cambodia time.
-3. **Search and filters:** a search box (name, location or phone; `345 678` finds `012 345 678`), a status filter (Active · Deactivated · All) and a sort (Name A–Z, Name Z–A, Newest, Oldest).
-   - Filters are kept in the address (`?q=…&status=…&sort=…&page=…`), so Back and shared links keep them.
+3. **Search and filters:** a search box (name, location or phone; `345 678` finds `012 345 678`), a sort (Name A–Z, Name Z–A, Newest, Oldest) and a **Show deactivated** checkbox. **Deactivated records are left out of the list** unless the box is ticked; then they appear too, dimmed with a *Deactivated* badge.
+   - Filters are kept in the address (`?q=…&deactivated=1&sort=…&page=…`), so Back and shared links keep them.
 4. **List,** 20 per page:
    - **Desktop:** a table with Name, Location, Phone, Added, Status and a **⋮** menu.
    - **Mobile / Mini App:** cards with name, location, phone and a **⋮** menu.
    - Phones are shown formatted (`012 345 678`, `+855 12 345 678`) as plain text; there is no call button or tap-to-call.
    - Deactivated records are dimmed with a *Deactivated* badge.
    - The **⋮** menu offers **Edit** (`*.update`) and **Deactivate** / **Reactivate** (`*.delete`); without either permission there is no menu.
-5. **Empty states:** *No suppliers yet* (with the create button when allowed); *Nothing matches your search* with **Clear filters**; or, when only deactivated records exist, **Show deactivated**.
+5. **Empty states:** *No suppliers yet* (with the create button when allowed); *Nothing matches your search* with **Clear filters**; or, when only deactivated records exist, **Show deactivated** (ticks the box). Links from the audit log open the list with the name searched and the box ticked.
 
 **Add / edit** opens a panel: a side drawer on desktop, a bottom sheet on mobile.
 
@@ -175,14 +175,14 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Raw material** 
 
 1. **Header:** title, total and **New production** (Record or Full access). It creates the batch at once and opens step 1.
 2. **Figures:** *In progress*, *Completed today*, *Chickens this month*, *Rejected pieces this month* (Cambodia calendar; cancelled batches aren't counted). Four in a row on large screens, 2 × 2 on phones and in the Mini App, all visible without scrolling.
-3. **Quick filters** as chips: **Waiting for step 2** and **Waiting for step 3**: the batches whose previous step is finished, ready to pick up. Plus a status filter (All · In progress · Completed · Cancelled), a date range (production date) and a search box (batch code or supplier). All filters are kept in the address.
+3. **Quick filters** as chips: **Waiting for step 2** and **Waiting for step 3**: the batches whose previous step is finished, ready to pick up. Plus a status filter (All · In progress · Completed), a **Show cancelled** checkbox, a date range (production date) and a search box (batch code or supplier). **Cancelled batches are left out of the list** unless *Show cancelled* is ticked; then they're added, dimmed, to whatever status is chosen. All filters are kept in the address.
 4. **List,** 20 per page: batch code, date, supplier, step dots (●●○: filled = finished, ringed = draft), number of chickens and a status badge. A table on desktop, cards on mobile; tapping a batch opens it.
 
 **Batch page**
 
-- **Header:** code, production date, status badge, and a **⋮** menu with **Cancel batch** (general manager and superadmin only; in-progress batches, asks for a required reason).
+- **Header:** code, production date, status badge, and a **⋮** menu with **Reopen \<step\>** for every finished step (Full access) and **Cancel batch** (general manager and superadmin only; in-progress batches, asks for a required reason).
 - **Stepper 1 · 2 · 3** (✓ when finished). Tapping a step shows it; steps not started yet are disabled. On mobile one step is shown at a time.
-- A finished step shows a **read-only summary** with *Finished by … · time* and, with Full access, an **Edit** button. Editing works on any finished step in one action: it and every later finished step go back to draft with their values kept, and must be finished again in order. The confirmation says which steps, e.g. *"Edit Raw material? Produced and Standardize will go back to draft and need to be finished again."* A completed batch is in progress again until then. The page then switches to that step. The current step shows its **form** to users with Record or Full access; with *View only* every step is read-only (a notice says so).
+- A finished step shows a **read-only summary** with *Finished by … · time*. **Reopen \<step\>** (⋮ menu) works on any finished step in one action: it and every later finished step go back to draft with their values kept, and must be finished again in order. The confirmation says which steps, e.g. *"Reopen Raw material? Produced and Standardize will go back to draft and need to be finished again."* A completed batch is in progress again until then. The page then switches to that step. The current step shows its **form** to users with Record or Full access; with *View only* every step is read-only (a notice says so).
 - Cancelled batches show the reason and are read-only; completed ones show when they were completed.
 
 **Step 1: Raw material.** Supplier (a searchable list of active suppliers; no Suppliers access needed), production date (today by default), raw material (Chicken), weight (kg) and number of chickens.
@@ -191,7 +191,7 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Raw material** 
 
 **Step 3: Standardize.** Big packages (*1 big = 2 wings + 2 thighs*) and small packages (*1 small = 1 wing + 1 thigh*) with a live breakdown, rejected wings and thighs, and a **balance meter** per piece type (*"Wings: 3 left to assign"*, *"2 too many"*, *All assigned*). For each by-product: the produced kg, **carry forward** (យកទៅបន្ត) and **rejected** (ខូច/មិនប្រើ) inputs, and a per-row indicator. A comment is optional.
 
-**Finish step** is disabled until the step is complete; a list under the form says what's missing (*"Fill in: Weight, Supplier"*, *"Wings don't add up yet"*). It asks for confirmation: *"The step is locked after finishing. Only someone with Full access can edit it again."*
+**Finish step** is disabled until the step is complete; a list under the form says what's missing (*"Fill in: Weight, Supplier"*, *"Wings don't add up yet"*). It asks for confirmation: *"The step is locked after finishing. Only someone with Full access can reopen it."*
 
 - Wings and thighs must balance exactly: 2 × big + small + rejected = count. The API enforces this too.
 - **By-products must balance exactly** (carry forward + rejected = produced kg). **This rule is enforced by the UI only**; the API accepts unbalanced by-products (it may be relaxed later).
@@ -311,7 +311,7 @@ How the general manager decides what supervisors and staff can use (and how the 
 
 - **Grouped by menu:** **Workstation** (Suppliers, Customers, Production), then **Settings** (Staff management: supervisors, and the general manager when the superadmin views it).
 - Each row: the feature's name and a one-line description (from the server, in the current language), and a segmented control with the levels the server lists for that feature: **Off · View only · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · ពេញលេញ*), and for Production **Off · View only · Record · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · កត់ត្រា · ពេញលេញ*).
-- A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't edit finished steps (shown when a feature has it); *Full access* = can add, edit and deactivate, and in Production also edit finished steps. For Staff management, Full access means add and edit staff: supervisors never deactivate people.
+- A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't reopen finished steps (shown when a feature has it); *Full access* = can add, edit and deactivate, and in Production also reopen finished steps. For Staff management, Full access means add and edit staff: supervisors never deactivate people.
 - **Each click saves** immediately, with a spinner on that row. On error the previous level comes back and a translated message is shown.
 - From *Off*, *View only* has a dashed outline as the suggested next step; it still takes a click.
 - **Custom:** if a user's permissions match no level (only possible through the superadmin's detailed permissions), a neutral *Custom* badge is shown and no level is selected. Picking a level replaces it.
@@ -319,7 +319,7 @@ How the general manager decides what supervisors and staff can use (and how the 
 - Defaults: supervisors start with everything at **Full access**, staff with everything **Off**; the general manager at **Full access**.
 - **General manager as the target** (superadmin only): a hint under the legend says *"Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced)."* Lowering Staff management takes creating / editing users (at *Off*, the Users list) away from the GM.
 - Changes take effect on the user's next menu refresh (within a minute, or at once on their next "no permission" answer). If you change your own access, your menus refresh immediately.
-- On large screens every level button has the same width in every row (whether a feature has 3 or 4 levels), so the controls line up on the right and no label is cut off. On tablets, phones and in the Mini App the control sits under the name, full width, with large touch targets; on phones the four Production levels wrap into a 2 × 2 grid.
+- **Every row has the same columns, in the same order:** Off · View only · Record · Full access. A feature without a level (Record exists only for Production) shows a muted "—" in that column (tooltip: *Not available for this feature*), so each level sits in the same place for every feature. On large screens the columns have one fixed width and line up exactly; on tablets, phones and in the Mini App the control sits under the name, full width, with large touch targets, as a 2 × 2 grid on phones. If no feature on the tab has Record, the column isn't shown.
 
 ### Permissions (advanced), superadmin only
 
@@ -340,7 +340,7 @@ Supervisors and staff never see any permission or access information.
   - detailed permission grants and revokes, including automatic ones on deploy: **superadmin only** (the general manager sees access changes instead);
   - profile updates;
   - suppliers and customers added, edited, deactivated and reactivated;
-  - production: batch started, step finished and step reopened (*"Step 1 · Raw material"*, plus *"Also back to draft: step 2, 3"* when editing reopened later steps), batch cancelled (with the reason). Draft saves aren't logged.
+  - production: batch started, step finished and step reopened (*"Step 1 · Raw material"*, plus *"Also back to draft: step 2, 3"* when later steps were reopened with it), batch cancelled (with the reason). Draft saves aren't logged.
 - **Filters:** record type (All · Suppliers · Customers · Production batches) and action type.
 - Each entry shows:
   - the time, in the current language's format;
@@ -417,7 +417,7 @@ Supervisors and staff never see any permission or access information.
 | Add / edit / deactivate customers | ✅ | ✅ | Customers = Full (default) | Customers = Full |
 | Workstation → Production (list, batches, figures) | ✅ | ✅ | Production ≥ View only (default Full) | Production ≥ View only (default Off) |
 | Start batches, fill in and finish steps | ✅ | ✅ | Production ≥ Record (default Full) | Production ≥ Record |
-| Edit finished steps (later steps go back to draft) | ✅ | Production = Full (default; set by the superadmin) | Production = Full (default) | Production = Full |
+| Reopen finished steps (later steps go back to draft) | ✅ | Production = Full (default; set by the superadmin) | Production = Full (default) | Production = Full |
 | Cancel production batches | ✅ | ✅ | ❌ never | ❌ never |
 
 "Suppliers = Full" etc. refers to the levels the general manager sets on the Access tab (§10). "(default)" is the level a new account starts with.

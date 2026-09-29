@@ -165,7 +165,7 @@
   "access": {
     "legendTitle": "Access levels",
     "legendView": "View only: can see the list.",
-    "legendFull": "Full access: can add, edit and deactivate; in Production, also edit finished steps.",
+    "legendFull": "Full access: can add, edit and deactivate; in Production, also reopen finished steps.",
     "levels": {
       "off": "Off",
       "view": "View only",
@@ -186,8 +186,9 @@
       "staff_management": "Staff management",
       "production": "Production"
     },
-    "legendRecord": "Record: can start batches and fill in steps, but can't edit finished steps.",
-    "gmHint": "Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced)."
+    "legendRecord": "Record: can start batches and fill in steps, but can't reopen finished steps.",
+    "gmHint": "Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced).",
+    "levelNotAvailable": "Not available for this feature"
   },
   "audit": {
     "title": "Audit log",
@@ -277,12 +278,6 @@
       "active": "Active",
       "newThisMonth": "New this month",
       "inactive": "Deactivated"
-    },
-    "filterStatus": "Status",
-    "status": {
-      "active": "Active",
-      "inactive": "Deactivated",
-      "all": "All"
     },
     "sort": {
       "label": "Sort",
@@ -445,7 +440,8 @@
       "status": "Status",
       "allStatuses": "All statuses",
       "from": "From date",
-      "to": "To date"
+      "to": "To date",
+      "showCancelled": "Show cancelled"
     },
     "columns": {
       "code": "Batch",
@@ -525,7 +521,7 @@
     },
     "finishStep": "Finish step",
     "finishConfirmTitle": "Finish this step?",
-    "finishConfirmBody": "The step is locked after finishing. Only someone with Full access can edit it again.",
+    "finishConfirmBody": "The step is locked after finishing. Only someone with Full access can reopen it.",
     "blockers": {
       "fillIn": "Fill in: {{fields}}",
       "supplierInactive": "The supplier is deactivated. Choose another one.",
@@ -565,11 +561,12 @@
     "cancelledNotice": "This batch was cancelled.",
     "completedNotice": "Completed on {{time}}.",
     "readOnlyNotice": "You can view this batch but not record steps.",
-    "editStep": "Edit",
-    "editConfirmTitle": "Edit {{step}}?",
-    "editConfirmLater": "{{steps}} will go back to draft and need to be finished again.",
-    "editConfirmSelf": "This step goes back to draft and needs to be finished again.",
-    "editConfirmCompleted": "The batch is in progress again until then.",
-    "andList": "{{first}} and {{last}}"
+    "andList": "{{first}} and {{last}}",
+    "reopen": "Reopen",
+    "reopenStep": "Reopen {{step}}",
+    "reopenConfirmTitle": "Reopen {{step}}?",
+    "reopenConfirmLater": "{{steps}} will go back to draft and need to be finished again.",
+    "reopenConfirmSelf": "This step goes back to draft and needs to be finished again.",
+    "reopenConfirmCompleted": "The batch is in progress again until then."
   }
 }

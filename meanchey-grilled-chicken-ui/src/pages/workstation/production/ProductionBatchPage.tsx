@@ -12,7 +12,7 @@ import { getError, useErrorMessage } from '@/lib/errors'
 import { useFormatDate } from '@/lib/format'
 import { paths } from '@/lib/paths'
 import { CANCEL_REASON_MAX_LENGTH, type ProductionBatch, type StepNumber } from '@/lib/types'
-import { STEPS, canEditStep, onBatchChanged, productionKeys, slugOf, stepData } from './api'
+import { STEPS, canReopenStep, onBatchChanged, productionKeys, slugOf, stepData } from './api'
 import { BatchStatusBadge } from './badges'
 import { ProducedForm, RawMaterialForm, StandardizeForm } from './StepForms'
 import { StepSummary } from './StepSummaries'
@@ -70,9 +70,9 @@ function Stepper({
 
 /**
  * One batch: header (code, date, status, ⋮ cancel), the 1·2·3 stepper and the selected step
- * (`?step=`): its form while it's a draft the user may record, otherwise a summary with an
- * **Edit** button for finished steps (`production.update`), which reopens it and every later
- * finished step in one go.
+ * (`?step=`): its form while it's a draft the user may record, otherwise a summary. The ⋮ menu
+ * has **Reopen <step>** for every finished step (`production.update`), which reopens it and every
+ * later finished step in one go, and **Cancel batch** (`production.delete`, GM only).
  */
 export function ProductionBatchPage() {
   const { t } = useTranslation()
@@ -91,7 +91,7 @@ export function ProductionBatchPage() {
   })
   const batch = query.data
 
-  const [editStep, setEditStep] = useState<StepNumber | null>(null)
+  const [reopenStep, setReopenStep] = useState<StepNumber | null>(null)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [reason, setReason] = useState('')
 
@@ -119,7 +119,7 @@ export function ProductionBatchPage() {
       ).data,
     onSuccess: (b, step) => {
       onBatchChanged(queryClient, b)
-      setEditStep(null)
+      setReopenStep(null)
       selectStep(step)
     },
     onError: onStale,
@@ -161,8 +161,19 @@ export function ProductionBatchPage() {
   const data = stepData(batch, selected)
   const editable = data?.status === 'draft' && batch.status === 'in_progress' && canRecord
 
-  // Cancelling is general-manager only (production.delete); editing steps is on each summary.
   const actions: ActionMenuItem[] = [
+    ...(canReopen
+      ? STEPS.filter(({ n }) => canReopenStep(batch, n)).map(({ n, labelKey }) => ({
+          key: `reopen-${n}`,
+          label: t('production.reopenStep', { step: t(labelKey) }),
+          icon: 'restore' as const,
+          onSelect: () => {
+            reopen.reset()
+            setReopenStep(n)
+          },
+        }))
+      : []),
+    // Cancelling is general-manager only (production.delete).
     ...(canCancel && batch.status === 'in_progress'
       ? [
           {
@@ -181,11 +192,11 @@ export function ProductionBatchPage() {
   ]
 
   /** "Produced and Standardize will go back to draft …", from the API's `reopens_steps`. */
-  const editBody = (step: StepNumber) => {
+  const reopenBody = (step: StepNumber) => {
     const later = (stepData(batch, step)?.reopens_steps ?? []).filter((n) => n !== step)
     const names = later.map((n) => t(STEPS[n - 1].labelKey))
     const text = later.length
-      ? t('production.editConfirmLater', {
+      ? t('production.reopenConfirmLater', {
           steps:
             names.length > 1
               ? t('production.andList', {
@@ -194,8 +205,8 @@ export function ProductionBatchPage() {
                 })
               : names[0],
         })
-      : t('production.editConfirmSelf')
-    return batch.status === 'completed' ? `${text} ${t('production.editConfirmCompleted')}` : text
+      : t('production.reopenConfirmSelf')
+    return batch.status === 'completed' ? `${text} ${t('production.reopenConfirmCompleted')}` : text
   }
 
   const onFinished = (b: ProductionBatch) => {
@@ -242,29 +253,22 @@ export function ProductionBatchPage() {
           <StandardizeForm key={`${batch.id}-3`} batch={batch} onFinished={onFinished} />
         )
       ) : (
-        <StepSummary
-          batch={batch}
-          step={selected}
-          onEdit={
-            canReopen && canEditStep(batch, selected)
-              ? () => {
-                  reopen.reset()
-                  setEditStep(selected)
-                }
-              : undefined
-          }
-        />
+        <StepSummary batch={batch} step={selected} />
       )}
 
       <ConfirmDialog
-        open={editStep !== null}
-        title={editStep ? t('production.editConfirmTitle', { step: t(STEPS[editStep - 1].labelKey) }) : ''}
-        body={editStep ? editBody(editStep) : null}
-        confirmLabel={t('production.editStep')}
+        open={reopenStep !== null}
+        title={
+          reopenStep
+            ? t('production.reopenConfirmTitle', { step: t(STEPS[reopenStep - 1].labelKey) })
+            : ''
+        }
+        body={reopenStep ? reopenBody(reopenStep) : null}
+        confirmLabel={t('production.reopen')}
         loading={reopen.isPending}
         error={reopen.isError ? errorMessage(reopen.error) : null}
-        onConfirm={() => editStep && reopen.mutate(editStep)}
-        onClose={() => setEditStep(null)}
+        onConfirm={() => reopenStep && reopen.mutate(reopenStep)}
+        onClose={() => setReopenStep(null)}
       />
 
       <Sheet
