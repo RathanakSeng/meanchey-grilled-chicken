@@ -82,8 +82,8 @@ function Chip({ active, onClick, children }: { active: boolean; onClick(): void;
 }
 
 /**
- * Production batches: figures, quick filters ("waiting for step 2 / 3"), status, dates and search.
- * Filters live in the URL (?waiting=&status=&from=&to=&q=&cancelled=1&page=). Cancelled batches
+ * Production batches: figures, quick filters ("waiting for step 2 / plan / step 3"), status, dates
+ * and search. Filters live in the URL (?waiting=2|plan|3&status=&from=&to=&q=&cancelled=1&page=). Cancelled batches
  * are left out unless "Show cancelled" is ticked.
  */
 export function ProductionListPage() {
@@ -96,7 +96,7 @@ export function ProductionListPage() {
   const canCreate = usePermission('production.create')
 
   const [searchParams, setSearchParams] = useSearchParams()
-  const waiting = ['2', '3'].includes(searchParams.get('waiting') ?? '') ? searchParams.get('waiting') : null
+  const waiting = ['2', 'plan', '3'].includes(searchParams.get('waiting') ?? '') ? searchParams.get('waiting') : null
   const statusParam = searchParams.get('status') as ListStatus | null
   const status: ListStatus = statusParam && STATUSES.includes(statusParam) ? statusParam : 'all'
   const showCancelled = searchParams.get('cancelled') === '1'
@@ -196,6 +196,9 @@ export function ProductionListPage() {
       <div className="scrollbar-none -mx-4 mb-3 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
         <Chip active={waiting === '2'} onClick={() => update({ waiting: waiting === '2' ? null : '2' })}>
           {t('production.filters.waiting2')}
+        </Chip>
+        <Chip active={waiting === 'plan'} onClick={() => update({ waiting: waiting === 'plan' ? null : 'plan' })}>
+          {t('production.filters.waitingPlan')}
         </Chip>
         <Chip active={waiting === '3'} onClick={() => update({ waiting: waiting === '3' ? null : '3' })}>
           {t('production.filters.waiting3')}

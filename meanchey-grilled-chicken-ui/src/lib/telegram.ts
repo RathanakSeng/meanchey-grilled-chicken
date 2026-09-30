@@ -15,3 +15,9 @@ export function initTelegram(): void {
     /* older clients */
   }
 }
+
+/** Open a t.me link: inside Telegram in the Mini App, otherwise in a new tab. */
+export function openTelegramLink(url: string): void {
+  if (isTelegramMiniApp && telegram?.openTelegramLink) telegram.openTelegramLink(url)
+  else window.open(url, '_blank', 'noopener')
+}

@@ -89,10 +89,23 @@ class Api:
         )
         return ok(await self.finish(batch, "raw-material"))
 
-    async def step2(self, supplier: dict, quantity: int = 10, **extra) -> dict:
+    async def confirm_plan(self, batch: dict, big: int = 7, small: int = 5) -> dict:
+        """Set and confirm the packaging plan (defaults match standardize_body); the batch after."""
+        url = f"/production-plans/{batch['id']}"
+        body = {"version": batch["version"], "expected_big": big, "expected_small": small}
+        plan = ok(await self.client.patch(url, json=body, headers=self.headers))
+        body = {"version": plan["version"]}
+        ok(await self.client.post(f"{url}/confirm", json=body, headers=self.headers))
+        return await self.get(batch)
+
+    async def step2(
+        self, supplier: dict, quantity: int = 10, *, plan: bool = True, **extra
+    ) -> dict:
+        """Steps 1 and 2 finished; with `plan`, a confirmed 7 + 5 plan (step 3 can start)."""
         batch = await self.step1(supplier, quantity, **extra)
         batch = ok(await self.patch(batch, "produced", **PRODUCED))
-        return ok(await self.finish(batch, "produced"))
+        batch = ok(await self.finish(batch, "produced"))
+        return await self.confirm_plan(batch) if plan else batch
 
     async def completed(self, supplier: dict, **standardize) -> dict:
         batch = await self.step2(supplier)
@@ -335,6 +348,7 @@ async def test_finish_records_the_business_day_for_each_step(api, supplier, cloc
     clock.at(datetime(2026, 10, 1, 17, 30, tzinfo=UTC))
     batch = ok(await api.finish(batch, "produced"))
     assert step_dates(batch) == ["2026-10-01", "2026-10-02", None]
+    batch = await api.confirm_plan(batch)
     batch = ok(await api.patch(batch, "standardize", **standardize_body()))
     clock.at(datetime(2026, 10, 2, 16, 59, tzinfo=UTC))  # 23:59 on 2 Oct there
     batch = ok(await api.finish(batch, "standardize"))
@@ -376,6 +390,7 @@ async def test_reopen_clears_the_dates_of_reopened_steps(api, supplier, clock) -
     clock.day("2026-06-02")
     batch = ok(await api.patch(batch, "produced", **PRODUCED))
     batch = ok(await api.finish(batch, "produced"))
+    batch = await api.confirm_plan(batch)
     clock.day("2026-06-03")
     batch = ok(await api.patch(batch, "standardize", **standardize_body()))
     batch = ok(await api.finish(batch, "standardize"))
@@ -386,6 +401,7 @@ async def test_reopen_clears_the_dates_of_reopened_steps(api, supplier, clock) -
     assert step_dates(batch) == ["2026-06-01", None, None]  # step 1 keeps its date
     batch = ok(await api.finish(batch, "produced"))
     assert step_dates(batch) == ["2026-06-01", "2026-06-05", None]
+    batch = await api.confirm_plan(batch)  # reopening step 2 put the plan back to pending
     clock.day("2026-06-06")
     batch = ok(await api.finish(batch, "standardize"))
     assert step_dates(batch) == ["2026-06-01", "2026-06-05", "2026-06-06"]
@@ -417,6 +433,8 @@ async def test_step_dates_stay_in_order_through_reopen_sequences(api, supplier, 
         clock.day(day)
         if action == "finish" and step == "produced" and batch["produced"]["wings_kg"] is None:
             batch = ok(await api.patch(batch, "produced", **PRODUCED))
+        if action == "finish" and step == "standardize" and batch["plan"]["status"] != "confirmed":
+            batch = await api.confirm_plan(batch)
         standardize = batch["standardize"]
         if action == "finish" and step == "standardize" and standardize["big_packages"] is None:
             batch = ok(await api.patch(batch, "standardize", **standardize_body()))
@@ -674,6 +692,11 @@ async def test_editing_step_1_of_a_completed_batch_reopens_everything(
     batch = ok(await api.finish(batch, "raw-material"))
     assert batch["produced"]["wings_count"] == 22  # recomputed
     batch = ok(await api.finish(batch, "produced"))
+    # The plan went back to pending (values kept): step 3 waits until it is confirmed again.
+    assert batch["plan"]["status"] == "pending"
+    assert (batch["plan"]["expected_big"], batch["plan"]["expected_small"]) == (7, 5)
+    assert_error(await api.finish(batch, "standardize"), 409, "PRODUCTION_PLAN_REQUIRED")
+    batch = await api.confirm_plan(batch, big=7, small=7)
     # 20 wings were balanced; 22 now need assigning again.
     assert_error(await api.finish(batch, "standardize"), 422, "PRODUCTION_BALANCE_MISMATCH")
     batch = ok(await api.patch(batch, "standardize", small_packages=7))
@@ -804,6 +827,7 @@ async def test_stats_use_the_import_and_packing_dates(api, client, gm, supplier,
     clock.day("2026-10-01")
     batch = ok(await api.patch(batch, "produced", **PRODUCED))
     batch = ok(await api.finish(batch, "produced"))
+    batch = await api.confirm_plan(batch, small=3)
     body = standardize_body(small=3, rejected_wings=3, rejected_thighs=3)
     batch = ok(await api.patch(batch, "standardize", **body))
     ok(await api.finish(batch, "standardize"))
@@ -906,6 +930,7 @@ async def test_list_dates_filter_and_sort(api, client, gm, supplier, clock) -> N
     clock.day("2026-05-05")
     a = ok(await api.patch(a, "produced", **PRODUCED))
     a = ok(await api.finish(a, "produced"))
+    a = await api.confirm_plan(a)
     clock.day("2026-05-09")
     a = ok(await api.patch(a, "standardize", **standardize_body()))
     a = ok(await api.finish(a, "standardize"))

@@ -22,6 +22,8 @@ interface TelegramWebApp {
   setHeaderColor(color: string): void
   setBackgroundColor(color: string): void
   BackButton: TelegramBackButton
+  /** Opens a t.me link inside Telegram (the Mini App stays open). */
+  openTelegramLink?(url: string): void
   /** e.g. 'deactivated' (Bot API 8.0+: the Mini App was minimized or is being closed). */
   onEvent?(event: string, cb: () => void): void
   offEvent?(event: string, cb: () => void): void

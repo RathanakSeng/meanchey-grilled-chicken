@@ -76,12 +76,13 @@ app/
 ├── deps.py              # auth dependencies: CurrentUser, PendingUser, require_permission, require_role
 ├── core/
 │   ├── errors.py        # ErrorCode enum, AppError, exception handlers
-│   ├── security.py      # argon2, JWT encode/decode, refresh token generation/hashing
+│   ├── security.py      # argon2, JWT encode/decode, refresh token generation, hash_token (SHA-256)
 │   ├── telegram_auth.py # initData HMAC validation
 │   ├── usernames.py     # Telegram username normalization/validation
 │   └── phones.py        # phone normalization (storage) + formatting (phone_display)
 ├── models/              # SQLAlchemy ORM (User, Permission, UserPermission, RefreshToken, AuditLog, BotPref, AppSetting,
-│                        #   Supplier + Customer via PartnerMixin, production batches + steps)
+│                        #   Supplier + Customer via PartnerMixin, production batches + steps + plan,
+│                        #   Notification, TelegramLinkToken)
 ├── schemas/             # Pydantic request/response models; common.UserRef = the only user-reference shape
 ├── production/
 │   └── catalog.py       # by-products and raw material kinds (code catalogs, no migration to extend)
@@ -95,19 +96,24 @@ app/
 │   ├── auth_service.py  # login (password/Telegram), tokens, change/reset password, /me
 │   ├── user_service.py  # user CRUD, activation, resets, profile
 │   ├── partner_service.py # generic supplier/customer CRUD, search, stats (PartnerKind)
-│   ├── production_service.py # batches: drafts + versions, finish / reopen / cancel, codes, stats
+│   ├── production_service.py # batches: drafts + versions, finish / reopen / cancel, codes, stats, plan gate
+│   ├── plan_service.py  # packaging plans: list, detail, save, confirm (batch version, pieces rule)
+│   ├── notification_service.py # alert recipients, rows in the Finish transaction, the bell
+│   ├── telegram_link_service.py # superadmin one-time Telegram link (create, consume, unlink)
 │   ├── audit_service.py # record() + listing (viewer-aware filters)
 │   └── redaction.py     # hides the superadmin from other viewers: viewer context, hides(), middleware
 ├── api/                 # thin routers: auth, me, users, permissions (superadmin), features, audit,
-│                        #   partners (build_router(kind) → /suppliers, /customers), production
+│                        #   partners (build_router(kind) → /suppliers, /customers), production,
+│                        #   production_plans, notifications
 └── bot/
     ├── setup.py         # create_bot(), create_dispatcher(): the one place handlers are registered
-    ├── handlers.py      # /start, /lang (create_router())
+    ├── handlers.py      # /start (incl. /start link_<token>), /lang (create_router())
+    ├── notify.py        # send stored alerts after commit (deliver, resend_failed), bot username
     ├── i18n.py          # bot texts (km/en)
     ├── webhook.py       # POST /api/telegram/webhook (secret check → dp.feed_update)
     ├── runtime.py       # TelegramRuntime (Bot + Dispatcher on app.state), create_runtime()
     ├── registration.py  # ensure_webhook / set / delete / info, fingerprint in app_settings
-    └── __main__.py      # CLI: polling mode, `webhook set|delete|info`
+    └── __main__.py      # CLI: polling mode, `webhook set|delete|info`, `notifications resend-failed`
 ```
 
 **Layering rules**
@@ -186,6 +192,11 @@ erDiagram
     suppliers ||--o{ production_raw_materials : "supplier_id (RESTRICT)"
     users ||--o{ production_batches : "created_by / updated_by / cancelled_by"
     production_batches ||..o{ audit_logs : "entity (no FK)"
+    production_batches ||--o| production_plans : "packaging plan"
+    users ||--o{ production_plans : "confirmed_by / updated_by"
+    users ||--o{ notifications : "recipient (CASCADE)"
+    production_batches ||..o{ notifications : "entity (no FK)"
+    users ||--o{ telegram_link_tokens : "one-time link"
 
     users {
         uuid id PK
@@ -328,6 +339,37 @@ erDiagram
         date day PK
         int last_number
     }
+    production_plans {
+        uuid batch_id PK,FK
+        int expected_big "4-piece packs"
+        int expected_small "2-piece packs"
+        varchar500 note
+        varchar status "pending | confirmed"
+        uuid confirmed_by FK
+        timestamptz confirmed_at
+        uuid updated_by FK
+        timestamptz updated_at
+    }
+    notifications {
+        uuid id PK
+        uuid user_id FK
+        varchar type "production.processing_finished | production.completed"
+        varchar entity_type
+        uuid entity_id "no FK"
+        jsonb payload
+        timestamptz created_at
+        timestamptz read_at
+        varchar telegram_status "pending | sent | failed | not_linked | bot_off"
+        text telegram_error
+        timestamptz sent_at
+    }
+    telegram_link_tokens {
+        uuid id PK
+        uuid user_id FK
+        varchar token_hash UK "sha256"
+        timestamptz expires_at "10 minutes"
+        timestamptz used_at
+    }
 ```
 
 **Notes**
@@ -346,13 +388,16 @@ erDiagram
   - `ix_<table>_name_lower` on `lower(name)` for case-insensitive sorting and search;
   - `uq_<table>_active_phone`, a partial unique index on `phone` `WHERE is_active AND phone IS NOT NULL`: one active record per normalized number, per table;
   - `phone` stores the normalized form (digits, optional leading `+`); `phone_display` is computed on output.
-- **Production** (`models/production.py`, migrations `0005` and `0006`):
+- **Production** (`models/production.py`, migrations `0005`, `0006` and `0007`):
   - one `production_batches` row per batch, and **one row per step** (`production_raw_materials`, `production_outputs`, `production_packaging`, PK = `batch_id`, `ON DELETE CASCADE`). A step's row is created when it becomes available (step 1 with the batch, step 2 when step 1 is first finished, step 3 when step 2 is), so "not started" is simply a missing row. All three step tables share `status` / `finished_by` / `finished_at` / `updated_by` / `updated_at` through `StepMixin`;
   - `production_byproducts`: one row per batch and catalog `item_code` (created on demand, so a new catalog entry needs no migration);
   - **step dates** (migration `0006`): `production_raw_materials.import_date`, `production_outputs.production_date` and `production_packaging.packaging_date` (`DATE`, indexed), written by the service at Finish (today in `BUSINESS_TIMEZONE`) and cleared on reopen. A CHECK per table (`ck_<table>_<column>_matches_status`: `(status = 'finished') = (<date> IS NOT NULL)`) is the safety net. The migration filled them for finished steps from `finished_at` converted to `BUSINESS_TIMEZONE` (drafts stay null) and dropped `production_batches.production_date`; batch codes were not touched;
   - `production_batch_counters`: the last number used per creation day, incremented with `INSERT … ON CONFLICT (day) DO UPDATE … RETURNING`. The row stays locked until the transaction ends, so concurrent creations on one day get distinct numbers; `uq_production_batches_code` is the safety net;
   - CHECK constraints keep statuses, `current_step` (1–3) and all quantities ≥ 0 valid even outside the API;
   - the relationships load with `selectin`, so a batch arrives with all its steps (no lazy loads under asyncio).
+- **Packaging plan** (`production_plans`, migration `0007`): one row per batch, created by `production_service` when step 2 is finished and reset to `pending` on step 2 re-finish / step 1–2 reopen. CHECKs: `status` in (`pending`, `confirmed`), values ≥ 0, and `ck_production_plans_confirmed_complete` (a confirmed plan has both values). Loaded with the batch (`selectin`). The migration created a `pending` plan for each in-progress batch whose step 2 was finished; completed and cancelled batches have none (`plan_legacy`).
+- **Notifications** (`notifications`, migration `0007`): one row per recipient, indexed on (`user_id`, `read_at`, `created_at`) for the bell. `entity_type` / `entity_id` like `audit_logs` (no FK). `payload` keeps `actor_id`, turned into a `UserRef` when read. CHECKs on `type` and `telegram_status`.
+- **Telegram link tokens** (`telegram_link_tokens`, migration `0007`): SHA-256 of the raw token (unique), 10-minute `expires_at`, `used_at` once consumed.
 - **Weights are `Decimal` end to end:** `NUMERIC(10,3)` for kg and `NUMERIC(10,1)` for grams in the database, `Decimal` in Python (never `float`), accepted by Pydantic from JSON numbers or strings with `max_digits` / `decimal_places`, and serialized as fixed-precision strings (`"12.500"`, `"350.0"`) through a `PlainSerializer`. The UI parses them into scaled integers for exact sums.
 - **`audit_logs.entity_type` / `entity_id`** (indexed together as `ix_audit_logs_entity`) reference non-user records. There is no foreign key because one column pair points into several tables; the audit listing resolves current names with one query per entity type (`ENTITY_LABELS`: `suppliers.name`, `customers.name`, `production_batches.code`).
 - **Constraint naming.** All constraints follow a naming convention (`ix_`, `uq_`, `ck_`, `fk_`, `pk_`), which keeps Alembic autogenerate deterministic.
@@ -548,7 +593,34 @@ sequenceDiagram
 - The whole stack must use `BOT_MODE=polling`. If the API still runs in webhook mode, it re-registers the webhook on its next restart, and Telegram then rejects `getUpdates`. The poller logs a warning when it finds a webhook registered.
 - **Only one polling instance** per bot token may run: Telegram rejects concurrent `getUpdates` calls.
 
-### 9.3 Scaling
+### 9.3 Sending from the API (production alerts)
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant R as POST /production/{id}/produced/finish
+    participant S as production_service
+    participant DB as PostgreSQL
+    participant B as BackgroundTasks → bot/notify.deliver
+    participant T as Telegram
+
+    C->>R: {version}
+    R->>S: finish_step
+    S->>DB: finish step, create plan, INSERT notifications (one per recipient), audit
+    S->>DB: COMMIT
+    R-->>C: 200 batch
+    R->>B: deliver(ids, app.state.telegram)
+    B->>DB: own session: load rows + recipients
+    B->>T: sendMessage per linked recipient (inline web_app button)
+    B->>DB: telegram_status sent / failed / not_linked / bot_off
+```
+
+- **Stored first, sent after commit.** `notification_service.notify()` adds the rows in the Finish transaction and queues their ids on the session (`session.info`); the router takes them (`take_queued`) and hands them to a FastAPI background task, which runs after the response with its own session. A rolled-back Finish sends nothing (`discard_queued`).
+- **Which bot:** webhook mode uses the runtime's `Bot` (`app.state.telegram`); polling mode creates a short-lived `Bot` (`notify.bot_factory`) because the poller is another process; no token / `BOT_MODE=off` / no runtime → `bot_off`.
+- **Never fails the action:** every exception is caught, logged and recorded as `failed` (with the error). There is no retry loop; `python -m app.bot notifications resend-failed` retries the failed rows once with a short-lived bot.
+- **Texts** live in `bot/i18n.py` (km/en, HTML; the code and comment are escaped). The bot username for the superadmin's link comes from `getMe`, cached per process (`notify.bot_username`).
+
+### 9.4 Scaling
 
 In webhook mode the API can run **multiple uvicorn workers or replicas**.
 
@@ -620,8 +692,8 @@ Settings are read at import time by `app.db` to build the engine. Tests therefor
 | Engine | `DB_NULL_POOL=true` avoids connection reuse across pytest-asyncio event loops. |
 | HTTP | `httpx.AsyncClient` over `ASGITransport(app)`: in-process, no server. |
 | Auth in tests | `auth(user)` mints an access token directly. Login flows have their own tests. |
-| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation; default backfill, `grantable_by` and `reason`; suppliers/customers CRUD, validation, phone rules, duplicates, search/sort/paging, stats month boundary, audit entities (parametrized over both lists); feature levels (mapping, diffs, check order, defaults, startup validation); detailed permissions superadmin-only; **superadmin invisibility sweep** over every GET route from the OpenAPI schema plus key mutations, as GM / supervisor / staff; **superadmin ⊇ GM sweep** (`test_superadmin_superset.py`): every route and method in the schema is called as the GM and, wherever the GM isn't refused with 403, as the superadmin, which must not get 403 either (placeholders filled with targets both manage; empty bodies unless a valid one is needed to reach a service-level check; both accounts reset between calls); production steps, drafts, versions, reopen (cascading), cancel (GM only), codes under concurrency, stats; GM feature levels set by the superadmin. |
-| Telegram | Never contacted. `tests/telegram_fakes.RecordingSession` is an aiogram `BaseSession` that records Bot API calls (`SendMessage`, `SetWebhook`, …) and returns canned responses, or simulates an outage. `BOT_MODE=off` by default; webhook tests put their own `TelegramRuntime` on `app.state`. |
+| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation; default backfill, `grantable_by` and `reason`; suppliers/customers CRUD, validation, phone rules, duplicates, search/sort/paging, stats month boundary, audit entities (parametrized over both lists); feature levels (mapping, diffs, check order, defaults, startup validation); detailed permissions superadmin-only; **superadmin invisibility sweep** over every GET route from the OpenAPI schema plus key mutations, as GM / supervisor / staff; **superadmin ⊇ GM sweep** (`test_superadmin_superset.py`): every route and method in the schema is called as the GM and, wherever the GM isn't refused with 403, as the superadmin, which must not get 403 either (placeholders filled with targets both manage; empty bodies unless a valid one is needed to reach a service-level check; both accounts reset between calls); production steps, drafts, versions, reopen (cascading), cancel (GM only), codes under concurrency, stats; GM feature levels set by the superadmin; packaging plan (feature and backfill, lifecycle through reopen sequences, pieces rule, confirm, lock, versions, cancelled, legacy batches, audit, list and detail) and the step 3 gate and comment rule; notifications (recipients by permission, rows only with a successful Finish, Telegram per language with the web_app button, `not_linked` / `bot_off` / `failed`, polling-mode bot, repeat after reopen, resend, own-only bell, "System" actor); superadmin Telegram link (hashed single-use token, expiry, id taken, unlink, role guard); migrations `0006` and `0007` backfills. |
+| Telegram | Never contacted. Alert tests put a runtime with a `RecordingSession` bot on `app.state` (webhook mode) or replace `notify.bot_factory` (polling); background tasks finish before the in-process request returns, so assertions see the final `telegram_status`. `tests/telegram_fakes.RecordingSession` is an aiogram `BaseSession` that records Bot API calls (`SendMessage`, `SetWebhook`, …) and returns canned responses, or simulates an outage. `BOT_MODE=off` by default; webhook tests put their own `TelegramRuntime` on `app.state`. |
 
 Run:
 
@@ -648,7 +720,7 @@ uv run ruff check . && uv run ruff format --check .
   - Serve the UI on the same origin under `/`, and the API under `/api`. Otherwise configure `CORS_ORIGINS`.
   - Use a strong `JWT_SECRET`. Rotating it invalidates all access tokens; refresh tokens keep working.
   - Rotating `TELEGRAM_WEBHOOK_SECRET` needs no extra step: the next start detects the new fingerprint and re-registers.
-  - Scaling: see §9.3. Webhook mode supports multiple workers or replicas; polling mode must stay single-instance.
+  - Scaling: see §9.4. Webhook mode supports multiple workers or replicas; polling mode must stay single-instance.
   - `.env` is read only when a container is **created**. After changing it, use `docker compose up -d --force-recreate <service>`, not `restart`.
 
 ## 14. Extending the system
@@ -699,6 +771,9 @@ A third list with the same fields needs a model class, a `PartnerKind`, a router
 | Feature levels also for the GM, set by the superadmin | The superadmin controls the GM with the same simple levels the GM uses for its team, instead of permission codes. The role scope (only the superadmin manages the GM) keeps the GM from changing its own access with no extra rule. GM-only powers stay detailed permissions, so a level change can't grant or remove them by accident. |
 | Reopening a finished step reopens every later step | Later steps were computed from the earlier one (counts, balances). Reopening them together, with values kept, is one action for the user and guarantees they are checked again, instead of a chain of reopen clicks in reverse order. |
 | Step dates recorded by the server at Finish | The dates mean "when this step really happened", so they come from the server clock (business time zone), never from a form: nobody can backdate one, and the order import ≤ production ≤ packing follows from the step order and reopen rules, with no extra validation. The batch code keeps the creation day and never changes. |
+| Plan gate before step 3 | Packing follows a decision (how many 4-piece and 2-piece packs), so step 3 is locked until a planner confirms it, and the API enforces it (`PRODUCTION_PLAN_REQUIRED`), not just the UI. The plan lives in its own table with its own permissions, so who plans is independent of who records; it shares the batch `version`, so plan and step writes can't overwrite each other. Reopening step 1 or 2 resets it to pending (the counts may change); a mismatch between plan and actual needs a comment rather than being forbidden. |
+| Notifications stored first, Telegram after commit | An alert must exist exactly when the step was finished, and Telegram must never slow down or break a Finish. Rows are written in the Finish transaction (the bell always works); sending happens afterwards in a background task that records its outcome per row, so failures are visible and can be resent. No queue or worker process is needed at this size. |
+| Superadmin links Telegram with a one-time token | The superadmin has no Telegram username to be matched by, and must stay invisible. A short-lived, single-use, hashed deep-link token binds exactly the account that opens it, without the superadmin typing an id, and the bot's replies never mention a role. |
 | Cancelling batches is GM-only | Cancelling removes a batch from the figures: a management decision, like deactivating people. Outside the feature levels, so a supervisor at Full access can fix steps but not cancel. |
 | Feature levels for managers, detailed permissions for the superadmin | Managers think in "who can use Suppliers, and how much", not in permission codes. Levels are exact code sets over the same `user_permissions` table, so nothing else changes and the superadmin can still fine-tune (shown as `custom`). |
 | Superadmin redacted for all other viewers | The superadmin is an operator account, not part of the business. Hiding it at the serialization edge (one `UserRef` schema, one lookup helper, fail-closed) covers new endpoints by default, and a route-walking test guards against regressions. |

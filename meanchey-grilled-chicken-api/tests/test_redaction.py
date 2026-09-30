@@ -49,6 +49,39 @@ async def world(client, session, superadmin, make_user) -> dict:
         {"supplier_id": supplier["id"], "weight_kg": "25.5", "quantity": 10},
     )
     batch = await post(f"/production/{batch['id']}/raw-material/finish", {"version": 1})
+    # The supervisor gets plan access (and the alerts); the superadmin finishes step 2 of a
+    # second batch (alerts naming it as the actor) and sets and confirms its plan.
+    await client.put(
+        f"/users/{sup_id}/features/production_plan",
+        json={"level": "full"},
+        headers=auth(superadmin),
+    )
+    planned = await post(
+        "/production", {"supplier_id": supplier["id"], "weight_kg": "25.5", "quantity": 10}
+    )
+    planned = await post(f"/production/{planned['id']}/raw-material/finish", {"version": 1})
+    r = await client.patch(
+        f"/production/{planned['id']}/produced",
+        json={
+            "version": planned["version"],
+            "wings_kg": "4",
+            "thighs_kg": "6",
+            "marinade_g": "300",
+            "byproducts": {c: "0.5" for c in ("gizzard", "liver", "heart", "head")},
+        },
+        headers=auth(superadmin),
+    )
+    planned = await post(
+        f"/production/{planned['id']}/produced/finish", {"version": r.json()["version"]}
+    )
+    r = await client.patch(
+        f"/production-plans/{planned['id']}",
+        json={"version": planned["version"], "expected_big": 7, "expected_small": 5},
+        headers=auth(superadmin),
+    )
+    plan = await post(
+        f"/production-plans/{planned['id']}/confirm", {"version": r.json()["version"]}
+    )
     await client.patch(
         f"/suppliers/{supplier['id']}", json={"location": "Kandal"}, headers=auth(superadmin)
     )
@@ -76,6 +109,8 @@ async def world(client, session, superadmin, make_user) -> dict:
         "customer": customer["id"],
         "batch": batch["id"],
         "batch_version": batch["version"],
+        "planned": planned["id"],
+        "planned_version": plan["version"],
     }
 
 
@@ -106,8 +141,10 @@ def _fill(path: str, world: dict) -> list[str]:
     if "{partner_id}" in path:
         pid = world["supplier"] if path.startswith("/suppliers") else world["customer"]
         return [path.replace("{partner_id}", pid)]
+    if path.startswith("/production-plans/"):
+        return [path.replace("{batch_id}", world["planned"])]
     if "{batch_id}" in path:
-        return [path.replace("{batch_id}", world["batch"])]
+        return [path.replace("{batch_id}", world[k]) for k in ("batch", "planned")]
     assert not re.search(r"\{\w+\}", path), f"sweep doesn't know how to fill {path}"
     return [path]
 
@@ -119,6 +156,9 @@ EXTRA_QUERIES = [
     "/audit-logs?page_size=100",
     "/audit-logs?action=permission.grant",
     "/audit-logs?action=auth.login",
+    "/production-plans?status=all",
+    "/production?waiting_step=3",
+    "/notifications?unread_only=true",
 ]
 
 
@@ -147,6 +187,12 @@ async def test_no_response_reveals_the_superadmin(client, world, viewer_key) -> 
             json={"version": world["batch_version"], "wings_kg": "5"},
             headers=auth(viewer),
         ),
+        client.patch(
+            f"/production-plans/{world['planned']}",
+            json={"version": world["planned_version"], "note": "Checked"},
+            headers=auth(viewer),
+        ),
+        client.post("/notifications/read-all", headers=auth(viewer)),
         client.patch(f"/users/{world['staff'].id}", json={"phone": "012"}, headers=auth(viewer)),
         client.patch(f"/users/{sa.id}", json={"full_name": "x"}, headers=auth(viewer)),
         client.post(f"/users/{sa.id}/reset-password", headers=auth(viewer)),
@@ -164,6 +210,19 @@ async def test_no_response_reveals_the_superadmin(client, world, viewer_key) -> 
     for call in partner_calls:
         r = await call
         _assert_clean(r, sa, f"{viewer_key} mutation {r.request.method} {r.request.url}")
+
+
+async def test_alerts_and_plans_name_the_superadmin_as_system(client, world) -> None:
+    for key in ("gm", "sup"):
+        page = (await client.get("/notifications", headers=auth(world[key]))).json()
+        assert page["total"] == 1 and page["items"][0]["actor"]["is_system"] is True
+        plan = (
+            await client.get(f"/production-plans/{world['planned']}", headers=auth(world[key]))
+        ).json()["plan"]
+        assert plan["confirmed_by"]["is_system"] is True
+    # Staff get no alerts at all.
+    page = (await client.get("/notifications", headers=auth(world["staff"]))).json()
+    assert page["total"] == 0
 
 
 async def test_lookup_by_id_is_not_found(client, world) -> None:

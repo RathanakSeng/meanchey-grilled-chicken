@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import type { NavItem } from '@/layouts/nav'
+import { NavBadge } from './NavBadge'
 import { cx } from './ui'
 import { Icon } from './icons'
 
@@ -27,9 +28,10 @@ export function NavTile({ item, size = 'md' }: { item: NavItem; size?: 'md' | 'l
       </span>
       <span className="min-w-0 flex-1">
         <span
-          className={cx('block font-semibold text-stone-900', large ? 'text-lg' : 'text-base')}
+          className={cx('flex items-center gap-2 font-semibold text-stone-900', large ? 'text-lg' : 'text-base')}
         >
           {t(item.labelKey)}
+          <NavBadge item={item} />
         </span>
         {item.descriptionKey && (
           <span className="mt-0.5 block text-sm text-stone-500">{t(item.descriptionKey)}</span>

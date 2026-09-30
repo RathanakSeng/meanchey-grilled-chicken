@@ -82,6 +82,7 @@ def test_menus() -> None:
         "suppliers": "workstation",
         "customers": "workstation",
         "production": "workstation",
+        "production_plan": "workstation",
     }
 
 
@@ -168,10 +169,13 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
     menus = [(m["menu"], [f["code"] for f in m["features"]]) for m in r.json()["menus"]]
     # Workstation first, then settings.
     assert menus == [
-        ("workstation", ["suppliers", "customers", "production"]),
+        ("workstation", ["suppliers", "customers", "production", "production_plan"]),
         ("settings", ["staff_management"]),
     ]
-    assert {f["current_level"] for f in (await _features(client, gm, sup)).values()} == {"full"}
+    levels = {code: f["current_level"] for code, f in (await _features(client, gm, sup)).items()}
+    # Everything at full access, except the production plan (Off by default).
+    assert levels.pop("production_plan") == "off"
+    assert set(levels.values()) == {"full"}
 
 
 async def test_superadmin_can_use_features_too(client, superadmin, make_user) -> None:

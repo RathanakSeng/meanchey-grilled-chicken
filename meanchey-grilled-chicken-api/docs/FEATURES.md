@@ -16,6 +16,8 @@ What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័�
 - [12. Feature access levels](#12-feature-access-levels)
 - [13. Visibility and redaction](#13-visibility-and-redaction)
 - [14. Production](#14-production)
+- [15. Packaging plan](#15-packaging-plan)
+- [16. Notifications](#16-notifications)
 
 ---
 
@@ -242,6 +244,15 @@ The general manager can give any of these to supervisors **and staff** through f
 | `production.update` | Reopen a finished step (and every later finished step with it) | GM, supervisor, staff | Production (Full access) |
 | `production.delete` | Cancel a batch | **GM only** | — (detailed permission) |
 
+**Module `production_plan`** (§15)
+
+| Code | Meaning | Assignable to | In feature (level) |
+|---|---|---|---|
+| `production_plan.view` | See the Production plan tab and every plan; **receive the production alerts** (§16) | GM, supervisor | Production plan (View only and up) |
+| `production_plan.manage` | Fill in, edit and confirm plans | GM, supervisor | Production plan (Full access) |
+
+Staff can't hold either. The alerts go to whoever holds `production_plan.view`, so the plan feature is also "who gets told".
+
 Cancelling batches is a general-manager decision, like deactivating users: `production.delete` is assignable to the GM only and belongs to no feature level. Supervisors or staff granted it before this change keep the row, but it has no effect (read-time `assignable_to` filter, §5.5), and their Production level still reads as *Full access*.
 
 ### 5.3 Defaults
@@ -249,11 +260,11 @@ Cancelling batches is a general-manager decision, like deactivating users: `prod
 | Role | On creation |
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
-| General manager | All `users` permissions (incl. `users.delete`, `users.reset_password`, `permissions.grant`), all partner permissions and all four `production.*` permissions. |
-| Supervisor | Every feature at **Full access**: Suppliers, Customers, Production (view, record, reopen finished steps; not cancel), Staff management (= `users.view/create/update`). Limited to what the creator holds. |
+| General manager | All `users` permissions (incl. `users.delete`, `users.reset_password`, `permissions.grant`), all partner permissions, all four `production.*` permissions and both `production_plan.*` permissions. |
+| Supervisor | Every feature at **Full access** except the **Production plan, which is Off**: Suppliers, Customers, Production (view, record, reopen finished steps; not cancel), Staff management (= `users.view/create/update`). Limited to what the creator holds. The GM gives plan access (and with it the alerts) to the supervisors who need it. |
 | Staff | Every feature **Off** (no permissions). |
 
-`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing.
+`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing. The `production_plan.*` permissions were backfilled to existing active general managers only (supervisors' default is Off).
 
 ### 5.4 Detailed grant rules (superadmin only)
 
@@ -296,7 +307,8 @@ Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `ta
 | Suppliers | `supplier.create`, `supplier.update` (field diff), `supplier.deactivate`, `supplier.reactivate`. `details.name` holds the record's name. |
 | Customers | `customer.create`, `customer.update` (field diff), `customer.deactivate`, `customer.reactivate`. `details.name` holds the record's name. |
 | Production | `production.create`, `production.step_finish` (`step`: 1–3), `production.step_reopen` (`step`, `reopened_steps`: e.g. `[1, 2, 3]`), `production.cancel` (`reason`). `details.code` holds the batch code. **Draft saves are not audited.** |
-| Profile | `profile.update` |
+| Packaging plan | `production_plan.update` (`changes`: field → `[old, new]`, only when something changed), `production_plan.confirm` (`expected_big`, `expected_small`). `entity_type = production_batch`, `details.code` = the batch code. |
+| Profile | `profile.update`; `profile.telegram_link` / `profile.telegram_unlink` (the superadmin's Telegram link, §7.5; hidden from the GM like everything the superadmin does) |
 
 `GET /audit-logs` is available to the **superadmin and general manager only** (§13 for what the general manager doesn't see). This is a role check, not a permission. It supports filters (`action`, `actor_id`, `target_user_id`, `entity_type`, `entity_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references, and `entity: {type, id, name}` for supplier / customer / production batch entries (the record's current name, or the batch code, falling back to the logged one).
 
@@ -348,12 +360,25 @@ In Docker, prefix these with `docker compose exec api`.
 | Command | Behavior |
 |---|---|
 | `/start` | Greets the user in their language, with a hint in the other language, and shows an **Open app** WebApp button pointing to `MINI_APP_URL`. |
+| `/start link_<token>` | The superadmin's one-time link (§7.5): binds the sender's Telegram account and replies *"✅ Telegram linked."* An unknown, expired or used token, or a Telegram account already bound to another active user, gets one neutral reply (*"This link can't be used. Create a new one in the app."*). |
 | `/lang` | Toggles the bot language between Khmer and English. If the Telegram account is linked to a user, their app language is updated too. |
 
 - **Which language the bot uses:** the linked user's `language` first, then `bot_prefs`, then Khmer.
 - **If `MINI_APP_URL` isn't HTTPS or is empty,** the bot says the app isn't configured instead of showing the button.
 - **If `TELEGRAM_BOT_TOKEN` is empty,** the bot is disabled. The webhook endpoint returns 404, and the polling process logs a warning and exits cleanly.
 - **Commands behave the same in webhook and polling mode.** Both use the same handlers (`app/bot/setup.py`).
+- **Production alerts** (§16) are sent by the API, not by a command: after the Finish that caused them, in the recipient's language.
+
+### 7.5 Superadmin Telegram link
+
+The superadmin has no Telegram username, so it can't be matched on first Mini App sign-in like everyone else. To receive production alerts it links its Telegram account explicitly:
+
+1. `POST /me/telegram-link` (**superadmin only**, `require_role` → `FORBIDDEN_ROLE` for anyone else) creates a random one-time token, stores only its SHA-256 hash (`telegram_link_tokens`) with a **10-minute** expiry, and returns `{url: "https://t.me/<bot>?start=link_<token>", expires_at}`. The bot username comes from `getMe` (cached per process). Without a bot token (or if Telegram can't be reached) → `503 TELEGRAM_NOT_CONFIGURED`.
+2. Opening the link and tapping **Start** sends `/start link_<token>`. A valid, unexpired, unused token sets the superadmin's `telegram_user_id` to the sender's id, marks the token (and any other unused one of that user) used and writes `profile.telegram_link`. The reply names no role.
+3. `DELETE /me/telegram-link` (superadmin only) clears `telegram_user_id` (`profile.telegram_unlink`); `204` also when nothing was linked.
+
+- `/auth/me` shows the state as `user.telegram_linked` (every account has it; the superadmin's card uses it). The Telegram id itself is never in any response.
+- **Mini App sign-in:** Telegram sign-in matches users by their bound Telegram id first, so once linked, opening the Mini App from that Telegram account **signs the superadmin in** too (it still has no username, so nothing else changes). This is intended: the linked account is the superadmin's own.
 
 ---
 
@@ -377,12 +402,14 @@ Every error has the same shape:
 |---|---|
 | Authentication | `NOT_AUTHENTICATED`, `INVALID_TOKEN`, `TOKEN_EXPIRED`, `INVALID_REFRESH_TOKEN`, `INVALID_CREDENTIALS`, `ACCOUNT_LOCKED`, `ACCOUNT_DISABLED`, `PASSWORD_CHANGE_REQUIRED` |
 | Passwords | `WRONG_CURRENT_PASSWORD`, `PASSWORD_TOO_SHORT`, `PASSWORD_EQUALS_USERNAME` |
-| Telegram | `TELEGRAM_NOT_CONFIGURED`, `INVALID_TELEGRAM_DATA`, `TELEGRAM_DATA_EXPIRED`, `USER_NOT_REGISTERED` |
+| Telegram | `TELEGRAM_NOT_CONFIGURED` (also: linking without a bot token), `INVALID_TELEGRAM_DATA`, `TELEGRAM_DATA_EXPIRED`, `USER_NOT_REGISTERED` |
 | Authorization | `FORBIDDEN_SCOPE`, `FORBIDDEN_ROLE`, `MISSING_PERMISSION`, `PERMISSION_NOT_HELD`, `PERMISSION_NOT_ASSIGNABLE`, `PERMISSION_NOT_FOUND`, `PERMISSION_GRANT_RESTRICTED` (kept; never reachable by non-superadmins today) |
 | Access levels | `FEATURE_NOT_FOUND` (404), `FEATURE_NOT_APPLICABLE` (422) |
 | Users | `USER_NOT_FOUND`, `USER_INACTIVE`, `INVALID_TELEGRAM_USERNAME`, `DUPLICATE_TELEGRAM_USERNAME`, `GM_ALREADY_EXISTS`, `POSITION_REQUIRED`, `POSITION_NOT_ALLOWED` |
 | Suppliers & customers | `SUPPLIER_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `DUPLICATE_PHONE` (409), `INVALID_PHONE` (422, `details.min_digits` / `max_digits`), `SUPPLIER_INACTIVE` (422, production step 1 finish) |
 | Production | `PRODUCTION_NOT_FOUND` (404), `PRODUCTION_STEP_NOT_READY` (409), `PRODUCTION_STEP_FINISHED` (409), `PRODUCTION_STEP_LOCKED` (409; no longer raised, kept for compatibility), `PRODUCTION_BALANCE_MISMATCH` (422, `details.wings` / `details.thighs`), `PRODUCTION_CONFLICT` (409, `details.batch`), `PRODUCTION_CANCELLED` (409), `PRODUCTION_COMPLETED` (409) |
+| Packaging plan | `PRODUCTION_PLAN_REQUIRED` (409: step 3 save / finish while the plan isn't confirmed), `PRODUCTION_PLAN_LOCKED` (409: plan change after step 3 is finished), `PRODUCTION_PLAN_EXCEEDS_OUTPUT` (422, `details.wings` / `details.thighs`: `{available, planned}`), `PRODUCTION_PLAN_COMMENT_REQUIRED` (422, `details.planned` / `details.actual`: `{big, small}`) |
+| Notifications | `NOTIFICATION_NOT_FOUND` (404: unknown, or someone else's) |
 | Generic | `VALIDATION_ERROR` (with `details.fields`), `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `HTTP_ERROR` |
 
 Codes are defined in `app/core/errors.py`. **Never rename a code:** the UI depends on them.
@@ -403,6 +430,10 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | GET | `/auth/me` | signed in (allowed while a password change is pending) |
 | PATCH | `/me` | signed in |
 | POST | `/me/reset-password` | `users.reset_password` |
+| POST, DELETE | `/me/telegram-link` | role: superadmin (§7.5) |
+| GET | `/notifications` | signed in (own only) |
+| POST | `/notifications/{id}/read` | signed in (own only) |
+| POST | `/notifications/read-all` | signed in (own only) |
 | GET | `/users` | `users.view` |
 | GET | `/users/positions` | `users.view` (scoped) |
 | POST | `/users` | `users.create` + manageable role |
@@ -436,6 +467,10 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | POST | `/production/{id}/{step}/finish` | `production.create` |
 | POST | `/production/{id}/{step}/reopen` | `production.update` |
 | POST | `/production/{id}/cancel` | `production.delete` |
+| GET | `/production-plans` | `production_plan.view` |
+| GET | `/production-plans/{batch_id}` | `production_plan.view` |
+| PATCH | `/production-plans/{batch_id}` | `production_plan.manage` |
+| POST | `/production-plans/{batch_id}/confirm` | `production_plan.manage` |
 | GET | `/health` (no prefix) | public |
 | GET | `/docs`, `/redoc`, `/openapi.json` (no prefix) | only when API docs are enabled (development by default, §13) |
 
@@ -504,6 +539,7 @@ The general manager's way to give access. Each feature switches a group of detai
 | `suppliers` | workstation | GM, supervisor, staff | `suppliers.view` | — | `suppliers.view/create/update/delete` |
 | `customers` | workstation | GM, supervisor, staff | `customers.view` | — | `customers.view/create/update/delete` |
 | `production` | workstation | GM, supervisor, staff | `production.view` | `production.view/create` | `production.view/create/update` |
+| `production_plan` | workstation | GM, supervisor | `production_plan.view` | — | `production_plan.view/manage` |
 | `staff_management` | settings | GM, supervisor | `users.view` | — | `users.view/create/update` |
 
 **Record** means "can start batches and fill in steps, but can't reopen finished steps". **Full access** in Production adds reopening finished steps; cancelling batches (`production.delete`) is GM-only and outside the levels.
@@ -512,6 +548,7 @@ The general manager's way to give access. Each feature switches a group of detai
 
 - `users.delete`, `users.reset_password` and `permissions.grant` belong to **no** feature: they stay general-manager-only and are managed as detailed permissions by the superadmin.
 - **Startup validation** (`validate_features`, at import and in bootstrap): every code a feature uses exists, is assignable to every role in `applies_to`, and has no `grantable_by`; the first level is `off` with no codes; levels are unique and follow the order `off` → `view` → `record` → `full` (`LEVELS`), where any after `off` may be omitted (only production uses `record`). A mismatch stops the API from starting.
+- **Production plan:** *View only* = see plans and receive the production alerts; *Full access* = also set and confirm plans. Supervisors start at *Off*; the GM starts at *Full access*.
 
 ### 12.2 Current level
 
@@ -549,7 +586,9 @@ The superadmin can use these endpoints too.
 - **Wording:** no error message, detail or schema text reachable by non-superadmins names the superadmin or lists roles. `FORBIDDEN_ROLE` carries no `allowed_roles`; `FORBIDDEN_SCOPE` doesn't name the role; `422` messages for enum/literal fields don't list the allowed values.
 - **API docs** (`/docs`, `/redoc`, `/openapi.json`) describe every role, so they are served only when `API_DOCS_ENABLED=true`, or when it is unset and `ENVIRONMENT=development` (the default). Set `ENVIRONMENT=production` in production.
 - **UI:** one build for everyone. The superadmin's role label is "System" / "ប្រព័ន្ធ", like the API's redacted references; its extra screens are runtime checks. Their code is in the bundle (visible in browser dev tools), but they never receive superadmin data because the API redacts it.
-- **Tests:** `tests/test_redaction.py` calls every GET route (from the OpenAPI schema) plus key mutations as a GM, a supervisor and staff, over data the superadmin created, and fails if a body contains the superadmin's id, name or the word "superadmin".
+- **Notifications and plans:** a notification stores the actor's id and serializes it as a `UserRef` for the recipient reading it, so a step finished by the superadmin reads as "System" to everyone else; the Telegram texts never name the actor. Plan `confirmed_by` / `updated_by` are `UserRef`s too.
+- **Linked Telegram id:** the superadmin's (like everyone's) `telegram_user_id` is never serialized; responses only carry `telegram_linked`.
+- **Tests:** `tests/test_redaction.py` calls every GET route (from the OpenAPI schema) plus key mutations as a GM, a supervisor and staff, over data the superadmin created, and fails if a body contains the superadmin's id, name or the word "superadmin". Its data includes a batch whose step 2 the superadmin finished and whose plan it confirmed (alerts for the GM and a supervisor with plan access).
 - **Not covered (known):** five wrong passwords for the login name `superadmin` on the login page return "account locked", which reveals that the account exists.
 
 ---
@@ -562,7 +601,10 @@ Production records one **batch** as it moves through three steps. Each step is s
 New production → batch PR-YYYYMMDD-NNN
   Step 1 Intake (ការនាំចូល)         → Finish → import date (ថ្ងៃនាំចូល) recorded
   Step 2 Processing (ការផលិត)       → Finish → production date (ថ្ងៃផលិត) recorded   (only after step 1 is finished)
-  Step 3 Standardize (ការវេចខ្ចប់)   → Finish → packing date (ថ្ងៃវេចខ្ចប់) recorded   (only after step 2 is finished) → batch completed
+                                             → packaging plan created (pending) + alert "set the plan" (§15, §16)
+  Packaging plan (ផែនការវេចខ្ចប់)    → filled in and confirmed (production_plan.manage)
+  Step 3 Standardize (ការវេចខ្ចប់)   → Finish → packing date (ថ្ងៃវេចខ្ចប់) recorded   (only after step 2 is finished AND the plan is confirmed)
+                                             → batch completed + alert "completed" / "completed, differs from plan"
 ```
 
 The API step codes stay `raw-material`, `produced` and `standardize` (URLs, `steps`, audit details); only the displayed names changed.
@@ -606,13 +648,19 @@ Weights are exact decimals (`NUMERIC`, `Decimal` in Python), accepted as JSON nu
 
 | Field | Rule |
 |---|---|
-| `big_packages` | whole ≥ 0; 1 big = 2 wings + 2 thighs |
-| `small_packages` | whole ≥ 0; 1 small = 1 wing + 1 thigh |
+| `big_packages` | **4-Piece Packs** (កញ្ចប់ ៤ ដុំ): whole ≥ 0; 1 pack = 2 wings + 2 thighs |
+| `small_packages` | **2-Piece Packs** (កញ្ចប់ ២ ដុំ): whole ≥ 0; 1 pack = 1 wing + 1 thigh |
 | `rejected_wings`, `rejected_thighs` | whole ≥ 0 |
 | Per by-product: `carry_kg` (carried forward), `rejected_kg` | Finish: required, ≥ 0 |
-| `comment` | optional, at most 1000 characters (trimmed; empty → null) |
+| `comment` | at most 1000 characters (trimmed; empty → null). Optional, **except when the packs differ from the plan** (below). |
 
-All of these are required at Finish.
+All of these (except the comment) are required at Finish. The API field names stay `big_packages` / `small_packages`; only the displayed names changed.
+
+**Step 3 and the plan** (§15):
+
+- Saving or finishing step 3 while the plan isn't `confirmed` → `409 PRODUCTION_PLAN_REQUIRED` (checked after the step state, before the version).
+- At Finish, when `big_packages ≠ expected_big` **or** `small_packages ≠ expected_small`, a non-empty `comment` is required → else `422 PRODUCTION_PLAN_COMMENT_REQUIRED` with `details = {planned: {big, small}, actual: {big, small}}`. Checked after the piece balance.
+- `standardize.plan_matches` in responses: `true` / `false` once both actual counts and both plan values exist, else `null`.
 
 **Piece balance: enforced by the API at Finish** (`422 PRODUCTION_BALANCE_MISMATCH`):
 
@@ -631,7 +679,7 @@ All of these are required at Finish.
 
 - Batch `status`: `in_progress` → `completed` (step 3 finished), or `cancelled`. `current_step` (1–3) is the step being worked on.
 - Step `status`: `draft` → `finished`. A step's row exists once the previous one has been finished (`produced` / `standardize` are `null` in responses until then). A finished step is read-only: saving or finishing it again → `PRODUCTION_STEP_FINISHED`. Saving or finishing a step whose previous one isn't finished → `PRODUCTION_STEP_NOT_READY`.
-- **Reopen** step N (`production.update`): allowed for any finished step of an in-progress or completed batch, whatever the later steps are. In one transaction (batch row locked), step N **and every later finished step** go back to `draft` (`finished_by` / `finished_at` and **the step's date** cleared; the next Finish records that new day); **all values are kept**; `current_step` becomes N; a completed batch goes back to `in_progress` (`completed_at = null`); `version` + 1. The later steps are then finished again in order (`PRODUCTION_STEP_NOT_READY` otherwise), which recomputes the step 2 counts from step 1 and re-checks the piece balance at step 3. Each step in a batch response carries `reopens_steps` (the steps editing it would put back to draft; `[]` when it isn't finished or the batch is cancelled) so the UI can warn. Reopening a step that is already a draft changes nothing. `PRODUCTION_STEP_LOCKED` is no longer raised.
+- **Reopen** step N (`production.update`): allowed for any finished step of an in-progress or completed batch, whatever the later steps are. In one transaction (batch row locked), step N **and every later finished step** go back to `draft` (`finished_by` / `finished_at` and **the step's date** cleared; the next Finish records that new day); **all values are kept**; `current_step` becomes N; a completed batch goes back to `in_progress` (`completed_at = null`); `version` + 1. The later steps are then finished again in order (`PRODUCTION_STEP_NOT_READY` otherwise), which recomputes the step 2 counts from step 1 and re-checks the piece balance at step 3. **Reopening step 1 or 2 puts the packaging plan back to `pending`** (values kept, `confirmed_by/at` cleared), so step 3 waits until it's confirmed again; reopening step 3 keeps a confirmed plan (still editable until step 3 is finished again). Each step in a batch response carries `reopens_steps` (the steps editing it would put back to draft; `[]` when it isn't finished or the batch is cancelled) so the UI can warn. Reopening a step that is already a draft changes nothing. `PRODUCTION_STEP_LOCKED` is no longer raised.
 - **Cancel** (`production.delete`, general manager and superadmin only): only `in_progress` batches (`PRODUCTION_COMPLETED` for completed ones), with a required reason (1–500 characters). A cancelled batch is read-only (`PRODUCTION_CANCELLED` for any change) and excluded from the figures.
 - **Batch code** `PR-YYYYMMDD-NNN`: from the **creation day** in `BUSINESS_TIMEZONE` (e.g. 17:30 UTC on 30 Sep is already 1 Oct in Phnom Penh), numbered per day by a counter row (`production_batch_counters`, `INSERT … ON CONFLICT … RETURNING`), so concurrent creations get distinct numbers. The code never changes, whenever the steps are finished or reopened.
 
@@ -645,11 +693,11 @@ All of these are required at Finish.
 
 | Endpoint | Notes |
 |---|---|
-| `GET /production` | **Cancelled batches are left out** unless `include_cancelled=true` (then added to the chosen status) or `status=cancelled` (only them). Filters: `status` (`in_progress`, `completed`, `cancelled`, `all` = default: in progress + completed), `include_cancelled` (default `false`), `waiting_step` (2 or 3: in-progress batches whose previous steps are finished and that step isn't), `date_from` / `date_to` (inclusive; a batch matches if **any** of its three step dates is in the range, or, while no step is finished, its **creation day**), `q` (batch code or supplier name). `sort`: `-date` (default), `date` — by the batch's **latest recorded step date**, falling back to its creation day, then by code — `code`, `-code`. Paging: 20 by default, at most 100. Items: `code`, `import_date`, `production_date`, `packaging_date` (null until recorded), `created_at`, `status`, `current_step`, `steps` (`pending` / `draft` / `finished` for steps 1–3), `supplier`, `quantity`, `created_by`. |
+| `GET /production` | **Cancelled batches are left out** unless `include_cancelled=true` (then added to the chosen status) or `status=cancelled` (only them). Filters: `status` (`in_progress`, `completed`, `cancelled`, `all` = default: in progress + completed), `include_cancelled` (default `false`), `waiting_step` (`2` or `3`: in-progress batches whose previous steps are finished and that step isn't, for `3` only with a **confirmed** plan; `plan`: step 2 finished and the plan still **pending**), `date_from` / `date_to` (inclusive; a batch matches if **any** of its three step dates is in the range, or, while no step is finished, its **creation day**), `q` (batch code or supplier name). `sort`: `-date` (default), `date` — by the batch's **latest recorded step date**, falling back to its creation day, then by code — `code`, `-code`. Paging: 20 by default, at most 100. Items: `code`, `import_date`, `production_date`, `packaging_date` (null until recorded), `created_at`, `status`, `current_step`, `steps` (`pending` / `draft` / `finished` for steps 1–3), `supplier`, `quantity`, `created_by`. |
 | `GET /production/stats` | `in_progress`; `completed_today` (completed since midnight, Cambodia time); `chickens_this_month` (quantity of finished step 1s whose **import date** is this month); `rejected_pieces_this_month` (rejected wings + thighs of finished step 3s whose **packing date** is this month). Months and days follow `BUSINESS_TIMEZONE`; cancelled batches are excluded. |
 | `POST /production` | Creates the batch with a draft step 1; optional initial step 1 fields (no date). `201` with the batch. |
-| `GET /production/{id}` | The batch, all steps, by-products, catalogs and `computed` (`wings_count` / `thighs_count` from the current quantity, `yield_percent` = (wings kg + thighs kg) ÷ raw kg × 100, one decimal, or null). |
-| `POST /production/{id}/{step}/finish` | `step` ∈ `raw-material`, `produced`, `standardize`; body `{version}`. Records the step's date (today, `BUSINESS_TIMEZONE`). |
+| `GET /production/{id}` | The batch, all steps, by-products, catalogs, `plan` (read-only: status, expected values, note, `confirmed_by/at`, `updated_by/at`; `null` before step 2 is finished), `plan_legacy` (`true` when step 2 was finished but there's no plan: batches finished before plans existed) and `computed` (`wings_count` / `thighs_count` from the current quantity, `yield_percent` = (wings kg + thighs kg) ÷ raw kg × 100, one decimal, or null). |
+| `POST /production/{id}/{step}/finish` | `step` ∈ `raw-material`, `produced`, `standardize`; body `{version}`. Records the step's date (today, `BUSINESS_TIMEZONE`). Step 2 also creates the plan (or puts it back to pending); steps 2 and 3 create the alerts (§16). |
 | `POST /production/{id}/{step}/reopen` | Body `{version}`. Reopens a finished step: it and every later finished step go back to draft (§14.2). |
 | `POST /production/{id}/cancel` | Body `{version, reason}`. |
 | `GET /production/supplier-options` | Active suppliers `{id, name, phone_display}` (at most 20, `q` on name or phone digits), for picking the step 1 supplier **without** Suppliers access. |
@@ -666,4 +714,96 @@ Every user reference (`created_by`, `finished_by`, …) is a `UserRef` and redac
 | Full access | also reopen finished steps (one action; later steps go back to draft) |
 | (GM only, detailed permission) | cancel batches |
 
-Defaults: the general manager holds all four permissions (and reads as Full access; the superadmin can lower it), supervisors Full access, staff Off (§5.3). Anyone with `production.create` can fill in any in-progress batch, not only their own.
+Defaults: the general manager holds all four permissions (and reads as Full access; the superadmin can lower it), supervisors Full access, staff Off (§5.3). Anyone with `production.create` can fill in any in-progress batch, not only their own. Setting the packaging plan is a separate feature (§15): someone with Record can finish step 3, but only once a planner has confirmed the plan.
+
+---
+
+## 15. Packaging plan
+
+Between step 2 and step 3 a planner decides how many **4-Piece Packs** (`expected_big`) and **2-Piece Packs** (`expected_small`) the batch should make. It appears under **Workstation → Production plan** (ផែនការវេចខ្ចប់) in the UI.
+
+### 15.1 Data
+
+`production_plans`, one row per batch (PK `batch_id`, cascade): `expected_big`, `expected_small` (whole ≥ 0, nullable), `note` (≤ 500, trimmed; empty → null), `status` (`pending` | `confirmed`), `confirmed_by/at`, `updated_by/at`. CHECK: a confirmed plan has both values.
+
+### 15.2 Lifecycle
+
+| Event | Plan |
+|---|---|
+| Step 2 finished the first time | created, `pending`, empty |
+| Step 2 finished again (after a reopen) | back to `pending`, values kept |
+| Step 1 or 2 reopened | back to `pending`, values kept → step 3 locked again |
+| Step 3 reopened | stays `confirmed`, editable again |
+| Step 3 finished (batch completed) | read-only → `409 PRODUCTION_PLAN_LOCKED` |
+| Batch cancelled | read-only → `409 PRODUCTION_CANCELLED` |
+
+- Step 3's row is still created when step 2 is finished, but it can't be saved or finished until the plan is `confirmed` (`PRODUCTION_PLAN_REQUIRED`).
+- **Before plans existed:** the migration gave a `pending` plan to every in-progress batch whose step 2 was finished (their step 3 waits for it). Completed and cancelled batches got none: they answer `plan: null`, `plan_legacy: true`, and no alerts were sent for them. Reopening any step of such a batch creates its first plan, `pending`, pre-filled with its current packs.
+
+### 15.3 Rules
+
+- **Pieces:** a plan uses `2 × expected_big + expected_small` wings and as many thighs; that must be ≤ `wings_count` **and** ≤ `thighs_count` of step 2 → else `422 PRODUCTION_PLAN_EXCEEDS_OUTPUT` with `details = {wings: {available, planned}, thighs: {available, planned}}`. Checked on save (when both values are set) and on confirm.
+- **Confirm** needs both values → else `VALIDATION_ERROR` (`details.fields` locations `["plan", "expected_big"]` / `["plan", "expected_small"]`).
+- **Editing a confirmed plan** (step 3 not finished) keeps it confirmed; `updated_by/at` change. A confirmed plan can't lose a value (`null` → `VALIDATION_ERROR`).
+- **Step 2 must be finished:** while it is a draft again after a reopen, saving or confirming → `409 PRODUCTION_STEP_NOT_READY` (the counts may still change).
+- **Concurrency:** every plan write locks the batch row and uses the **batch `version`** (stale → `409 PRODUCTION_CONFLICT` with the batch in `details.batch`), and increments it, like the steps. Checks run in this order: not found, cancelled, locked, step 2 finished, version, values.
+
+### 15.4 Endpoints
+
+| Endpoint | Notes |
+|---|---|
+| `GET /production-plans` | `status`: `pending` (default; batch in progress), `confirmed` (batch in progress, step 3 not finished), `completed` (batch completed), `all` (any batch that isn't cancelled); `q` (batch code or supplier name); paging 20 (max 100). Newest production date first. Items: `batch_id`, `code`, `batch_status`, `supplier`, `production_date` (step 2), `quantity`, `wings_count`, `thighs_count`, `status`, `expected_big`, `expected_small`, `updated_at`. Also `pending_count` (plans waiting, whatever the filter). |
+| `GET /production-plans/{batch_id}` | The plan (or `null` + `plan_legacy`), step 2 (`status`, `production_date`, wings / thighs kg and count, by-products with catalog names and kg, marinade g), step 3's actual packs and comment, the batch `version`, `status`, `current_step`, supplier and quantity, and `editable` (step 2 finished, step 3 not finished, batch not cancelled). |
+| `PATCH /production-plans/{batch_id}` | `production_plan.manage`. Body `{version, expected_big?, expected_small?, note?}` (partial; `null` clears). Returns the detail. |
+| `POST /production-plans/{batch_id}/confirm` | `production_plan.manage`. Body `{version}`. Returns the detail. |
+
+Audit: `production_plan.update` (field diff, only when something changed) and `production_plan.confirm` (§6).
+
+---
+
+## 16. Notifications
+
+Production alerts, stored in the app (the bell) and sent on Telegram.
+
+### 16.1 When and to whom
+
+| Event | Type | Payload |
+|---|---|---|
+| Step 2 finished | `production.processing_finished` | `code`, `quantity`, `wings`, `thighs`, `actor_id`, `repeat` |
+| Step 3 finished | `production.completed` | `code`, `matches`, `planned_big`, `planned_small`, `actual_big`, `actual_small`, `comment`, `actor_id`, `repeat` |
+
+- **Recipients:** every **active** user holding `production_plan.view` (effective permissions: granted, active permission, still assignable to the role): the GM, the superadmin (implicitly) and the supervisors given plan access. Staff never. The person who finished the step is included when they qualify.
+- `repeat` is `true` when the batch already had an alert of that type (e.g. step 2 finished again after a reopen); the text says "again".
+- One `notifications` row per recipient is inserted **in the same transaction** as the Finish: an alert exists exactly when the step was finished.
+
+### 16.2 Telegram delivery
+
+**After the commit**, a background task sends one message per row, in the recipient's language (km/en), and records the outcome:
+
+| `telegram_status` | Meaning |
+|---|---|
+| `pending` | not attempted yet |
+| `sent` | delivered (`sent_at`) |
+| `failed` | Telegram refused or couldn't be reached (blocked bot, network); `telegram_error` holds the reason and it's logged. **Not retried automatically.** |
+| `not_linked` | the recipient has no Telegram account bound |
+| `bot_off` | no bot token, `BOT_MODE=off`, or webhook mode without a running bot |
+
+- Webhook mode sends with the API's own bot; polling mode creates a short-lived bot in the API process (the poller is a separate process).
+- **A Telegram problem never blocks or fails the Finish.**
+- Retry failed ones manually: `python -m app.bot notifications resend-failed` (in Docker: `docker compose exec api python -m app.bot notifications resend-failed`).
+
+**Messages** (HTML, user text escaped):
+
+- ✅ *"{code}: processing finished — {quantity} chickens → {wings} wings, {thighs} thighs. Set the packaging plan."* Button **Open plan / បើកផែនការ**.
+- 🎉 *"{code}: production completed as planned — {big} × 4-Piece Packs, {small} × 2-Piece Packs."* Button **Open batch / បើកផលិតកម្ម**.
+- ⚠️ *"{code}: production completed, different from the plan. Planned {pb} / {ps}, actual {ab} / {as}. Comment: “{comment}”."* Button **Open batch**.
+
+Buttons are inline `web_app` buttons to `MINI_APP_URL` + `/workstation/production-plans/<batch id>` or `/workstation/production/<batch id>?step=3`; without an HTTPS `MINI_APP_URL` the message is text only. The texts never name who finished the step.
+
+### 16.3 The bell
+
+| Endpoint | Notes |
+|---|---|
+| `GET /notifications` | Own notifications, newest first; `unread_only`, paging (20, max 100). Each item: `id`, `type`, `entity_type`, `entity_id`, `payload` (without `actor_id`), `actor` (`UserRef`: "System" for the superadmin, §13), `created_at`, `read_at`, `telegram_status`. Also `unread_count` (all unread, whatever the page). |
+| `POST /notifications/{id}/read` | Marks one read (idempotent). Someone else's → `404 NOTIFICATION_NOT_FOUND`. |
+| `POST /notifications/read-all` | `{updated, unread_count}`. |

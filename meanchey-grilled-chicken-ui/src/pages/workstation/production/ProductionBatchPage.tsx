@@ -12,8 +12,18 @@ import { getError, useErrorMessage } from '@/lib/errors'
 import { useFormatDate, useFormatDay } from '@/lib/format'
 import { paths } from '@/lib/paths'
 import { CANCEL_REASON_MAX_LENGTH, type ProductionBatch, type StepNumber } from '@/lib/types'
-import { STEPS, canReopenStep, onBatchChanged, productionKeys, slugOf, stepData, stepDate } from './api'
+import {
+  STEPS,
+  canReopenStep,
+  onBatchChanged,
+  planConfirmed,
+  productionKeys,
+  slugOf,
+  stepData,
+  stepDate,
+} from './api'
 import { BatchStatusBadge } from './badges'
+import { PlanCard, WaitingForPlan } from './PlanCard'
 import { ProducedForm, RawMaterialForm, StandardizeForm } from './StepForms'
 import { StepSummary } from './StepSummaries'
 
@@ -205,6 +215,9 @@ export function ProductionBatchPage() {
     [1, 2, 3].includes(requested) && stepData(batch, requested) ? requested : batch.current_step
   const data = stepData(batch, selected)
   const editable = data?.status === 'draft' && batch.status === 'in_progress' && canRecord
+  // Step 3 waits for a confirmed packaging plan (the API refuses saves until then).
+  const waitingForPlan =
+    selected === 3 && data?.status === 'draft' && batch.status === 'in_progress' && !planConfirmed(batch)
 
   const actions: ActionMenuItem[] = [
     ...(canReopen
@@ -288,8 +301,11 @@ export function ProductionBatchPage() {
       )}
 
       <Stepper batch={batch} selected={selected} onSelect={selectStep} />
+      <PlanCard batch={batch} />
 
-      {editable ? (
+      {waitingForPlan ? (
+        <WaitingForPlan batch={batch} />
+      ) : editable ? (
         selected === 1 ? (
           <RawMaterialForm key={`${batch.id}-1`} batch={batch} onFinished={onFinished} />
         ) : selected === 2 ? (

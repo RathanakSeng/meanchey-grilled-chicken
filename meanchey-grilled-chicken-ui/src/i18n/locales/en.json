@@ -36,7 +36,8 @@
     "profile": "My profile",
     "logout": "Log out",
     "menu": "Menu",
-    "production": "Production"
+    "production": "Production",
+    "productionPlans": "Production plan"
   },
   "roles": {
     "superadmin": "System",
@@ -184,11 +185,13 @@
       "suppliers": "Suppliers",
       "customers": "Customers",
       "staff_management": "Staff management",
-      "production": "Production"
+      "production": "Production",
+      "production_plan": "Production plan"
     },
     "legendRecord": "Record: can start batches and fill in steps, but can't reopen finished steps.",
     "gmHint": "Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced).",
-    "levelNotAvailable": "Not available for this feature"
+    "levelNotAvailable": "Not available for this feature",
+    "legendPlan": "Production plan: View only = see plans and receive production alerts; Full access = also set and confirm plans."
   },
   "audit": {
     "title": "Audit log",
@@ -238,7 +241,11 @@
       "production_create": "Production started",
       "production_step_finish": "Production step finished",
       "production_step_reopen": "Production step reopened",
-      "production_cancel": "Production cancelled"
+      "production_cancel": "Production cancelled",
+      "production_plan_update": "Edited packaging plan",
+      "production_plan_confirm": "Confirmed packaging plan",
+      "profile_telegram_link": "Linked Telegram account",
+      "profile_telegram_unlink": "Unlinked Telegram account"
     },
     "featureChange": "{{feature}}: {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
@@ -366,7 +373,7 @@
     "PASSWORD_TOO_SHORT": "The password must be at least {{min}} characters.",
     "PASSWORD_EQUALS_USERNAME": "The password must not be the same as your username.",
     "PASSWORDS_DO_NOT_MATCH": "The passwords don't match.",
-    "TELEGRAM_NOT_CONFIGURED": "Telegram sign-in is not configured.",
+    "TELEGRAM_NOT_CONFIGURED": "The Telegram bot isn't configured yet.",
     "INVALID_TELEGRAM_DATA": "Invalid Telegram data. Please open the app from the bot again.",
     "TELEGRAM_DATA_EXPIRED": "Your Telegram session expired. Close and reopen the app.",
     "USER_NOT_REGISTERED": "This Telegram account isn't registered.",
@@ -407,7 +414,12 @@
     "PRODUCTION_CONFLICT": "Someone else changed this batch. It has been reloaded; please try again.",
     "PRODUCTION_CANCELLED": "This batch is cancelled and can't be changed.",
     "PRODUCTION_COMPLETED": "Completed batches can't be cancelled.",
-    "PRODUCTION_UNSAVED": "Your latest changes aren't saved yet. Check the connection and try again."
+    "PRODUCTION_UNSAVED": "Your latest changes aren't saved yet. Check the connection and try again.",
+    "PRODUCTION_PLAN_REQUIRED": "The packaging plan must be confirmed before step 3.",
+    "PRODUCTION_PLAN_LOCKED": "Step 3 is finished, so the plan can't change. Reopen step 3 first.",
+    "PRODUCTION_PLAN_EXCEEDS_OUTPUT": "The plan uses more wings or thighs than were produced.",
+    "PRODUCTION_PLAN_COMMENT_REQUIRED": "The packs differ from the plan — add a comment.",
+    "NOTIFICATION_NOT_FOUND": "Notification not found."
   },
   "permissions": {
     "readOnlyNotice": "You can view these permissions, but you can't change them here.",
@@ -443,7 +455,8 @@
       "to": "To date",
       "showCancelled": "Show cancelled",
       "date": "Date",
-      "dateHint": "Matches any step date (import, production or packing)."
+      "dateHint": "Matches any step date (import, production or packing).",
+      "waitingPlan": "Waiting for plan"
     },
     "columns": {
       "code": "Batch",
@@ -476,8 +489,8 @@
       "wingsCount": "Wings",
       "thighsCount": "Thighs",
       "marinadeG": "Marinade",
-      "bigPackages": "Big packages",
-      "smallPackages": "Small packages",
+      "bigPackages": "4-Piece Packs",
+      "smallPackages": "2-Piece Packs",
       "rejectedWings": "Rejected wings",
       "rejectedThighs": "Rejected thighs",
       "carryKg": "Carry forward",
@@ -528,7 +541,8 @@
       "supplierInactive": "The supplier is deactivated. Choose another one.",
       "wings": "Wings don't add up yet.",
       "thighs": "Thighs don't add up yet.",
-      "byproduct": "{{name}}: carry forward + rejected must equal the produced weight."
+      "byproduct": "{{name}}: carry forward + rejected must equal the produced weight.",
+      "planComment": "Comment required: packs differ from the plan."
     },
     "supplierInactive": "Deactivated",
     "chooseSupplier": "Choose supplier",
@@ -540,8 +554,8 @@
     "yieldLabel": "Yield",
     "byproductsTitle": "By-products",
     "byproductsHint": "Split each by-product into what is carried forward and what is rejected.",
-    "bigHint": "1 big = 2 wings + 2 thighs → {{count}} wings + {{count}} thighs",
-    "smallHint": "1 small = 1 wing + 1 thigh → {{count}} wings + {{count}} thighs",
+    "bigHint": "1 × 4-piece = 2 wings + 2 thighs → {{count}} wings + {{count}} thighs",
+    "smallHint": "1 × 2-piece = 1 wing + 1 thigh → {{count}} wings + {{count}} thighs",
     "wings": "Wings",
     "thighs": "Thighs",
     "producedKg": "Produced {{kg}} kg",
@@ -581,5 +595,81 @@
     },
     "dateOnFinish": "{{date}} will be recorded when you finish this step.",
     "started": "Started {{date}}"
+  },
+  "plans": {
+    "title": "Production plan",
+    "description": "Set how many 4-piece and 2-piece packs each batch should make.",
+    "pendingCount": "{{count}} waiting for a plan",
+    "filters": {
+      "pending": "Waiting for plan",
+      "confirmed": "Confirmed",
+      "completed": "Completed",
+      "all": "All"
+    },
+    "stage": {
+      "pending": "Waiting for plan",
+      "confirmed": "Confirmed",
+      "completed": "Completed",
+      "cancelled": "Cancelled",
+      "legacy": "No plan (before plans existed)"
+    },
+    "packsShort": "{{big}} × 4-piece · {{small}} × 2-piece",
+    "piecesShort": "{{wings}} wings · {{thighs}} thighs",
+    "columns": {
+      "pieces": "Wings / thighs",
+      "planned": "Planned packs"
+    },
+    "empty": "No plans here.",
+    "emptyPending": "No batch is waiting for a plan.",
+    "openBatch": "Open batch",
+    "openPlan": "Open plan",
+    "conflict": "Someone else changed this batch. The plan has been reloaded — check the values and try again.",
+    "legacy": "No plan: this batch was finished before packaging plans existed.",
+    "notYet": "The plan can be set once processing (step 2) is finished.",
+    "stepTwoReopened": "Processing was reopened. The plan can be changed again once it is finished.",
+    "producedTitle": "Processed (step 2)",
+    "planTitle": "Packaging plan",
+    "note": "Note",
+    "usage": "Uses {{planned}} of {{wings}} wings · {{planned}} of {{thighs}} thighs",
+    "exceeds": "More pieces than were produced.",
+    "confirm": "Confirm plan",
+    "confirmTitle": "Confirm the plan?",
+    "confirmBody": "{{big}} × 4-piece and {{small}} × 2-piece packs. Step 3 can start once the plan is confirmed.",
+    "confirmedBy": "Confirmed by {{name}} · {{time}}",
+    "confirmedEditable": "Changes keep the plan confirmed until step 3 is finished.",
+    "waitingNote": "Step 3 waits until this plan is confirmed.",
+    "actualBig": "4-Piece Packs (actual)",
+    "actualSmall": "2-Piece Packs (actual)",
+    "waitingTitle": "Waiting for the packaging plan",
+    "waitingBody": "Step 3 can start once a manager confirms the packaging plan.",
+    "waitingBodyPlanner": "Step 3 can start once the packaging plan is confirmed.",
+    "vsActual": "Plan vs actual",
+    "planned": "Planned",
+    "actual": "Actual",
+    "differs": "Different from the plan",
+    "differsWarning": "Different from the plan — add a comment."
+  },
+  "notifications": {
+    "title": "Notifications",
+    "titleUnread": "Notifications ({{count}} unread)",
+    "empty": "No notifications yet.",
+    "markAllRead": "Mark all as read",
+    "unread": "Unread",
+    "again": " again",
+    "processingFinished": "{{code}}: processing finished{{again}} — {{quantity}} chickens → {{wings}} wings, {{thighs}} thighs. Set the packaging plan.",
+    "completedAsPlanned": "{{code}}: production completed{{again}} as planned — {{big}} × 4-Piece Packs, {{small}} × 2-Piece Packs.",
+    "completedDiffers": "{{code}}: production completed{{again}}, different from the plan. Planned {{pb}} / {{ps}}, actual {{ab}} / {{as}}."
+  },
+  "telegramLink": {
+    "title": "Telegram",
+    "body": "Link your Telegram account to receive production alerts from the bot.",
+    "linkedBody": "Production alerts are sent to your linked Telegram account.",
+    "link": "Link Telegram",
+    "newLink": "Create a new link",
+    "open": "Open the bot",
+    "validFor": "Opens the bot; valid for 10 minutes. Tap Start there.",
+    "unlink": "Unlink",
+    "unlinkTitle": "Unlink Telegram?",
+    "unlinkBody": "Production alerts will no longer reach this Telegram account."
   }
 }

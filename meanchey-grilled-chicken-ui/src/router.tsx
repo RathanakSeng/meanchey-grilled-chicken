@@ -42,6 +42,14 @@ const ProductionBatchPage = lazy(() =>
   })),
 )
 
+// Packaging plans: another lazy chunk, only for plan holders.
+const PlanListPage = lazy(() =>
+  import('@/pages/workstation/production-plans/PlanListPage').then((m) => ({ default: m.PlanListPage })),
+)
+const PlanPage = lazy(() =>
+  import('@/pages/workstation/production-plans/PlanPage').then((m) => ({ default: m.PlanPage })),
+)
+
 function PageLoading({ children }: { children: ReactNode }) {
   return (
     <Suspense
@@ -116,6 +124,28 @@ export const router = createBrowserRouter([
                           <ProductionBatchPage />
                         </PageLoading>
                       </RequireAccess>
+                    ),
+                  },
+                ],
+              },
+              {
+                path: 'production-plans',
+                element: <RequireAccess permission="production_plan.view" />,
+                children: [
+                  {
+                    index: true,
+                    element: (
+                      <PageLoading>
+                        <PlanListPage />
+                      </PageLoading>
+                    ),
+                  },
+                  {
+                    path: ':batchId',
+                    element: (
+                      <PageLoading>
+                        <PlanPage />
+                      </PageLoading>
                     ),
                   },
                 ],

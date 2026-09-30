@@ -4,6 +4,7 @@ import { Badge, Card } from '@/components/ui'
 import { useFormatDate, useFormatDay, useLocalized } from '@/lib/format'
 import type { ProductionBatch, StepNumber, UserRef } from '@/lib/types'
 import { STEPS, stepData, stepDate } from './api'
+import { PlanVsActual } from './PlanCard'
 import { toInput } from './numbers'
 
 function Row({ label, children }: { label: ReactNode; children: ReactNode }) {
@@ -107,6 +108,11 @@ export function StepSummary({ batch, step }: { batch: ProductionBatch; step: Ste
             })}
           </Row>
         ))}
+        {batch.plan && (
+          <div className="py-2">
+            <PlanVsActual batch={batch} actualBig={s.big_packages} actualSmall={s.small_packages} />
+          </div>
+        )}
         {s.comment && (
           <div className="py-2 text-sm">
             <dt className="text-stone-500">{t('production.fields.comment')}</dt>

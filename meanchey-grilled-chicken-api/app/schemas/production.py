@@ -14,7 +14,11 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PlainSerializer
 
-from app.models.production import CANCEL_REASON_MAX_LENGTH, COMMENT_MAX_LENGTH
+from app.models.production import (
+    CANCEL_REASON_MAX_LENGTH,
+    COMMENT_MAX_LENGTH,
+    PLAN_NOTE_MAX_LENGTH,
+)
 from app.schemas.common import UserRef
 
 MAX_COUNT = 1_000_000
@@ -32,6 +36,11 @@ BatchStatus = Literal["in_progress", "completed", "cancelled"]
 StepStatus = Literal["draft", "finished"]
 ListStatus = Literal["in_progress", "completed", "cancelled", "all"]
 ProductionSort = Literal["date", "-date", "code", "-code"]
+# "2" / "3": the previous steps are finished and that step isn't (step 3: the plan is confirmed);
+# "plan": step 2 is finished and the packaging plan is still pending.
+WaitingStep = Literal["2", "3", "plan"]
+PlanStatus = Literal["pending", "confirmed"]
+PlanListStatus = Literal["pending", "confirmed", "completed", "all"]
 
 
 def _reason(value: str) -> str:
@@ -86,6 +95,16 @@ class StandardizeDraft(_Body):
     comment: Annotated[str, Field(max_length=COMMENT_MAX_LENGTH)] | None = None
     # item_code -> carried forward / rejected kg.
     byproducts: dict[str, ByproductDispositionIn] | None = None
+
+
+class PlanUpdate(_Body):
+    """Partial: only fields present are applied; `null` clears one (not on a confirmed plan)."""
+
+    version: Version
+    # 4-piece packs (2 wings + 2 thighs each) and 2-piece packs (1 wing + 1 thigh each).
+    expected_big: CountIn | None = None
+    expected_small: CountIn | None = None
+    note: Annotated[str, Field(max_length=PLAN_NOTE_MAX_LENGTH)] | None = None
 
 
 class VersionIn(_Body):
@@ -154,6 +173,21 @@ class StandardizeOut(_StepOut):
     comment: str | None
     # ថ្ងៃវេចខ្ចប់: recorded when step 3 is finished; null while a draft.
     packaging_date: date | None
+    # Both pack counts equal the plan's; null until both actual counts (and a plan) exist.
+    plan_matches: bool | None
+
+
+class PlanOut(BaseModel):
+    """The packaging plan as shown on a batch (read-only there)."""
+
+    status: PlanStatus
+    expected_big: int | None
+    expected_small: int | None
+    note: str | None
+    confirmed_by: UserRef | None
+    confirmed_at: datetime | None
+    updated_by: UserRef | None
+    updated_at: datetime
 
 
 class ByproductOut(BaseModel):
@@ -210,6 +244,10 @@ class BatchOut(BaseModel):
     # null until the previous step is finished for the first time.
     produced: ProducedOut | None
     standardize: StandardizeOut | None
+    # The packaging plan (created when step 2 is finished); null before that, and for batches
+    # finished before plans existed (then `plan_legacy` is true).
+    plan: PlanOut | None
+    plan_legacy: bool
     byproducts: list[ByproductOut]
     computed: ComputedOut
     catalog: CatalogOut
@@ -251,3 +289,79 @@ class ProductionStats(BaseModel):
     # Rejected wings + thighs of finished step 3s whose packing date is this month; cancelled
     # batches excluded.
     rejected_pieces_this_month: int
+
+
+# --- Packaging plans -----------------------------------------------------------------------------
+
+
+class PlanListItem(BaseModel):
+    batch_id: uuid.UUID
+    code: str
+    batch_status: BatchStatus
+    supplier: SupplierBrief | None
+    # ថ្ងៃផលិត (step 2); null while step 2 is back in draft after a reopen.
+    production_date: date | None
+    quantity: int | None
+    wings_count: int
+    thighs_count: int
+    status: PlanStatus
+    expected_big: int | None
+    expected_small: int | None
+    updated_at: datetime
+
+
+class PlanPage(BaseModel):
+    items: list[PlanListItem]
+    total: int
+    page: int
+    page_size: int
+    # Plans waiting to be set (pending, batch in progress), whatever the filter.
+    pending_count: int
+
+
+class ProducedByproductOut(BaseModel):
+    item_code: str
+    name_en: str
+    name_km: str
+    produced_kg: KgOut | None
+
+
+class ProducedSummary(BaseModel):
+    """Step 2 as the planner sees it."""
+
+    status: StepStatus
+    production_date: date | None
+    wings_kg: KgOut | None
+    thighs_kg: KgOut | None
+    wings_count: int
+    thighs_count: int
+    marinade_g: GramsOut | None
+    byproducts: list[ProducedByproductOut]
+
+
+class ActualPacks(BaseModel):
+    """Step 3's pack counts, once there are any."""
+
+    status: StepStatus
+    big_packages: int | None
+    small_packages: int | None
+    comment: str | None
+    packaging_date: date | None
+
+
+class PlanDetail(BaseModel):
+    batch_id: uuid.UUID
+    code: str
+    batch_status: BatchStatus
+    current_step: int
+    # The batch version: every plan write sends it (PRODUCTION_CONFLICT when stale).
+    version: int
+    supplier: SupplierBrief | None
+    quantity: int | None
+    produced: ProducedSummary | None
+    standardize: ActualPacks | None
+    plan: PlanOut | None
+    plan_legacy: bool
+    # The plan can be changed now (step 2 finished, step 3 not finished, batch not cancelled);
+    # the caller still needs production_plan.manage.
+    editable: bool

@@ -11,6 +11,7 @@ show; BODIES covers routes whose permission / scope check happens in the service
 """
 
 import re
+import uuid
 
 import pytest
 from sqlalchemy import update
@@ -25,6 +26,7 @@ BODIES: dict[tuple[str, str], dict] = {
     ("POST", "/users/{user_id}/role"): {"role": "supervisor"},
     ("PUT", "/users/{user_id}/features/{feature}"): {"level": "view"},
     ("PATCH", "/users/{user_id}"): {"full_name": "Target Staff"},
+    ("PATCH", "/production-plans/{batch_id}"): {"version": 1, "expected_big": 1},
 }
 
 
@@ -65,6 +67,8 @@ def _fill(path: str, world: dict) -> str:
     url = path.replace("{user_id}", world["user_id"])
     url = url.replace("{batch_id}", world["batch_id"]).replace("{step}", "raw-material")
     url = url.replace("{code}", "suppliers.view").replace("{feature}", "suppliers")
+    # Someone else's (or no) notification: 404 for both, never 403.
+    url = url.replace("{notification_id}", str(uuid.uuid4()))
     if "{partner_id}" in url:
         url = url.replace("{partner_id}", world[url.split("/")[1]])
     assert not re.search(r"\{\w+\}", url), f"superset test doesn't know how to fill {path}"
@@ -110,5 +114,8 @@ async def test_superadmin_is_never_forbidden_where_the_gm_is_allowed(
         "GET /audit-logs",
         "POST /suppliers",
         "POST /production/{batch_id}/cancel",
+        "GET /production-plans",
+        "PATCH /production-plans/{batch_id}",
+        "GET /notifications",
     ):
         assert route in checked, route

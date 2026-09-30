@@ -4,8 +4,9 @@ import uuid
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
 
+from app.bot.notify import deliver
 from app.deps import SessionDep, require_permission
 from app.models import User
 from app.schemas.production import (
@@ -22,7 +23,9 @@ from app.schemas.production import (
     StepSlug,
     SupplierOption,
     VersionIn,
+    WaitingStep,
 )
+from app.services import notification_service
 from app.services import production_service as svc
 
 router = APIRouter(prefix="/production", tags=["production"])
@@ -39,7 +42,7 @@ async def list_batches(
     session: SessionDep,
     status: ListStatus = "all",
     include_cancelled: bool = False,
-    waiting_step: Annotated[int | None, Query(ge=2, le=3)] = None,
+    waiting_step: WaitingStep | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     q: Annotated[str | None, Query(max_length=100)] = None,
@@ -49,9 +52,11 @@ async def list_batches(
 ) -> BatchPage:
     """Cancelled batches are left out unless `include_cancelled=true` (then they're added to the
     chosen status) or `status=cancelled` (only them). `waiting_step=2|3`: in-progress batches
-    whose previous steps are finished and that step isn't. `q` matches the batch code and the
-    supplier name. `date_from`/`date_to`: a batch matches if any of its step dates (import,
-    production, packing) is in the range or, while no step is finished, its creation day.
+    whose previous steps are finished and that step isn't (3: with a confirmed plan);
+    `waiting_step=plan`: step 2 finished and the packaging plan still pending. `q` matches the
+    batch code and the supplier name. `date_from`/`date_to`: a batch matches if any of its step
+    dates (import, production, packing) is in the range or, while no step is finished, its
+    creation day.
     `date` sort: by the latest recorded step date (else the creation day), then the code."""
     items, total = await svc.list_batches(
         session,
@@ -125,10 +130,27 @@ async def save_standardize(
 
 @router.post("/{batch_id}/{step}/finish", response_model=BatchOut)
 async def finish_step(
-    batch_id: uuid.UUID, step: StepSlug, body: VersionIn, actor: CanRecord, session: SessionDep
+    batch_id: uuid.UUID,
+    step: StepSlug,
+    body: VersionIn,
+    actor: CanRecord,
+    session: SessionDep,
+    request: Request,
+    background: BackgroundTasks,
 ) -> BatchOut:
-    """Validate strictly and lock the step. Finishing standardize completes the batch."""
-    batch = await svc.finish_step(session, actor, batch_id, svc.STEP_NUMBERS[step], body.version)
+    """Validate strictly and lock the step. Finishing standardize completes the batch (a confirmed
+    plan is required, and a comment when the packs differ from it). Finishing processing or
+    standardize alerts the plan holders: stored now, sent to Telegram after the response."""
+    try:
+        batch = await svc.finish_step(
+            session, actor, batch_id, svc.STEP_NUMBERS[step], body.version
+        )
+    except Exception:
+        notification_service.discard_queued(session)
+        raise
+    ids = notification_service.take_queued(session)
+    if ids:
+        background.add_task(deliver, ids, request.app.state.telegram)
     return await svc.batch_out(session, batch)
 
 

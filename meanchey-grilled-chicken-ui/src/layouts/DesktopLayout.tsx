@@ -2,10 +2,12 @@ import { useTranslation } from 'react-i18next'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Icon } from '@/components/icons'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
+import { NotificationBell } from '@/components/NotificationBell'
 import { ProfileMenu } from '@/components/ProfileMenu'
 import { cx } from '@/components/ui'
 import { isUnder } from '@/lib/paths'
 import { Brand } from './Brand'
+import { NavBadge } from '@/components/NavBadge'
 import { useNavItems } from './nav'
 
 export function DesktopLayout() {
@@ -60,6 +62,7 @@ export function DesktopLayout() {
                         >
                           <Icon name={child.icon} width={16} height={16} />
                           {t(child.labelKey)}
+                          <NavBadge item={child} />
                         </NavLink>
                       </li>
                     ))}
@@ -74,6 +77,7 @@ export function DesktopLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-16 items-center justify-end gap-4 border-b border-stone-200 bg-white/90 px-6 backdrop-blur">
           <LanguageSwitcher />
+          <NotificationBell />
           <ProfileMenu />
         </header>
         <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">

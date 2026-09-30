@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/icons'
-import { Field, Select, cx } from '@/components/ui'
+import { Alert, Field, Select, cx } from '@/components/ui'
 import { api } from '@/lib/api'
 import { ClientError, getError } from '@/lib/errors'
 import { useLocalized } from '@/lib/format'
@@ -11,6 +11,7 @@ import type { ProductionBatch, StepNumber } from '@/lib/types'
 import { PRODUCTION_COMMENT_MAX_LENGTH } from '@/lib/types'
 import { STEPS, onBatchChanged, productionKeys, slugOf } from './api'
 import { KG_PLACES, formatScaled, parseDecimal, scaledOf, toInput, valueOf } from './numbers'
+import { PlanVsActual, packsDiffer } from './PlanCard'
 import { SupplierPicker } from './SupplierPicker'
 import { LockedValue, NumberField, StepShell } from './StepShell'
 import {
@@ -372,6 +373,12 @@ export function StandardizeForm({ batch, onFinished }: FormProps) {
   }
 
   const kg = (scaled: number) => toInput(formatScaled(Math.abs(scaled), KG_PLACES))
+  const whole = (s: string) => (/^\d+$/.test(s.trim()) ? Number(s) : null)
+  const actualBig = whole(values.big_packages)
+  const actualSmall = whole(values.small_packages)
+  // Packs that differ from the plan need a comment (the API refuses Finish otherwise).
+  const differs = packsDiffer(batch, actualBig, actualSmall) === true
+  const commentMissing = differs && !values.comment.trim()
   const blockers = [
     ...missingBlocker(standardizeFinishErrors(values), label, t),
     ...(pieces.wings.left !== 0 ? [t('production.blockers.wings')] : []),
@@ -379,6 +386,7 @@ export function StandardizeForm({ batch, onFinished }: FormProps) {
     ...Object.entries(byproducts)
       .filter(([, b]) => b.left !== 0)
       .map(([code]) => t('production.blockers.byproduct', { name: name(code) })),
+    ...(commentMissing ? [t('production.blockers.planComment')] : []),
   ]
 
   return (
@@ -424,6 +432,8 @@ export function StandardizeForm({ batch, onFinished }: FormProps) {
           error={errors.rejected_thighs}
         />
       </div>
+
+      <PlanVsActual batch={batch} actualBig={actualBig} actualSmall={actualSmall} />
 
       <div className="grid gap-3 sm:grid-cols-2">
         <BalanceMeter label={t('production.wings')} balance={pieces.wings} />
@@ -487,15 +497,21 @@ export function StandardizeForm({ batch, onFinished }: FormProps) {
         </ul>
       </fieldset>
 
-      <Field label={t('production.fields.comment')}>
+      {differs && <Alert tone="warning">{t('plans.differsWarning')}</Alert>}
+      <Field label={differs ? `${t('production.fields.comment')} *` : t('production.fields.comment')}>
         {(id) => (
           <textarea
             id={id}
             rows={3}
             maxLength={PRODUCTION_COMMENT_MAX_LENGTH}
             value={values.comment}
+            required={differs}
+            aria-invalid={commentMissing || undefined}
             onChange={(e) => set({ comment: e.target.value })}
-            className="block w-full rounded-lg border-0 bg-white px-3 py-2 text-base text-stone-900 shadow-sm ring-1 ring-inset ring-stone-300 placeholder:text-stone-400 focus:ring-2 focus:ring-inset focus:ring-brand-500 sm:text-sm"
+            className={cx(
+              'block w-full rounded-lg border-0 bg-white px-3 py-2 text-base text-stone-900 shadow-sm ring-1 ring-inset placeholder:text-stone-400 focus:ring-2 focus:ring-inset focus:ring-brand-500 sm:text-sm',
+              commentMissing ? 'ring-amber-400' : 'ring-stone-300',
+            )}
           />
         )}
       </Field>

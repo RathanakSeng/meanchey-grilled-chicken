@@ -65,6 +65,7 @@ export function UserAccessTab({
   })
 
   const hasRecord = data.menus.some((m) => m.features.some((f) => f.levels.includes('record')))
+  const hasPlan = data.menus.some((m) => m.features.some((f) => f.code === 'production_plan'))
   // Same columns in every row (a level a feature doesn't have is an empty "—" cell), so each
   // level sits in the same place for every feature.
   const slots = LEVEL_ORDER.filter((level) =>
@@ -86,6 +87,7 @@ export function UserAccessTab({
         <p>{t('access.legendView')}</p>
         {hasRecord && <p>{t('access.legendRecord')}</p>}
         <p>{t('access.legendFull')}</p>
+        {hasPlan && <p>{t('access.legendPlan')}</p>}
         {/* Only the superadmin manages the GM: GM-only powers aren't feature levels. */}
         {targetRole === 'general_manager' && (
           <p className="mt-2 text-stone-700">{t('access.gmHint')}</p>

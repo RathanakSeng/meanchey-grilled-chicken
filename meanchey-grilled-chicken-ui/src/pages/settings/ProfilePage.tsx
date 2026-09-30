@@ -12,6 +12,7 @@ import { paths } from '@/lib/paths'
 import { useErrorMessage } from '@/lib/errors'
 import { isSuperadmin } from '@/lib/roles'
 import { LANGUAGES, type Language, type Me, type Role } from '@/lib/types'
+import { TelegramLinkCard } from './TelegramLinkCard'
 
 /** What a self-reset returns the password to. */
 function useDefaultPasswordLabel() {
@@ -147,6 +148,8 @@ export function ProfilePage() {
               )}
             </dl>
           </Card>
+
+          {isSuperadmin(user.role) && <TelegramLinkCard />}
 
           <Card title={t('profile.changePassword')}>
             <ChangePasswordForm />

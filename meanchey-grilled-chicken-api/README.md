@@ -281,6 +281,7 @@ In polling mode the webhook endpoint returns 404. Only one polling process may r
 python -m app.bot webhook info                    # URL, pending updates, last error
 python -m app.bot webhook set                     # (re)register from settings
 python -m app.bot webhook delete [--drop-pending] # remove it
+python -m app.bot notifications resend-failed     # retry production alerts whose Telegram send failed
 ```
 
 In Docker, prefix these with `docker compose exec api`.

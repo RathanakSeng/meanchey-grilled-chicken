@@ -68,5 +68,9 @@ def new_refresh_token() -> tuple[str, str]:
     return raw, hash_refresh_token(raw)
 
 
-def hash_refresh_token(raw: str) -> str:
+def hash_token(raw: str) -> str:
+    """SHA-256 hex digest of a high-entropy random token (refresh tokens, Telegram link tokens)."""
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+hash_refresh_token = hash_token

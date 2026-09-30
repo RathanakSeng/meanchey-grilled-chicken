@@ -45,6 +45,7 @@ MODULES: list[ModuleDef] = [
     ModuleDef("users", "User management", "គ្រប់គ្រងអ្នកប្រើប្រាស់"),
     ModuleDef("partners", "Partners", "ដៃគូ"),
     ModuleDef("production", "Production", "ផលិតកម្ម"),
+    ModuleDef("production_plan", "Packaging plan", "ផែនការវេចខ្ចប់"),
 ]
 
 _MANAGERS = (Role.GENERAL_MANAGER, Role.SUPERVISOR)
@@ -219,6 +220,35 @@ PERMISSIONS += [
 
 _PRODUCTION_CODES = frozenset(p.code for p in PERMISSIONS if p.module == "production")
 
+PERMISSIONS += [
+    PermissionDef(
+        code="production_plan.view",
+        module="production_plan",
+        name_en="View packaging plans",
+        name_km="មើលផែនការវេចខ្ចប់",
+        description_en=(
+            "See the Production plan tab and every batch's packaging plan, and receive the "
+            "production alerts (processing finished, production completed)."
+        ),
+        description_km=(
+            "មើលផ្ទាំងផែនការវេចខ្ចប់ និងផែនការរបស់បាច់នីមួយៗ ព្រមទាំងទទួលការជូនដំណឹងផលិតកម្ម "
+            "(ការផលិតរួចរាល់ ផលិតកម្មបានបញ្ចប់)។"
+        ),
+        assignable_to=_MANAGERS,
+    ),
+    PermissionDef(
+        code="production_plan.manage",
+        module="production_plan",
+        name_en="Set packaging plans",
+        name_km="កំណត់ផែនការវេចខ្ចប់",
+        description_en="Fill in, edit and confirm the packaging plan that step 3 waits for.",
+        description_km="បំពេញ កែប្រែ និងបញ្ជាក់ផែនការវេចខ្ចប់ ដែលជំហានទី៣ ត្រូវរង់ចាំ។",
+        assignable_to=_MANAGERS,
+    ),
+]
+
+_PLAN_CODES = frozenset(p.code for p in PERMISSIONS if p.module == "production_plan")
+
 # --- Feature access levels -------------------------------------------------------------------
 
 Level = Literal["off", "view", "record", "full"]
@@ -299,11 +329,11 @@ FEATURES: list[FeatureDef] = [
         name_en="Production",
         name_km="ផលិតកម្ម",
         description_en=(
-            "Production batches: raw material, produced and standardize steps. Record lets "
+            "Production batches: intake, processing and standardize steps. Record lets "
             "someone fill in and finish steps; full access also reopens finished steps."
         ),
         description_km=(
-            "បាច់ផលិតកម្ម៖ វត្ថុធាតុដើម ការកែច្នៃ និងការវេចខ្ចប់។ កម្រិតកត់ត្រាអាចបំពេញ និងបញ្ចប់ជំហាន "
+            "បាច់ផលិតកម្ម៖ ការនាំចូល ការផលិត និងការវេចខ្ចប់។ កម្រិតកត់ត្រាអាចបំពេញ និងបញ្ចប់ជំហាន "
             "ចំណែកសិទ្ធិពេញលេញអាចបើកជំហានដែលបានបញ្ចប់ឡើងវិញបានផងដែរ។"
         ),
         applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF),
@@ -313,6 +343,26 @@ FEATURES: list[FeatureDef] = [
             ("record", ("production.view", "production.create")),
             # production.delete (cancel) is general-manager only, outside the levels.
             ("full", ("production.view", "production.create", "production.update")),
+        ),
+    ),
+    FeatureDef(
+        code="production_plan",
+        menu="workstation",
+        name_en="Production plan",
+        name_km="ផែនការវេចខ្ចប់",
+        description_en=(
+            "Packaging plans between processing and packing. View only: see plans and receive "
+            "production alerts; full access: also set and confirm plans."
+        ),
+        description_km=(
+            "ផែនការវេចខ្ចប់ រវាងការផលិត និងការវេចខ្ចប់។ មើលប៉ុណ្ណោះ៖ មើលផែនការ និងទទួលការជូនដំណឹង"
+            "ផលិតកម្ម។ សិទ្ធិពេញលេញ៖ អាចកំណត់ និងបញ្ជាក់ផែនការបានផងដែរ។"
+        ),
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
+        levels=(
+            ("off", ()),
+            ("view", ("production_plan.view",)),
+            ("full", ("production_plan.view", "production_plan.manage")),
         ),
     ),
     FeatureDef(
@@ -347,14 +397,16 @@ def _feature_defaults(role: Role, levels: dict[str, Level]) -> frozenset[str]:
 DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
     Role.GENERAL_MANAGER: frozenset(p.code for p in PERMISSIONS if p.module == "users")
     | _PARTNER_CODES
-    | _PRODUCTION_CODES,
-    # Every feature at full access.
+    | _PRODUCTION_CODES
+    | _PLAN_CODES,
+    # Every feature at full access, except the production plan (off: the GM decides who plans).
     Role.SUPERVISOR: _feature_defaults(
         Role.SUPERVISOR,
         {
             "suppliers": "full",
             "customers": "full",
             "production": "full",
+            "production_plan": "off",
             "staff_management": "full",
         },
     ),

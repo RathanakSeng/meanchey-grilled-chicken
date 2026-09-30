@@ -4,6 +4,7 @@
     python -m app.bot webhook set       # register the webhook from settings
     python -m app.bot webhook delete    # remove it (add --drop-pending to discard queued updates)
     python -m app.bot webhook info      # show what Telegram has registered
+    python -m app.bot notifications resend-failed   # retry alerts whose Telegram send failed
 
 In webhook mode (the default) there is no bot process: the API serves /api/telegram/webhook.
 """
@@ -13,6 +14,7 @@ import asyncio
 import logging
 import sys
 
+from app.bot.notify import resend_failed
 from app.bot.registration import delete_webhook, set_webhook, webhook_info
 from app.bot.setup import BOT_COMMANDS, create_bot, create_dispatcher
 from app.config import get_settings
@@ -86,6 +88,21 @@ async def run_webhook_command(action: str, drop_pending: bool) -> int:
         await engine.dispose()
 
 
+async def run_resend_failed() -> int:
+    if not get_settings().telegram_bot_token:
+        log.error("TELEGRAM_BOT_TOKEN is not set")
+        return 1
+    try:
+        counts = await resend_failed()
+    finally:
+        await engine.dispose()
+    if not counts:
+        print("no failed notifications")
+    for status, n in sorted(counts.items()):
+        print(f"{status}: {n}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(prog="python -m app.bot", description=__doc__.split("\n")[0])
@@ -95,7 +112,11 @@ def main(argv: list[str] | None = None) -> int:
     wh.add_argument(
         "--drop-pending", action="store_true", help="with delete: discard queued updates"
     )
+    notif = sub.add_parser("notifications", help="production alerts sent to Telegram")
+    notif.add_argument("action", choices=["resend-failed"])
     args = parser.parse_args(argv)
+    if args.command == "notifications":
+        return asyncio.run(run_resend_failed())
     if args.command == "webhook":
         return asyncio.run(run_webhook_command(args.action, args.drop_pending))
     return asyncio.run(run_polling())

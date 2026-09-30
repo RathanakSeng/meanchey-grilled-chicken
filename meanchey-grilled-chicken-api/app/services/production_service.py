@@ -14,6 +14,13 @@ Rules enforced here:
   reopening sends every later step back to draft, so import ≤ production ≤ packing always holds.
 - Finishing step 3 requires the piece balance (PRODUCTION_BALANCE_MISMATCH). The by-product
   balance (carry + rejected = produced) is a UI-only rule and deliberately NOT checked here.
+- Packaging plan (rules for editing it: services/plan_service.py): finishing step 2 creates it
+  (`pending`) or puts it back to `pending` (values kept); reopening step 1 or 2 does the same.
+  Step 3 can be saved or finished only while the plan is `confirmed` (PRODUCTION_PLAN_REQUIRED),
+  and finishing it with packs that differ from the plan needs a comment
+  (PRODUCTION_PLAN_COMMENT_REQUIRED).
+- Finishing step 2 or 3 creates the production alerts (services/notification_service.py) in the
+  same transaction; the router sends them to Telegram after the commit.
 """
 
 import re
@@ -35,6 +42,7 @@ from app.models import (
     ProductionByproduct,
     ProductionOutput,
     ProductionPackaging,
+    ProductionPlan,
     ProductionRawMaterial,
     Supplier,
     User,
@@ -59,6 +67,7 @@ from app.schemas.production import (
     ComputedOut,
     ListStatus,
     MaterialKindCatalogOut,
+    PlanOut,
     ProducedDraft,
     ProducedOut,
     ProductionCreate,
@@ -70,7 +79,9 @@ from app.schemas.production import (
     StandardizeOut,
     SupplierBrief,
     SupplierOption,
+    WaitingStep,
 )
+from app.services import notification_service
 from app.services.audit_service import record
 
 ENTITY = "production_batch"
@@ -140,6 +151,14 @@ def _step_finished() -> AppError:
     )
 
 
+def _plan_required() -> AppError:
+    return AppError(
+        409,
+        ErrorCode.PRODUCTION_PLAN_REQUIRED,
+        "The packaging plan must be confirmed before step 3",
+    )
+
+
 # --- Loading -------------------------------------------------------------------------------------
 
 
@@ -205,6 +224,52 @@ def _ensure_byproducts(batch: ProductionBatch) -> dict[str, ProductionByproduct]
     return rows
 
 
+def plan_to_pending(batch: ProductionBatch, actor: User, now: datetime) -> None:
+    """Step 2 finished again or reopened (or step 1 reopened): the plan must be confirmed again.
+
+    Values are kept. A batch finished before plans existed gets its first plan here, pre-filled
+    with its current packs, so its step 3 can be finished again once someone confirms it."""
+    plan = batch.plan
+    if plan is None:
+        if batch.packaging is None:
+            # Step 2 was never finished: its Finish creates the plan.
+            return
+        packaging = batch.packaging
+        batch.plan = ProductionPlan(
+            expected_big=packaging.big_packages,
+            expected_small=packaging.small_packages,
+            status="pending",
+            updated_by=actor.id,
+            updated_at=now,
+        )
+        return
+    if plan.confirmed:
+        plan.status = "pending"
+        plan.confirmed_by = None
+        plan.confirmed_at = None
+        plan.updated_by = actor.id
+        plan.updated_at = now
+
+
+def plan_matches(batch: ProductionBatch) -> bool | None:
+    """Actual packs equal the plan's; None until both actual counts and plan values exist."""
+    plan, packaging = batch.plan, batch.packaging
+    if plan is None or packaging is None:
+        return None
+    values = (
+        plan.expected_big,
+        plan.expected_small,
+        packaging.big_packages,
+        packaging.small_packages,
+    )
+    if any(v is None for v in values):
+        return None
+    return (
+        packaging.big_packages == plan.expected_big
+        and packaging.small_packages == plan.expected_small
+    )
+
+
 def _touch(batch: ProductionBatch, row: StepRow | None, actor: User) -> None:
     now = utcnow()
     if row is not None:
@@ -266,6 +331,7 @@ async def create_batch(
         # Explicit so nothing lazy-loads on a new object.
         output=None,
         packaging=None,
+        plan=None,
         byproducts=[],
         raw_material=ProductionRawMaterial(
             material_kind=DEFAULT_MATERIAL_KIND, updated_by=actor.id, updated_at=now
@@ -338,6 +404,8 @@ async def save_standardize(
         raise _not_ready()
     if packaging.finished:
         raise _step_finished()
+    if batch.plan is None or not batch.plan.confirmed:
+        raise _plan_required()
     await _check_version(session, batch, data.version)
     fields = data.model_fields_set
     if data.byproducts:
@@ -442,6 +510,8 @@ async def finish_step(
         raise _not_ready()
     if row.finished:
         raise _step_finished()
+    if step == 3 and (batch.plan is None or not batch.plan.confirmed):
+        raise _plan_required()
     await _check_version(session, batch, version)
 
     if step == 1:
@@ -451,6 +521,7 @@ async def finish_step(
         _validate_produced(batch)
     else:
         _validate_standardize(batch)
+        _check_plan_comment(batch)
 
     now = utcnow()
     row.status = "finished"
@@ -466,14 +537,67 @@ async def finish_step(
     elif step == 2:
         if batch.packaging is None:
             batch.packaging = ProductionPackaging(updated_by=actor.id, updated_at=now)
+        if batch.plan is None:
+            batch.plan = ProductionPlan(status="pending", updated_by=actor.id, updated_at=now)
+        else:
+            plan_to_pending(batch, actor, now)
         batch.current_step = 3
     else:
         batch.status = "completed"
         batch.completed_at = now
     _touch(batch, row, actor)
     _audit(session, "production.step_finish", actor, batch, step=step)
+    if step in (2, 3):
+        await _alert(session, actor, batch, step)
     await session.commit()
     return await get_batch(session, batch_id)
+
+
+def _check_plan_comment(batch: ProductionBatch) -> None:
+    """Packs that differ from the plan need a comment explaining why."""
+    plan, packaging = batch.plan, batch.packaging
+    assert plan is not None and packaging is not None
+    if plan_matches(batch) is False and not (packaging.comment or "").strip():
+        raise AppError(
+            422,
+            ErrorCode.PRODUCTION_PLAN_COMMENT_REQUIRED,
+            "The packs differ from the plan; add a comment",
+            {
+                "planned": {"big": plan.expected_big, "small": plan.expected_small},
+                "actual": {"big": packaging.big_packages, "small": packaging.small_packages},
+            },
+        )
+
+
+async def _alert(session: AsyncSession, actor: User, batch: ProductionBatch, step: int) -> None:
+    """Production alerts for step 2 (set the plan) and step 3 (completed), in this transaction."""
+    common = {"code": batch.code, "actor_id": str(actor.id)}
+    if step == 2:
+        output = batch.output
+        assert output is not None
+        payload = {
+            **common,
+            "quantity": batch.raw_material.quantity,
+            "wings": output.wings_count,
+            "thighs": output.thighs_count,
+        }
+        type_ = notification_service.PROCESSING_FINISHED
+    else:
+        plan, packaging = batch.plan, batch.packaging
+        assert plan is not None and packaging is not None
+        payload = {
+            **common,
+            "matches": bool(plan_matches(batch)),
+            "planned_big": plan.expected_big,
+            "planned_small": plan.expected_small,
+            "actual_big": packaging.big_packages,
+            "actual_small": packaging.small_packages,
+            "comment": packaging.comment,
+        }
+        type_ = notification_service.COMPLETED
+    await notification_service.notify(
+        session, type_, entity_type=ENTITY, entity_id=batch.id, payload=payload
+    )
 
 
 # --- Reopen and cancel ---------------------------------------------------------------------------
@@ -506,6 +630,10 @@ async def reopen_step(
     if batch.status == "completed":
         batch.status = "in_progress"
         batch.completed_at = None
+    if step in (1, 2) or batch.plan is None:
+        # Step 2 values may change: the plan must be confirmed again (values kept). Reopening
+        # step 3 keeps a confirmed plan (it stays editable until step 3 is finished again).
+        plan_to_pending(batch, actor, utcnow())
     _touch(batch, row, actor)
     _audit(session, "production.step_reopen", actor, batch, step=step, reopened_steps=reopened)
     await session.commit()
@@ -555,7 +683,7 @@ async def list_batches(
     *,
     status: ListStatus,
     include_cancelled: bool = False,
-    waiting_step: int | None,
+    waiting_step: WaitingStep | None,
     date_from: date | None,
     date_to: date | None,
     q: str | None,
@@ -585,7 +713,16 @@ async def list_batches(
         conditions.append(b.status.in_(shown))
     if waiting_step is not None:
         # current_step == N on an in-progress batch: steps before N are finished, N is not.
-        conditions += [b.status == "in_progress", b.current_step == waiting_step]
+        # Step 3 also waits for the packaging plan: "3" = plan confirmed, "plan" = pending.
+        step_number = 3 if waiting_step == "plan" else int(waiting_step)
+        conditions += [b.status == "in_progress", b.current_step == step_number]
+        if step_number == 3:
+            plan_status = "pending" if waiting_step == "plan" else "confirmed"
+            conditions.append(
+                select(ProductionPlan.batch_id)
+                .where(ProductionPlan.batch_id == b.id, ProductionPlan.status == plan_status)
+                .exists()
+            )
     if date_from or date_to:
         # Any step date in the range, or the creation day while no step is finished yet.
         def _in_range(column):
@@ -694,6 +831,8 @@ def _user_ids(batch: ProductionBatch) -> set[uuid.UUID]:
     for row in (batch.raw_material, batch.output, batch.packaging):
         if row is not None:
             ids |= {row.finished_by, row.updated_by}
+    if batch.plan is not None:
+        ids |= {batch.plan.confirmed_by, batch.plan.updated_by}
     return {i for i in ids if i is not None}
 
 
@@ -736,6 +875,26 @@ def _step_common(
         "updated_by": _ref(users, row.updated_by),
         "updated_at": row.updated_at,
     }
+
+
+def plan_out(plan: ProductionPlan | None, users: dict[uuid.UUID, User]) -> PlanOut | None:
+    if plan is None:
+        return None
+    return PlanOut(
+        status=plan.status,
+        expected_big=plan.expected_big,
+        expected_small=plan.expected_small,
+        note=plan.note,
+        confirmed_by=_ref(users, plan.confirmed_by),
+        confirmed_at=plan.confirmed_at,
+        updated_by=_ref(users, plan.updated_by),
+        updated_at=plan.updated_at,
+    )
+
+
+def plan_legacy(batch: ProductionBatch) -> bool:
+    """Step 2 was finished (step 3 exists) but there is no plan: finished before plans existed."""
+    return batch.plan is None and batch.packaging is not None
 
 
 def computed(batch: ProductionBatch) -> ComputedOut:
@@ -829,7 +988,10 @@ async def batch_out(session: AsyncSession, batch: ProductionBatch) -> BatchOut:
             rejected_thighs=packaging.rejected_thighs,
             comment=packaging.comment,
             packaging_date=packaging.packaging_date,
+            plan_matches=plan_matches(batch),
         ),
+        plan=plan_out(batch.plan, users),
+        plan_legacy=plan_legacy(batch),
         byproducts=[
             ByproductOut(
                 item_code=b.item_code,

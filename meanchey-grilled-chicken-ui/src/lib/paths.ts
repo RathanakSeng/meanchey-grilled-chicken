@@ -7,6 +7,8 @@ export const paths = {
   production: '/workstation/production',
   productionBatch: (id: string, step?: number) =>
     `/workstation/production/${id}${step ? `?step=${step}` : ''}`,
+  productionPlans: '/workstation/production-plans',
+  productionPlan: (batchId: string) => `/workstation/production-plans/${batchId}`,
   settings: '/settings',
   users: '/settings/users',
   newUser: '/settings/users/new',

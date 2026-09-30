@@ -3,6 +3,8 @@ import type { IconName } from '@/components/icons'
 import { paths } from '@/lib/paths'
 import { AUDIT_ROLES } from '@/lib/roles'
 
+export type NavBadgeKind = 'pendingPlans'
+
 export interface NavItem extends AccessRule {
   to: string
   labelKey: string
@@ -16,6 +18,8 @@ export interface NavItem extends AccessRule {
    * explain that nothing is available yet (Workstation for staff without partner permissions).
    */
   keepWhenEmpty?: boolean
+  /** A count shown next to the item (sidebar, hub card), e.g. plans waiting to be set. */
+  badge?: NavBadgeKind
   children?: NavItem[]
 }
 
@@ -56,6 +60,14 @@ export const NAV_ITEMS: NavItem[] = [
         descriptionKey: 'production.description',
         icon: 'chicken',
         permission: 'production.view',
+      },
+      {
+        to: paths.productionPlans,
+        labelKey: 'nav.productionPlans',
+        descriptionKey: 'plans.description',
+        icon: 'clipboard',
+        permission: 'production_plan.view',
+        badge: 'pendingPlans',
       },
     ],
   },
@@ -107,3 +119,4 @@ export function useNavItems(): NavItem[] {
 export function useNavChildren(to: string): NavItem[] {
   return useNavItems().find((item) => item.to === to)?.children ?? []
 }
+

@@ -78,7 +78,7 @@ src/
 │   ├── storage.ts         # safe localStorage + tokenStore
 │   ├── errors.ts          # getError, useErrorMessage, ClientError
 │   ├── format.ts          # dates, localized names, initials, username normalize
-│   ├── telegram.ts        # telegram handle, isTelegramMiniApp, initTelegram
+│   ├── telegram.ts        # telegram handle, isTelegramMiniApp, initTelegram, openTelegramLink
 │   ├── paths.ts           # app routes (paths.users, paths.user(id)…), legacy prefixes, parentPath, isUnder
 │   ├── roles.ts           # isSuperadmin, AUDIT_ROLES, SUPERADMIN_LOGIN: superadmin checks in one place
 │   ├── types.ts           # API types (mirror of the API schemas)
@@ -87,7 +87,7 @@ src/
 ├── i18n/                  # i18next init + locales/{km,en}.json
 ├── layouts/               # AppShell → DesktopLayout | MobileLayout, nav.ts (menu tree), Brand
 ├── components/            # ui.tsx kit, Sheet, ActionMenu, SegmentedControl, KpiGrid, CheckboxFilter, icons, badges, NavTile, LanguageSwitcher, ProfileMenu,
-│                          #   ChangePasswordForm
+│                          #   ChangePasswordForm, NotificationBell (header bell + notificationKeys), NavBadge (nav counts)
 ├── pages/
 │   ├── HomePage.tsx, LoginPage.tsx, ChangePasswordPage.tsx, StatusPages.tsx, AuthLayout.tsx
 │   ├── workstation/       # WorkstationPage (hub) + partners/ (generic Suppliers/Customers list: config,
@@ -95,8 +95,11 @@ src/
 │   │   └── production/    # ProductionListPage, ProductionBatchPage, StepForms (3 step forms), StepSummaries,
 │   │                      #   StepShell (autosave status, notices, Finish), SupplierPicker, badges,
 │   │                      #   useAutosaveDraft, steps.ts (values / payloads / finish rules / balances),
-│   │                      #   numbers.ts (Decimal-safe parsing), api.ts (query keys, keepalive save)
-│   └── settings/          # SettingsPage (hub), AuditLogPage, ProfilePage, users/* (incl. UserAccessTab, UserPermissionsTab, RoleChangeSheet)
+│   │                      #   numbers.ts (Decimal-safe parsing), api.ts (query keys, keepalive save),
+│   │                      #   PlanCard (plan card, "waiting for plan", plan vs actual)
+│   │   └── production-plans/ # PlanListPage, PlanPage (lazy), PlanBadge, api.ts (planKeys, pending count:
+│   │                      #   outside the lazy chunk because the nav badge uses it)
+│   └── settings/          # SettingsPage (hub), AuditLogPage, ProfilePage, TelegramLinkCard (superadmin), users/* (incl. UserAccessTab, UserPermissionsTab, RoleChangeSheet)
 └── types/telegram.d.ts    # minimal Telegram.WebApp typings
 ```
 
@@ -213,6 +216,9 @@ sequenceDiagram
       customers                      RequireAccess customers.view → PartnerListPage(CUSTOMERS)
       production                     RequireAccess production.view → ProductionListPage      (lazy)
       production/:batchId            RequireAccess production.view → ProductionBatchPage     (lazy, ?step=1|2|3)
+      production-plans               RequireAccess production_plan.view
+        index                        PlanListPage (lazy, ?status=&q=&page=)
+        :batchId                     PlanPage (lazy)
     /settings
       index                          SettingsPage (hub: cards from the nav tree)
       users                          RequireAccess users.view
@@ -228,7 +234,7 @@ sequenceDiagram
     *                                NotFound (e.g. a top-level /production: there is no redirect)
 ```
 
-**Paths.** Every frontend URL comes from `lib/paths.ts` (`paths.users`, `paths.user(id)`, `paths.editUser(id)`, `paths.suppliers`, `paths.customers`, `paths.production`, `paths.productionBatch(id, step?)`, …). Components never write route literals, so moving a page is a one-file change. API URLs such as `api.get('/users')` are unrelated and stay literal.
+**Paths.** Every frontend URL comes from `lib/paths.ts` (`paths.users`, `paths.user(id)`, `paths.editUser(id)`, `paths.suppliers`, `paths.customers`, `paths.production`, `paths.productionBatch(id, step?)`, `paths.productionPlans`, `paths.productionPlan(batchId)`, …). Components never write route literals, so moving a page is a one-file change. API URLs such as `api.get('/users')` are unrelated and stay literal.
 
 **Legacy redirects.** `LegacyRedirect` swaps the old prefix (from `LEGACY_PREFIXES`) for the new one and keeps the rest of the path, the query string and the hash, e.g. `/users/<id>/edit?x=1#a` → `/settings/users/<id>/edit?x=1#a`.
 
@@ -241,7 +247,7 @@ sequenceDiagram
 | `PublicOnly` | For `/login`. Sends signed-in users to their original destination (`location.state.from`) or to `/`. |
 | `RequireAccess` | Takes `permission` and/or `roles`. Renders `ForbiddenPage` if denied. Works as a layout route (`<Outlet/>`) or as a wrapper around children. |
 
-**Lazy pages.** The production pages are loaded with `React.lazy` inside `RequireAccess` (wrapped in `PageLoading`, a `Suspense` with a spinner), so they are separate chunks, downloaded on first visit and never by users without Production access. Everything else is in the main bundle. Other large, access-limited features can use the same pattern.
+**Lazy pages.** The production pages, and the packaging plan pages (another chunk, only for plan holders), are loaded with `React.lazy` inside `RequireAccess` (wrapped in `PageLoading`, a `Suspense` with a spinner), so they are separate chunks, downloaded on first visit and never by users without Production access. Everything else is in the main bundle. Other large, access-limited features can use the same pattern.
 
 The two `PartnerListPage` routes get distinct React `key`s, so switching between Suppliers and Customers remounts the page instead of carrying state (search text, open panel) across.
 
@@ -299,15 +305,17 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 ## 9. Layouts and Telegram integration
 
 - **Layout choice:** `AppShell` picks `MobileLayout` when `isTelegramMiniApp || matchMedia('(max-width: 767px)')`, and `DesktopLayout` otherwise.
-- **Desktop:** a sticky 256 px sidebar and a top bar with `LanguageSwitcher` and `ProfileMenu`.
+- **Desktop:** a sticky 256 px sidebar and a top bar with `LanguageSwitcher`, `NotificationBell` and `ProfileMenu`.
+- **Nav badges:** a `NavItem` may declare `badge` (today `pendingPlans`); `NavBadge` renders the count next to the sidebar child and on its hub card (`NavTile`). The count hook (`usePendingPlanCount`) only fetches with `production_plan.view`.
   - The sidebar lists the top-level items.
   - When the route is under a section (`isUnder(pathname, '/workstation')`, `'/settings'`), that section's visible children appear indented below it.
   - The section's own page (`/settings`) is filled; on a child page, the parent keeps the brand color and only the child is filled.
-- **Mobile:** a sticky top bar and a fixed bottom nav with exactly the top-level items (Home · Workstation · Settings). It uses `env(safe-area-inset-bottom)` padding, and the main content reserves space for the nav.
+- **Mobile:** a sticky top bar (brand, language, bell, avatar; the bell's sheet is portalled to `<body>` because the bar's `backdrop-blur` would otherwise contain a `position: fixed` child) and a fixed bottom nav with exactly the top-level items (Home · Workstation · Settings). It uses `env(safe-area-inset-bottom)` padding, and the main content reserves space for the nav.
   - The Settings tab is a non-`end` `NavLink`, so it stays active on every `/settings/*` route.
 - **Telegram helpers** (`lib/telegram.ts`):
   - `isTelegramMiniApp = Boolean(Telegram.WebApp.initData)`. The script also loads in normal browsers, so the presence of `initData` is the real signal.
   - `initTelegram()` calls `ready()` and `expand()` and sets the header and background colors to match the brand.
+  - `openTelegramLink(url)` opens a t.me link inside Telegram in the Mini App (`WebApp.openTelegramLink`), else in a new tab (the superadmin's link to the bot).
   - `MobileLayout` wires Telegram's **BackButton**: hidden on `/`, shown elsewhere.
     - On click it navigates to `parentPath(pathname)`, i.e. the path with its last segment dropped: `/settings/users/:id/edit` → `/settings/users/:id` → `/settings/users` → `/settings` → `/`, `/workstation/suppliers` → `/workstation` → `/`, and `/workstation/production/<id>` → `/workstation/production` → `/workstation` → `/` (the `?step` query is dropped).
     - It uses the route tree, not history (`navigate(-1)`), so a deep link opened directly in the Mini App still goes somewhere sensible.
@@ -332,11 +340,18 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 | `['production-stats']` | `GET /production/stats` (KPI cards) |
 | `['production-batch', id]` | `GET /production/{id}`; written with `setQueryData` by every draft save, finish, reopen and cancel |
 | `['production-supplier-options', q]` | `GET /production/supplier-options` (supplier picker, only while it's open) |
+| `['production-plans', params]` | `GET /production-plans` (`keepPreviousData`) |
+| `['production-plans-pending']` | `GET /production-plans?page_size=1` → `pending_count` (nav badge; refetched every 60 s; only with `production_plan.view`) |
+| `['production-plan', batchId]` | `GET /production-plans/{batchId}`; written with `setQueryData` by Save and Confirm |
+| `['notifications-unread']` | `GET /notifications?unread_only=true&page_size=1` → `unread_count` (the bell; polled every 60 s **and on window focus**, from the app shell, not per page) |
+| `['notifications', params]` | `GET /notifications` (the bell's list, refetched when it opens) |
 
 - Mutations use `useMutation`. After a change they either write the response straight into the cache (`setQueryData`, e.g. after editing a user or the profile) or invalidate the affected keys: `users`, `user`, `user-permissions`. Creating or editing a user also invalidates `user-positions`, so a newly typed position shows up in the suggestions and filter. A role change (`RoleChangeSheet`, `POST /users/{id}/role`) writes the returned user into `['user', id]` and invalidates `users`, `user-features`, `user-permissions` and `user-positions`.
 - Supplier / customer mutations (create, edit, deactivate, reactivate) write the returned record into `[entity, id]` and invalidate both the list prefix (`[resource]`) and the stats key, so the table and the KPI cards update together. The keys are built by `partnerKeys(config)`.
-- Production: draft saves only write the returned batch into `['production-batch', id]`. Finish, reopen, cancel and "New production" also invalidate `['production']` and `['production-stats']` (`onBatchChanged` in `production/api.ts`). The keys are built by `productionKeys`.
-- Defaults: `retry: 1`, `refetchOnWindowFocus: false`. The Telegram WebView focuses and blurs often, so refetching on focus would be noisy.
+- Production: draft saves only write the returned batch into `['production-batch', id]`. Finish, reopen, cancel and "New production" also invalidate `['production']` and `['production-stats']` (`onBatchChanged` in `production/api.ts`), and the plan keys (finishing or reopening steps creates or resets the plan). The keys are built by `productionKeys`.
+- Plans: Save and Confirm write the returned plan into `['production-plan', batchId]` and invalidate the plan list, the pending count, the batch and the production list. On `PRODUCTION_CONFLICT` the plan is refetched and a notice shown (no merge UI: a plan has three fields). Confirm with unsaved edits sends the PATCH first, then confirms with the new version.
+- Notifications: opening one marks it read (`POST /notifications/{id}/read`), **Mark all as read** calls `read-all`; both invalidate `['notifications']` and `['notifications-unread']`.
+- Defaults: `retry: 1`, `refetchOnWindowFocus: false`. The Telegram WebView focuses and blurs often, so refetching on focus would be noisy. The unread count is the one exception (a single tiny request, and the point of the bell).
 
 ### Autosave (production drafts)
 
@@ -385,6 +400,7 @@ flowchart LR
 
 - **Server-provided bilingual text** (permission and module names and descriptions) goes through `useLocalized()`, which picks `*_km` or `*_en` with an English fallback.
 - **Dates** use `Intl.DateTimeFormat` with the `km-KH` or `en-GB` locale, via `useFormatDate()`. Calendar dates from the API (`"2026-09-29"`, e.g. production step dates) go through `useFormatDay()` (same helper, formatted in UTC), so they show the same day in any device time zone.
+- **Pack names:** `production.fields.bigPackages` = កញ្ចប់ ៤ ដុំ / 4-Piece Packs, `production.fields.smallPackages` = កញ្ចប់ ២ ដុំ / 2-Piece Packs (the API fields stay `big_packages` / `small_packages`). Plans: `plans.*`; the bell: `notifications.*` (texts built from `type` + `payload`); the superadmin's link: `telegramLink.*`.
 - **Production wording:** step names are `production.steps.rawMaterial` = ការនាំចូល / Intake, `production.steps.produced` = ការផលិត / Processing, `production.steps.standardize` = ការវេចខ្ចប់ / Standardize (keys follow the API step codes, which didn't change); the type dropdown is `production.fields.materialKind` = ប្រភេទ / Type. Step dates: `production.dates.*` (ថ្ងៃនាំចូល, ថ្ងៃផលិត, ថ្ងៃវេចខ្ចប់) and the short chip labels `production.datesShort.*` (នាំចូល, ផលិត, វេចខ្ចប់).
 - **Key parity:** `npm run check:i18n` fails the build step if the two locale files have different keys.
 - Access tab strings live under `access.*` (level labels incl. `record` = កត់ត្រា, legend incl. `legendRecord`, menus, feature names for the audit log); feature names and descriptions on the tab itself come from the API (`useLocalized`).
@@ -422,7 +438,7 @@ useErrorMessage()(err) → t(`errors.${code}`, { ...details, time, min })
 - **Production form parts** (`production/StepShell.tsx`): `NumberField` (`inputMode="decimal"` for kg / g, `"numeric"` for counts; 48 px tall on mobile, unit suffix, inline error), `LockedValue` (computed counts with a lock), `AutosaveStatus`, and `StepShell` (header with status, restore / conflict notices, blockers list, Finish with confirmation; on mobile Finish sits in a fixed bar above the bottom nav, with a spacer so it never covers the last field).
 - **Icons:** inline SVG paths in `components/icons.tsx`, with no icon dependency.
 - **`components/KpiGrid.tsx`:** the figures above the Suppliers, Customers and Production lists. A grid on every screen, never a sideways scroller: 3 figures → 3 columns, 4 → 2 × 2 (4 columns from `lg`). On phones each card is compact (icon and a label of up to two lines above the number); from `sm` the icon sits beside the text. Cards with `onClick` become buttons (`aria-pressed`, outlined when selected); the current pages use figures only.
-- **`components/CheckboxFilter.tsx`:** a labelled checkbox sized like the other filter controls. Lists leave removed records out by default and show them only when it's ticked: *Show deactivated* (suppliers, customers: `?deactivated=1` → `status=all`) and *Show cancelled* (production: `?cancelled=1` → `include_cancelled=true`). A new Workstation list with soft-deleted records should do the same.
+- **`components/CheckboxFilter.tsx`:** a labelled checkbox sized like the other filter controls. Lists leave removed records out by default and show them only when it's ticked: *Show deactivated* (suppliers, customers: `?deactivated=1` → `status=all`) and *Show cancelled* (production: `?cancelled=1` → `include_cancelled=true`). A new Workstation list with soft-deleted records should do the same. On phones the label wraps inside the box (the Khmer *Show deactivated* shares a row with the sort dropdown and would otherwise run off the screen); from `sm` up it stays on one line.
 - **`scrollbar-none`** (in `index.css`): horizontal scrollers (e.g. the production filter chips) swipe without a visible scrollbar.
 - **Accessibility:**
   - labelled controls;
@@ -509,4 +525,7 @@ The page brings the KPI cards (`KpiGrid`), URL-driven filters (`?q&deactivated=1
 | Drawer on desktop, bottom sheet on mobile | Keeps the list visible beside the form on a PC, and is thumb-friendly in the Mini App. |
 | Access tab with levels, detailed permissions superadmin-only | Managers pick Off / View only / Full access per feature instead of permission codes; the server owns the mapping, so the UI renders whatever features exist. |
 | One bundle; the superadmin labelled "System" | A separate admin build was considered and dropped as too complex. The API is the boundary: it never returns superadmin data to anyone else, and the UI's own label for the role reads "System". The bundle still contains the superadmin-only screens' code. |
+| Step 3 locked in the UI while the plan is pending | The API refuses step 3 saves until the plan is confirmed, so the form would only produce autosave errors. A clear "Waiting for the packaging plan" card (with Open plan for planners) replaces it; the plan card under the stepper shows the state at every step. |
+| Bell polled from the app shell | One 60-second poll (plus window focus) for the unread count serves every page; the list itself loads only when the bell opens. Telegram delivers the same alerts in real time, so no websocket is needed. |
+| Plan-vs-actual comment rule mirrored in the UI | The API refuses Finish without a comment when packs differ; the form shows the difference as it's typed and lists the missing comment among the Finish blockers, so the refusal never surprises anyone. |
 | Back = parent route, not history | Mini App sessions often start from a deep link with no history. The route structure always gives a meaningful "up". |

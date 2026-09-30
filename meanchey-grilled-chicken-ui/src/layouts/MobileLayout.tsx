@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Icon } from '@/components/icons'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
+import { NotificationBell } from '@/components/NotificationBell'
 import { ProfileMenu } from '@/components/ProfileMenu'
 import { cx } from '@/components/ui'
 import { parentPath } from '@/lib/paths'
@@ -43,6 +44,7 @@ export function MobileLayout() {
         <Brand compact />
         <div className="flex items-center gap-2">
           <LanguageSwitcher />
+          <NotificationBell />
           <ProfileMenu />
         </div>
       </header>

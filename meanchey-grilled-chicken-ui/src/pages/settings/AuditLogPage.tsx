@@ -29,6 +29,8 @@ const ACTIONS = [
   'user.password_self_reset',
   'feature.set',
   'profile.update',
+  'profile.telegram_link',
+  'profile.telegram_unlink',
   ...(['supplier', 'customer'] as const).flatMap((e) =>
     ['create', 'update', 'deactivate', 'reactivate'].map((a) => `${e}.${a}`),
   ),
@@ -36,6 +38,8 @@ const ACTIONS = [
   'production.step_finish',
   'production.step_reopen',
   'production.cancel',
+  'production_plan.update',
+  'production_plan.confirm',
 ]
 // Detailed permission entries are listed by the API for the superadmin only.
 const PERMISSION_ACTIONS = ['permission.grant', 'permission.revoke']
@@ -129,6 +133,13 @@ function Details({ log }: { log: AuditLog }) {
             {t('audit.alsoReopened', { steps: later.join(', ') })}
           </span>
         )}
+      </span>
+    )
+  }
+  if (log.action === 'production_plan.confirm') {
+    return (
+      <span className="block text-sm text-stone-700">
+        {t('plans.packsShort', { big: String(d.expected_big ?? '—'), small: String(d.expected_small ?? '—') })}
       </span>
     )
   }

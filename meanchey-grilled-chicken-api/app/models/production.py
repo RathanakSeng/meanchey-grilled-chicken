@@ -5,6 +5,10 @@ raw material (created with the batch), produced (when step 1 is finished) and pa
 step 2 is finished). By-products are one row per batch and catalog item (`production/catalog.py`).
 Weights are NUMERIC and handled as `Decimal` end to end.
 
+Between steps 2 and 3 sits the packaging plan (`production_plans`, one row per batch): created
+when step 2 is finished, confirmed by a planner, and required before step 3 can be saved or
+finished.
+
 Each step has its own date (import / production / packaging), recorded by the server when the step
 is finished (today in BUSINESS_TIMEZONE) and cleared when it is reopened. A CHECK keeps it in step
 with the status: finished ⇔ a date.
@@ -34,8 +38,10 @@ from app.models.base import Base, utcnow
 
 BATCH_STATUSES = ("in_progress", "completed", "cancelled")
 STEP_STATUSES = ("draft", "finished")
+PLAN_STATUSES = ("pending", "confirmed")
 CANCEL_REASON_MAX_LENGTH = 500
 COMMENT_MAX_LENGTH = 1000
+PLAN_NOTE_MAX_LENGTH = 500
 
 KG = Numeric(10, 3)
 GRAMS = Numeric(10, 1)
@@ -126,6 +132,10 @@ class ProductionBatch(Base):
     byproducts: Mapped[list["ProductionByproduct"]] = relationship(
         lazy="selectin", cascade="all, delete-orphan"
     )
+    # Created when step 2 is first finished; None for batches completed before plans existed.
+    plan: Mapped["ProductionPlan | None"] = relationship(
+        lazy="selectin", cascade="all, delete-orphan"
+    )
 
 
 class ProductionRawMaterial(StepMixin, Base):
@@ -191,6 +201,43 @@ class ProductionPackaging(StepMixin, Base):
     rejected_thighs: Mapped[int | None] = mapped_column(Integer)
     comment: Mapped[str | None] = mapped_column(Text)
     packaging_date: Mapped[date | None] = _step_date()
+
+
+class ProductionPlan(Base):
+    """The packaging plan between steps 2 and 3: expected 4-piece (big) and 2-piece (small) packs.
+
+    `pending` until confirmed; step 3 can be saved or finished only while it is `confirmed`.
+    Finishing step 2 again (after a reopen) or reopening step 1/2 puts it back to `pending`,
+    values kept. Read-only once step 3 is finished or the batch is cancelled.
+    """
+
+    __tablename__ = "production_plans"
+    __table_args__ = (
+        CheckConstraint(_in("status", PLAN_STATUSES), name="status"),
+        CheckConstraint("expected_big >= 0 AND expected_small >= 0", name="nonnegative"),
+        CheckConstraint(
+            "status <> 'confirmed' OR (expected_big IS NOT NULL AND expected_small IS NOT NULL)",
+            name="confirmed_complete",
+        ),
+    )
+
+    batch_id: Mapped[uuid.UUID] = _batch_pk()
+    expected_big: Mapped[int | None] = mapped_column(Integer)
+    expected_small: Mapped[int | None] = mapped_column(Integer)
+    note: Mapped[str | None] = mapped_column(String(PLAN_NOTE_MAX_LENGTH))
+    status: Mapped[str] = mapped_column(
+        String(16), default="pending", server_default=text("'pending'"), index=True
+    )
+    confirmed_by: Mapped[uuid.UUID | None] = _user_fk()
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_by: Mapped[uuid.UUID | None] = _user_fk()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now()
+    )
+
+    @property
+    def confirmed(self) -> bool:
+        return self.status == "confirmed"
 
 
 class ProductionByproduct(Base):

@@ -40,7 +40,7 @@ async def test_superadmin_sees_the_gm_at_full_access(client, superadmin, make_us
     r = await client.get(f"/users/{gm.id}/features", headers=auth(superadmin))
     menus = [(m["menu"], [f["code"] for f in m["features"]]) for m in r.json()["menus"]]
     assert menus == [
-        ("workstation", ["suppliers", "customers", "production"]),
+        ("workstation", ["suppliers", "customers", "production", "production_plan"]),
         ("settings", ["staff_management"]),
     ]
     features = await _features(client, superadmin, gm)
@@ -107,5 +107,11 @@ async def test_gm_still_manages_supervisors_and_staff(client, make_user) -> None
     gm = await make_user(Role.GENERAL_MANAGER)
     sup = await make_user(Role.SUPERVISOR)
     features = await _features(client, gm, sup)
-    assert set(features) == {"suppliers", "customers", "production", "staff_management"}
+    assert set(features) == {
+        "suppliers",
+        "customers",
+        "production",
+        "production_plan",
+        "staff_management",
+    }
     assert (await _set(client, gm, sup, "production", "record")).status_code == 200

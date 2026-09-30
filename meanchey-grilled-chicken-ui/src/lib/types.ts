@@ -222,6 +222,22 @@ export interface StandardizeStep extends StepBase {
   comment: string | null
   /** ថ្ងៃវេចខ្ចប់: recorded when step 3 is finished; null while a draft. */
   packaging_date: string | null
+  /** Both pack counts equal the plan's; null until both actual counts (and a plan) exist. */
+  plan_matches: boolean | null
+}
+
+export type PlanStatus = 'pending' | 'confirmed'
+
+/** The packaging plan between steps 2 and 3: expected 4-piece (big) and 2-piece (small) packs. */
+export interface ProductionPlan {
+  status: PlanStatus
+  expected_big: number | null
+  expected_small: number | null
+  note: string | null
+  confirmed_by: UserRef | null
+  confirmed_at: string | null
+  updated_by: UserRef | null
+  updated_at: string
 }
 
 export interface BatchByproduct {
@@ -262,6 +278,10 @@ export interface ProductionBatch {
   /** null until step 1 is finished for the first time (likewise `standardize` for step 2). */
   produced: ProducedStep | null
   standardize: StandardizeStep | null
+  /** Created when step 2 is finished; null before that and for batches finished before plans existed. */
+  plan: ProductionPlan | null
+  /** No plan because the batch was finished before plans existed. */
+  plan_legacy: boolean
   byproducts: BatchByproduct[]
   computed: { wings_count: number; thighs_count: number; yield_percent: string | null }
   catalog: { byproducts: ByproductCatalogItem[]; material_kinds: MaterialKind[] }
@@ -292,6 +312,86 @@ export interface ProductionStats {
   rejected_pieces_this_month: number
 }
 
+export interface PlanListItem {
+  batch_id: string
+  code: string
+  batch_status: BatchStatus
+  supplier: SupplierBrief | null
+  production_date: string | null
+  quantity: number | null
+  wings_count: number
+  thighs_count: number
+  status: PlanStatus
+  expected_big: number | null
+  expected_small: number | null
+  updated_at: string
+}
+
+export interface PlanPage extends Page<PlanListItem> {
+  /** Plans waiting to be set, whatever the filter. */
+  pending_count: number
+}
+
+export interface PlanDetail {
+  batch_id: string
+  code: string
+  batch_status: BatchStatus
+  current_step: StepNumber
+  /** The batch version: every plan write sends it. */
+  version: number
+  supplier: SupplierBrief | null
+  quantity: number | null
+  produced: {
+    status: StepStatus
+    production_date: string | null
+    wings_kg: string | null
+    thighs_kg: string | null
+    wings_count: number
+    thighs_count: number
+    marinade_g: string | null
+    byproducts: (Localized & { item_code: string; produced_kg: string | null })[]
+  } | null
+  standardize: {
+    status: StepStatus
+    big_packages: number | null
+    small_packages: number | null
+    comment: string | null
+    packaging_date: string | null
+  } | null
+  plan: ProductionPlan | null
+  plan_legacy: boolean
+  /** Step 2 finished, step 3 not finished, not cancelled (still needs production_plan.manage). */
+  editable: boolean
+}
+
+// --- Notifications ----------------------------------------------------------------------------
+
+export type NotificationType = 'production.processing_finished' | 'production.completed'
+
+export interface AppNotification {
+  id: string
+  type: NotificationType
+  entity_type: string
+  entity_id: string
+  /** processing_finished: {code, quantity, wings, thighs, repeat};
+   * completed: {code, matches, planned_big, planned_small, actual_big, actual_small, comment, repeat}. */
+  payload: Record<string, unknown>
+  actor: UserRef | null
+  created_at: string
+  read_at: string | null
+  telegram_status: 'pending' | 'sent' | 'failed' | 'not_linked' | 'bot_off'
+}
+
+export interface NotificationPage extends Page<AppNotification> {
+  unread_count: number
+}
+
+export interface TelegramLink {
+  url: string
+  expires_at: string
+}
+
 /** Same limits as the API. */
 export const PRODUCTION_COMMENT_MAX_LENGTH = 1000
+export const PLAN_NOTE_MAX_LENGTH = 500
 export const CANCEL_REASON_MAX_LENGTH = 500

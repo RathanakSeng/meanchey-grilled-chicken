@@ -243,6 +243,16 @@ async def test_record_can_fill_and_finish_but_not_reopen_or_cancel(
     )
     assert_error(r, 403, "MISSING_PERMISSION")
 
+    # The GM sets the packaging plan (staff don't hold production_plan.*).
+    gm = auth(world["gm"])
+    plan = f"/production-plans/{batch['id']}"
+    body = {"version": batch["version"], "expected_big": 5, "expected_small": 0}
+    r = await client.patch(plan, json=body, headers=gm)
+    assert r.status_code == 200, r.text
+    r = await client.post(f"{plan}/confirm", json={"version": r.json()["version"]}, headers=gm)
+    assert r.status_code == 200, r.text
+    batch = (await client.get(base, headers=h)).json()
+
     r = await client.patch(
         f"{base}/standardize",
         json={

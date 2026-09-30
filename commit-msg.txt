@@ -1,8 +1,7 @@
-<UPDATE><BOTH><PRODUCTION>: step dates recorded at Finish, new step names
+<ADD, UPDATE, FIX><BOTH><PRODUCTION-PLAN, NOTIFICATIONS>: packaging plan between steps 2 and 3, production alerts (bell + Telegram), superadmin Telegram link, pack renames
 
-- API: import / production / packing dates on each step, set by the server at Finish (today in BUSINESS_TIMEZONE), cleared on reopen, never accepted from clients (VALIDATION_ERROR); CHECKs finished ⇔ date
-- Migration 0006: step date columns backfilled from finished_at, production_batches.production_date dropped; batch code from the creation day (never changes)
-- List: three dates + created_at per item, date filter matches any step date (creation day while nothing is finished), sort by latest recorded date; stats by import / packing date
-- UI: date input removed from step 1, "recorded when you finish" note per step, dates in summaries, header chips ("Started …" before step 1), stepper dates with equal-height cards, three date columns on desktop, latest date on mobile cards, "Date" filter with hint
-- UI: steps renamed ការនាំចូល / Intake, ការផលិត / Processing, type dropdown ប្រភេទ / Type (km/en); useFormatDay for calendar dates; PageHeader keeps ⋮ on the title row on phones; list table scrolls inside its card
-- Tests for dates, timezone, reopen order, filter/sort, stats and the migration; docs updated in both projects
+- API: production_plan feature (view = plans + alerts, full = set/confirm; GM Full, supervisor Off, not for staff); production_plans table (migration 0007: pending plans for in-progress batches past step 2); plan created/reset at step 2 Finish and step 1/2 reopen; step 3 gated (PRODUCTION_PLAN_REQUIRED), plan ≤ produced pieces (PRODUCTION_PLAN_EXCEEDS_OUTPUT), locked after step 3 (PRODUCTION_PLAN_LOCKED), comment required when packs differ (PRODUCTION_PLAN_COMMENT_REQUIRED); /production-plans list/detail/save/confirm on the batch version; waiting_step=plan; plan, plan_legacy, plan_matches in batch responses; audit production_plan.update/confirm
+- API: notifications table, rows in the Finish transaction for plan holders, Telegram sent after commit (sent/failed/not_linked/bot_off, web_app buttons, km/en), resend-failed CLI, /notifications list/read/read-all; superadmin /me/telegram-link with hashed one-time token + bot /start link_<token>
+- UI: Production plan pages (list with status chips, plan page with usage meter, save/confirm), nav + hub pending badge, plan card and "waiting for plan" lock on the batch page, plan vs actual + required comment on step 3, "Waiting for plan" chip, header bell (dropdown/sheet, 60 s poll), superadmin Telegram card, Access legend, audit labels, 4-Piece / 2-Piece Packs wording
+- UI: Show deactivated label wraps on phones instead of overflowing
+- Tests (plan rules, notifications, Telegram link, migration, redaction and superset sweeps) and docs in both projects

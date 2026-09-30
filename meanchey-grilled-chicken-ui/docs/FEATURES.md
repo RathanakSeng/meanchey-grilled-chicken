@@ -2,7 +2,7 @@
 
 What the Mean Chey Grilled Chicken UI (មាន់អាំងមានជ័យ) offers today. One React app serves both the **PC dashboard** and the **Telegram Mini App**.
 
-Phase 1 covers sign-in, user management and access control (feature access levels), plus the **Workstation** features: **Suppliers**, **Customers** and **Production** (batches in three steps, with autosave).
+Phase 1 covers sign-in, user management and access control (feature access levels), plus the **Workstation** features: **Suppliers**, **Customers**, **Production** (batches in three steps, with autosave) and the **Production plan** (packaging plans between steps 2 and 3), with production alerts in the header bell and on Telegram.
 
 > The UI hides what a user can't do, for a cleaner experience. **The API enforces every rule**, so hiding things in the UI is never the security boundary.
 
@@ -94,7 +94,8 @@ Home                      everyone
 ├── Workstation           everyone          /workstation
 │   ├── Suppliers         suppliers.view    /workstation/suppliers
 │   ├── Customers         customers.view    /workstation/customers
-│   └── Production        production.view   /workstation/production  (batch: /workstation/production/:id?step=1|2|3)
+│   ├── Production        production.view   /workstation/production  (batch: /workstation/production/:id?step=1|2|3)
+│   └── Production plan   production_plan.view  /workstation/production-plans  (plan: /workstation/production-plans/:batchId)
 └── Settings              everyone          /settings
     ├── Users             users.view        /settings/users
     ├── Audit log         superadmin, GM    /settings/audit-logs
@@ -109,8 +110,9 @@ Home                      everyone
   - While you're anywhere under Workstation or Settings, that section's visible sub-pages are listed indented below it.
   - The current page and its section are highlighted.
 - **Mobile / Telegram bottom bar:** exactly three buttons, Home · Workstation · Settings. Settings stays highlighted on every Settings page.
-- **Back buttons,** both in-page and Telegram's native one, go to the **parent screen**, not the browser history. For example: user details → Users → Settings → Home, Suppliers → Workstation → Home, and a production batch → Production → Workstation → Home. A deep link opened straight into the Mini App therefore still has a sensible way back.
-- **Header:** language switcher (ខ្មែរ / EN) and an avatar menu.
+- **Back buttons,** both in-page and Telegram's native one, go to the **parent screen**, not the browser history. For example: user details → Users → Settings → Home, Suppliers → Workstation → Home, and a production batch → Production → Workstation → Home, and a plan → Production plan → Workstation → Home. A deep link opened straight into the Mini App therefore still has a sensible way back.
+- **Header:** language switcher (ខ្មែរ / EN), the **notification bell** (§6.4) and an avatar menu.
+- **Badges:** *Production plan* shows the number of plans waiting to be set, in the sidebar and on its Workstation card (only for people who can see plans).
 - **Avatar menu:** name, role, Telegram username, **My profile** and **Log out**.
 - **Permission changes show up quickly.** Menus refresh when Home, Workstation or Settings is opened and the cached permissions are more than a minute old. They also refresh whenever the server answers "no permission", "wrong role" or "out of scope".
 - **Old links keep working.** Old addresses (`/users/…`, `/audit-logs`, `/profile`) redirect to their new place under `/settings`, keeping the rest of the address, for example `/users/<id>?tab=permissions`.
@@ -132,6 +134,7 @@ A hub with one card per Workstation page the user may open, built from the same 
 | Suppliers | holders of `suppliers.view` |
 | Customers | holders of `customers.view` |
 | Production | holders of `production.view` |
+| Production plan | holders of `production_plan.view` (with the number of plans waiting) |
 
 With no visible cards (staff by default) it shows *"You don't have access to any workstation features yet"* with a hint to ask a manager.
 
@@ -169,7 +172,7 @@ Top to bottom:
 
 **Paths:** `/workstation/production` (list) and `/workstation/production/<id>?step=1|2|3` (a batch). **Who can open them:** Production access *View only* or higher (§10): by default the general manager and supervisors; staff once the general manager turns it on.
 
-A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ការនាំចូល) → **Processing** (ការផលិត) → **Standardize** (ការវេចខ្ចប់). Each step is filled in as a draft that **saves itself**, and is locked with **Finish step**. A step opens only once the previous one is finished.
+A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ការនាំចូល) → **Processing** (ការផលិត) → **Standardize** (ការវេចខ្ចប់). Each step is filled in as a draft that **saves itself**, and is locked with **Finish step**. A step opens only once the previous one is finished. **Between steps 2 and 3 a planner sets and confirms the packaging plan** (§6.3): step 3 stays locked until then.
 
 **Dates are recorded automatically.** Finishing a step records today's date for it (Cambodia calendar): **Import date** (ថ្ងៃនាំចូល) for step 1, **Production date** (ថ្ងៃផលិត) for step 2, **Packing date** (ថ្ងៃវេចខ្ចប់) for step 3. Nobody types or changes them; each form says so at the top (*"ថ្ងៃនាំចូល will be recorded when you finish this step"*). Reopening a step clears its date and the dates of the later steps it sends back to draft; finishing again records the new day. The batch code keeps the day the batch was started.
 
@@ -177,12 +180,13 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ក�
 
 1. **Header:** title, total and **New production** (Record or Full access). It creates the batch at once and opens step 1.
 2. **Figures:** *In progress*, *Completed today*, *Chickens this month*, *Rejected pieces this month* (Cambodia calendar; cancelled batches aren't counted). Four in a row on large screens, 2 × 2 on phones and in the Mini App, all visible without scrolling.
-3. **Quick filters** as chips: **Waiting for step 2** and **Waiting for step 3**: the batches whose previous step is finished, ready to pick up. Plus a status filter (All · In progress · Completed), a **Show cancelled** checkbox, a **Date** (ថ្ងៃ) range that *matches any step date* (import, production or packing; a batch with no finished step matches on the day it was started) and a search box (batch code or supplier). **Cancelled batches are left out of the list** unless *Show cancelled* is ticked; then they're added, dimmed, to whatever status is chosen. All filters are kept in the address.
+3. **Quick filters** as chips: **Waiting for step 2**, **Waiting for plan** (step 2 finished, plan not confirmed yet) and **Waiting for step 3** (plan confirmed): the batches ready to pick up. Plus a status filter (All · In progress · Completed), a **Show cancelled** checkbox, a **Date** (ថ្ងៃ) range that *matches any step date* (import, production or packing; a batch with no finished step matches on the day it was started) and a search box (batch code or supplier). **Cancelled batches are left out of the list** unless *Show cancelled* is ticked; then they're added, dimmed, to whatever status is chosen. All filters are kept in the address.
 4. **List,** 20 per page, latest date first: batch code, the three dates (*Import date · Production date · Packing date*, "—" until recorded), supplier, step dots (●●○: filled = finished, ringed = draft), number of chickens and a status badge. A table on desktop (it scrolls sideways inside its card if the columns don't fit); on mobile, cards with one date line: the latest recorded date and its label (*"ផលិត 29 Sept"*), or *"Started 29 Sept"*. Tapping a batch opens it.
 
 **Batch page**
 
 - **Header:** code, status badge and the recorded dates as compact chips (*"នាំចូល 28 Sept · ផលិត 29 Sept · វេចខ្ចប់ —"*; *"Started 29 Sept"* before any step is finished), and a **⋮** menu with **Reopen \<step\>** for every finished step (Full access) and **Cancel batch** (general manager and superadmin only; in-progress batches, asks for a required reason).
+- **Plan card** under the stepper, once step 2 has been finished: *Packaging plan* with its status (**Waiting for plan** / **Confirmed** / **Completed**, or *No plan (before plans existed)* for batches finished before plans existed), the planned packs (*"148 × 4-piece · 4 × 2-piece"*) and **Open plan** for people who can see plans.
 - **Stepper 1 · 2 · 3** (✓ when finished, with the step's date: *"Finished · 27 Sept"*; on phones the date sits under the name). All three cards keep the same height. Tapping a step shows it; steps not started yet are disabled. On mobile one step is shown at a time.
 - A finished step shows a **read-only summary** with its date and *Finished by … · time* (*"ថ្ងៃនាំចូល · 27 Sept 2026 · Finished by …"*). **Reopen \<step\>** (⋮ menu) works on any finished step in one action: it and every later finished step go back to draft with their values kept, and must be finished again in order. The confirmation says which steps, e.g. *"Reopen Intake? Processing and Standardize will go back to draft and need to be finished again."* A completed batch is in progress again until then. The page then switches to that step. The current step shows its **form** to users with Record or Full access; with *View only* every step is read-only (a notice says so).
 - Cancelled batches show the reason and are read-only; completed ones show when they were completed.
@@ -191,7 +195,7 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ក�
 
 **Step 2: Processing.** Wings and thighs weight (kg), each next to its **count, locked at 2 per chicken** (lock icon; set by the server from step 1), the four by-products in kg (gizzard កោះមាន់, liver ថ្លើមមាន់, heart បេះដូងមាន់, head ក្បាលមាន់; 0 is allowed) and the marinade in grams. The yield (wings + thighs ÷ imported weight) is shown live and in the summary.
 
-**Step 3: Standardize.** Big packages (*1 big = 2 wings + 2 thighs*) and small packages (*1 small = 1 wing + 1 thigh*) with a live breakdown, rejected wings and thighs, and a **balance meter** per piece type (*"Wings: 3 left to assign"*, *"2 too many"*, *All assigned*). For each by-product: the produced kg, **carry forward** (យកទៅបន្ត) and **rejected** (ខូច/មិនប្រើ) inputs, and a per-row indicator. A comment is optional.
+**Step 3: Standardize.** While the plan isn't confirmed, step 3 shows *"Waiting for the packaging plan"* (with **Open plan** for plan holders) instead of the form; the API refuses saves too. Then: **4-Piece Packs** (កញ្ចប់ ៤ ដុំ, *1 × 4-piece = 2 wings + 2 thighs*) and **2-Piece Packs** (កញ្ចប់ ២ ដុំ, *1 × 2-piece = 1 wing + 1 thigh*) with a live breakdown, rejected wings and thighs, a **Plan vs actual** panel (planned and actual per pack size, ⚠ where they differ), and a **balance meter** per piece type (*"Wings: 3 left to assign"*, *"2 too many"*, *All assigned*). For each by-product: the produced kg, **carry forward** (យកទៅបន្ត) and **rejected** (ខូច/មិនប្រើ) inputs, and a per-row indicator. The comment is optional, **unless the packs differ from the plan**: then an amber notice says *"Different from the plan — add a comment."*, the comment becomes required (*Comment \**) and Finish stays disabled (*"Comment required: packs differ from the plan."*). The API enforces it too. The step 3 summary shows the plan vs actual panel.
 
 **Finish step** is disabled until the step is complete; a list under the form says what's missing (*"Fill in: Weight, Supplier"*, *"Wings don't add up yet"*). It asks for confirmation: *"The step is locked after finishing. Only someone with Full access can reopen it."*
 
@@ -212,6 +216,35 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ក�
 - **Closing the Mini App or switching apps doesn't lose input:** pending changes are sent immediately when the page is hidden or closed, and every unsent change is also kept on the device. On the next visit, changes that didn't reach the server are resent automatically; if the batch changed on the server in the meantime, the app asks **"Restore unsaved changes?"** (Restore / Discard).
 - **Two people editing the same step:** if someone else saved first, the step shows *"Someone else saved this batch first"* with the fields they changed, keeps your values on screen, and lets you **Keep my values** (save over theirs) or **Use their version**.
 - Finished steps never autosave. Finishing first sends any pending changes.
+
+### 6.3 Production plan (ផែនការវេចខ្ចប់)
+
+**Paths:** `/workstation/production-plans` (list) and `/workstation/production-plans/<batch id>` (a plan). **Who can open them:** Production plan access *View only* or *Full access* (§10): by default the general manager; supervisors once the general manager turns it on; never staff. Plans are created by finishing step 2; step 3 can't start until the plan is confirmed.
+
+**List:** status chips **Waiting for plan** (default, with the count) · **Confirmed** · **Completed** · **All**, and a search (batch code or supplier), kept in the address. Each row / card: batch code, production date, supplier, chickens, wings / thighs, the planned packs and a status badge. Cancelled batches never appear.
+
+**Plan page:**
+
+- **Header:** code, status, production date and supplier, and **Open batch**.
+- **Processed (step 2)**, read-only: wings and thighs (kg and pieces), each by-product (kg, catalog names), marinade (g), number of chickens.
+- **Packaging plan:** with *Full access* and while it can change: **4-Piece Packs** and **2-Piece Packs** (numeric keypad), an optional note, and a live meter *"Uses 296 of 300 wings · 296 of 300 thighs"* that turns red when the plan needs more pieces than were produced (Save and Confirm are then disabled; the API checks the same rule). **Save** keeps the values; **Confirm plan** asks *"Confirm the plan? … Step 3 can start once the plan is confirmed."*. A confirmed plan shows *Confirmed by … · time* and stays editable with **Save** (it stays confirmed) until step 3 is finished.
+- **Read-only** for *View only*, completed batches (with the actual packs and comment beside the plan) and cancelled batches. *"No plan: this batch was finished before packaging plans existed."* for older batches; *"The plan can be set once processing (step 2) is finished."* before that.
+- **Reopening:** reopening step 1 or 2 puts the plan back to *Waiting for plan* (values kept) and step 3 is locked again; reopening step 3 keeps it confirmed.
+- **Someone else changed the batch:** the plan reloads with a notice (*"Someone else changed this batch. The plan has been reloaded — check the values and try again."*).
+
+### 6.4 Notifications (the bell)
+
+A bell in the top bar (desktop and mobile) with the number of unread notifications, refreshed every minute and when the window gets focus. It opens a dropdown on desktop and a bottom sheet on mobile: the latest notifications, newest first, each with an icon, its text in the current language and the time; unread ones are highlighted with a dot.
+
+| Icon | When | Text | Opens |
+|---|---|---|---|
+| ✅ | Step 2 finished | *"PR-…: processing finished — 150 chickens → 300 wings, 300 thighs. Set the packaging plan."* | the plan |
+| 🎉 | Step 3 finished as planned | *"PR-…: production completed as planned — 148 × 4-Piece Packs, 4 × 2-Piece Packs."* | the batch, step 3 |
+| ⚠️ | Step 3 finished, different from the plan | *"PR-…: production completed, different from the plan. Planned 148 / 4, actual 147 / 6."* and the comment | the batch, step 3 |
+
+"again" is added when a step was finished again after a reopen. Tapping one marks it read and opens it; **Mark all as read** clears the count. Empty: *"No notifications yet."*
+
+**Who gets them:** everyone with Production plan access (the general manager, supervisors given access, and the system account), also on **Telegram** when their Telegram account is linked, with an **Open plan** / **Open batch** button into the Mini App. Staff get none.
 
 ## 7. Settings
 
@@ -311,14 +344,14 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ក�
 
 How the general manager decides what supervisors and staff can use (and how the superadmin decides what the general manager can use). Shown when the viewer may manage access (*can manage features*) and at least one feature applies to the user. The general manager can set **any level of any feature** available to that user's role; nothing here depends on the general manager's own permissions.
 
-- **Grouped by menu:** **Workstation** (Suppliers, Customers, Production), then **Settings** (Staff management: supervisors, and the general manager when the superadmin views it).
+- **Grouped by menu:** **Workstation** (Suppliers, Customers, Production, Production plan: GM and supervisors only), then **Settings** (Staff management: supervisors, and the general manager when the superadmin views it).
 - Each row: the feature's name and a one-line description (from the server, in the current language), and a segmented control with the levels the server lists for that feature: **Off · View only · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · ពេញលេញ*), and for Production **Off · View only · Record · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · កត់ត្រា · ពេញលេញ*).
-- A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't reopen finished steps (shown when a feature has it); *Full access* = can add, edit and deactivate, and in Production also reopen finished steps. For Staff management, Full access means add and edit staff: supervisors never deactivate people.
+- A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't reopen finished steps (shown when a feature has it); *Full access* = can add, edit and deactivate, and in Production also reopen finished steps. For Staff management, Full access means add and edit staff: supervisors never deactivate people. When Production plan is listed: *"Production plan: View only = see plans and receive production alerts; Full access = also set and confirm plans."*
 - **Each click saves** immediately, with a spinner on that row. On error the previous level comes back and a translated message is shown.
 - From *Off*, *View only* has a dashed outline as the suggested next step; it still takes a click.
 - **Custom:** if a user's permissions match no level (only possible through the superadmin's detailed permissions), a neutral *Custom* badge is shown and no level is selected. Picking a level replaces it.
 - Rows are disabled only when the user is deactivated. No explanation mentions other roles.
-- Defaults: supervisors start with everything at **Full access**, staff with everything **Off**; the general manager at **Full access**.
+- Defaults: supervisors start with everything at **Full access** except **Production plan (Off)**, staff with everything **Off**; the general manager at **Full access**.
 - **General manager as the target** (superadmin only): a hint under the legend says *"Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced)."* Lowering Staff management takes creating / editing users (at *Off*, the Users list) away from the GM.
 - Changes take effect on the user's next menu refresh (within a minute, or at once on their next "no permission" answer). If you change your own access, your menus refresh immediately.
 - **Every row has the same columns, in the same order:** Off · View only · Record · Full access. A feature without a level (Record exists only for Production) shows a muted "—" in that column (tooltip: *Not available for this feature*), so each level sits in the same place for every feature. On large screens the columns have one fixed width and line up exactly; on tablets, phones and in the Mini App the control sits under the name, full width, with large touch targets, as a 2 × 2 grid on phones. If no feature on the tab has Record, the column isn't shown.
@@ -342,7 +375,9 @@ Supervisors and staff never see any permission or access information.
   - detailed permission grants and revokes, including automatic ones on deploy: **superadmin only** (the general manager sees access changes instead);
   - profile updates;
   - suppliers and customers added, edited, deactivated and reactivated;
-  - production: batch started, step finished and step reopened (*"Step 1 · Intake"*, plus *"Also back to draft: step 2, 3"* when later steps were reopened with it), batch cancelled (with the reason). Draft saves aren't logged.
+  - production: batch started, step finished and step reopened (*"Step 1 · Intake"*, plus *"Also back to draft: step 2, 3"* when later steps were reopened with it), batch cancelled (with the reason). Draft saves aren't logged;
+  - packaging plans: *Edited packaging plan* (field changes in the details) and *Confirmed packaging plan* (*"148 × 4-piece · 4 × 2-piece"*), linked to the batch;
+  - the system account linking or unlinking its Telegram (superadmin only).
 - **Filters:** record type (All · Suppliers · Customers · Production batches) and action type.
 - Each entry shows:
   - the time, in the current language's format;
@@ -366,6 +401,10 @@ Supervisors and staff never see any permission or access information.
 
 - Shows your role and Telegram username, and whether Telegram is linked.
 - No permission or access information is shown, for any role.
+
+**Telegram** (system account only)
+
+- Status *Telegram linked* / *Telegram not linked yet*. **Link Telegram** creates a one-time link and shows **Open the bot** (*"Opens the bot; valid for 10 minutes. Tap Start there."*); after tapping Start in Telegram, the card shows *Linked* when you come back to the window. **Unlink** (with confirmation) stops the alerts on Telegram. Other accounts link Telegram by signing in to the Mini App, as before.
 
 **Change password**
 
@@ -421,6 +460,10 @@ Supervisors and staff never see any permission or access information.
 | Start batches, fill in and finish steps | ✅ | ✅ | Production ≥ Record (default Full) | Production ≥ Record |
 | Reopen finished steps (later steps go back to draft) | ✅ | Production = Full (default; set by the superadmin) | Production = Full (default) | Production = Full |
 | Cancel production batches | ✅ | ✅ | ❌ never | ❌ never |
+| Workstation → Production plan (list, plans), production alerts (bell, Telegram) | ✅ | Production plan ≥ View only (default Full) | Production plan ≥ View only (default Off) | ❌ never |
+| Set and confirm packaging plans | ✅ | Production plan = Full (default) | Production plan = Full | ❌ never |
+| Header bell | ✅ | ✅ | ✅ (empty without plan access) | ✅ (always empty) |
+| My profile → Telegram card | ✅ | ❌ | ❌ | ❌ |
 
 "Suppliers = Full" etc. refers to the levels the general manager sets on the Access tab (§10). "(default)" is the level a new account starts with.
 
