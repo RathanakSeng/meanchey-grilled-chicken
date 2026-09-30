@@ -38,8 +38,8 @@ def test_production_levels() -> None:
     assert PRODUCTION.applies_to == (Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF)
     delete = registry.PERMISSIONS[[p.code for p in registry.PERMISSIONS].index("production.delete")]
     assert delete.assignable_to == (Role.GENERAL_MANAGER,)
-    # Existing features keep off / view / full.
-    for code in ("suppliers", "customers", "staff_management"):
+    # The partner features keep off / view / full.
+    for code in ("suppliers", "customers"):
         levels = [level for level, _ in registry.FEATURES_BY_CODE[code].levels]
         assert levels == ["off", "view", "full"]
 
@@ -93,9 +93,14 @@ async def test_access_tab_lists_four_levels_for_production(client, make_user) ->
     staff = await make_user(Role.STAFF)
     r = await client.get(f"/users/{staff.id}/features", headers=auth(gm))
     features = {f["code"]: f for m in r.json()["menus"] for f in m["features"]}
-    assert features["production"]["levels"] == ["off", "view", "record", "full"]
+    assert [lv["level"] for lv in features["production"]["levels"]] == [
+        "off",
+        "view",
+        "record",
+        "full",
+    ]
     assert features["production"]["current_level"] == "off"
-    assert features["suppliers"]["levels"] == ["off", "view", "full"]
+    assert [lv["level"] for lv in features["suppliers"]["levels"]] == ["off", "view", "full"]
 
 
 async def test_gm_sets_every_level_and_me_reflects_it(client, make_user) -> None:

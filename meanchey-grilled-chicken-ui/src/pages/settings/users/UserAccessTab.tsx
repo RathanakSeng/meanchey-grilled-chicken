@@ -16,8 +16,10 @@ export function userFeaturesKey(userId: string) {
 
 /**
  * Feature access levels (Off / View only / [Record /] Full access) for one user, grouped by menu.
- * Each feature lists its own levels (Production has Record; the others don't).
+ * Each feature lists its own levels (Production and Staff management have Record).
  * The data comes from the parent (`UserDetailPage`), which also decides whether to show the tab.
+ * A supervisor setting staff access can't pick a level above its own (`allowed: false`): that
+ * segment is disabled with a tooltip.
  */
 export function UserAccessTab({
   userId,
@@ -64,12 +66,13 @@ export function UserAccessTab({
     },
   })
 
-  const hasRecord = data.menus.some((m) => m.features.some((f) => f.levels.includes('record')))
-  const hasPlan = data.menus.some((m) => m.features.some((f) => f.code === 'production_plan'))
+  const features = data.menus.flatMap((m) => m.features)
+  const has = (code: string) => features.some((f) => f.code === code)
+  const hasRecord = features.some((f) => f.code === 'production')
   // Same columns in every row (a level a feature doesn't have is an empty "—" cell), so each
   // level sits in the same place for every feature.
   const slots = LEVEL_ORDER.filter((level) =>
-    data.menus.some((m) => m.features.some((f) => f.levels.includes(level))),
+    features.some((f) => f.levels.some((l) => l.level === level)),
   )
 
   if (data.menus.length === 0) {
@@ -87,7 +90,9 @@ export function UserAccessTab({
         <p>{t('access.legendView')}</p>
         {hasRecord && <p>{t('access.legendRecord')}</p>}
         <p>{t('access.legendFull')}</p>
-        {hasPlan && <p>{t('access.legendPlan')}</p>}
+        {has('production_plan') && <p>{t('access.legendPlan')}</p>}
+        {has('staff_management') && <p>{t('access.legendStaffManagement')}</p>}
+        {has('staff_access') && <p>{t('access.legendStaffAccess')}</p>}
         {/* Only the superadmin manages the GM: GM-only powers aren't feature levels. */}
         {targetRole === 'general_manager' && (
           <p className="mt-2 text-stone-700">{t('access.gmHint')}</p>
@@ -118,9 +123,11 @@ export function UserAccessTab({
                     slots={slots}
                     unavailableLabel={t('access.levelNotAvailable')}
                     label={localized(f)}
-                    segments={f.levels.map((level) => ({
+                    segments={f.levels.map(({ level, allowed }) => ({
                       value: level,
                       label: t(`access.levels.${level}`),
+                      disabled: !allowed,
+                      title: allowed ? undefined : t('access.aboveOwnAccess'),
                     }))}
                     value={f.current_level}
                     // From Off, View only is the suggested next step (still needs a click).

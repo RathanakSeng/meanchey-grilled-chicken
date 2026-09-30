@@ -3,13 +3,19 @@
 import pytest
 
 from app.models import Role
+from app.permissions.registry import DEFAULT_PERMISSIONS
 from tests.conftest import assert_error, auth
 
 
 @pytest.fixture
 async def world(superadmin, make_user) -> dict:
     gm = await make_user(Role.GENERAL_MANAGER, "world_gm")
-    sup1 = await make_user(Role.SUPERVISOR, "world_sup1")
+    # sup1: staff management Full (add + edit staff), allowed by a GM; the default is View only.
+    sup1 = await make_user(
+        Role.SUPERVISOR,
+        "world_sup1",
+        perms=sorted(DEFAULT_PERMISSIONS[Role.SUPERVISOR] | {"users.create", "users.update"}),
+    )
     sup2 = await make_user(Role.SUPERVISOR, "world_sup2")
     staff1 = await make_user(Role.STAFF, "world_staff1")
     staff2 = await make_user(Role.STAFF, "world_staff2")

@@ -18,7 +18,11 @@ from app.core.telegram_auth import validate_init_data
 from app.core.usernames import SUPERADMIN_USERNAME, normalize_login, normalize_telegram_username
 from app.models import RefreshToken, Role, User, utcnow
 from app.permissions.hierarchy import manageable_roles
-from app.permissions.service import effective_permissions
+from app.permissions.service import (
+    GRANT_PERMISSION,
+    MANAGE_ACCESS_PERMISSION,
+    effective_permissions,
+)
 from app.schemas.auth import MeOut, TokenOut
 from app.schemas.user import UserOut
 from app.services.audit_service import record
@@ -325,5 +329,5 @@ async def build_me(session: AsyncSession, user: User) -> MeOut:
         permissions=sorted(perms),
         manageable_roles=manageable_roles(user.role),
         can_self_reset_password=user.role in SELF_RESET_ROLES and "users.reset_password" in perms,
-        can_manage_features="permissions.grant" in perms,
+        can_manage_features=bool({GRANT_PERMISSION, MANAGE_ACCESS_PERMISSION} & perms),
     )

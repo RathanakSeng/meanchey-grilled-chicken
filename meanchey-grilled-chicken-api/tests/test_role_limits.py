@@ -77,7 +77,13 @@ async def test_limits_listing(client, superadmin, make_user) -> None:
 async def test_create_is_blocked_at_the_limit(
     client, superadmin, make_user, role, actor_role, limit
 ) -> None:
-    actor = superadmin if actor_role == Role.SUPERADMIN else await make_user(actor_role)
+    if actor_role == Role.SUPERADMIN:
+        actor = superadmin
+    elif actor_role == Role.SUPERVISOR:
+        # Adding staff needs the Record level of staff management (not a supervisor default).
+        actor = await make_user(actor_role, perms=["users.view", "users.create"])
+    else:
+        actor = await make_user(actor_role)
     already = 1 if Role(role) == actor_role else 0  # the acting GM / supervisor counts too
     for _ in range(limit - already):
         assert (await _create(client, actor, role)).status_code == 201

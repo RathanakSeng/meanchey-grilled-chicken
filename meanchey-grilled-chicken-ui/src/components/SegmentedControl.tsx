@@ -3,6 +3,9 @@ import { cx } from './ui'
 export interface Segment<T extends string> {
   value: T
   label: string
+  /** This one segment can't be picked (the others still can); `title` explains why. */
+  disabled?: boolean
+  title?: string
 }
 
 /**
@@ -72,15 +75,16 @@ export function SegmentedControl<T extends string>({
           )
         }
         const selected = c.value === value
-        const isSuggested = !selected && c.value === suggested
+        const off = disabled || Boolean(c.disabled)
+        const isSuggested = !selected && !off && c.value === suggested
         return (
           <button
             key={c.value}
             type="button"
             role="radio"
             aria-checked={selected}
-            disabled={disabled}
-            title={isSuggested ? suggestedLabel : undefined}
+            disabled={off}
+            title={c.disabled ? c.title : isSuggested ? suggestedLabel : undefined}
             onClick={() => !selected && onChange(c.value)}
             className={cx(
               // min-h-10: thumb-friendly in the Mini App.
@@ -88,9 +92,12 @@ export function SegmentedControl<T extends string>({
               'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
               selected
                 ? 'bg-white text-brand-700 shadow-sm ring-1 ring-stone-200'
-                : 'text-stone-600 hover:text-stone-900 disabled:hover:text-stone-600',
+                : c.disabled && !disabled
+                  ? // A single unavailable segment (the whole control dims when all are).
+                    'text-stone-400'
+                  : 'text-stone-600 hover:text-stone-900 disabled:hover:text-stone-600',
               isSuggested && 'outline-dashed outline-1 -outline-offset-2 outline-brand-400',
-              disabled && 'cursor-not-allowed',
+              off && 'cursor-not-allowed',
             )}
           >
             {c.label}

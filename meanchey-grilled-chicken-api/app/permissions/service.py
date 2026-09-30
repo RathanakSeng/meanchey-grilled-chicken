@@ -18,6 +18,8 @@ from app.permissions.registry import (
 from app.services.audit_service import record
 
 GRANT_PERMISSION = "permissions.grant"
+# A supervisor's feature-level grantor permission: staff only, capped by their own access.
+MANAGE_ACCESS_PERMISSION = "users.manage_access"
 
 
 def _assignable_to(role: Role) -> ColumnElement[bool]:
@@ -122,7 +124,11 @@ async def user_permission_matrix(
 
 
 async def grant_defaults(session: AsyncSession, actor: User, target: User) -> list[str]:
-    """Grant the role's default permissions, limited to those the creator holds."""
+    """Grant the role's default permissions, limited to those the creator holds.
+
+    `users.manage_access` is supervisor-only, so no creator holds it: whoever holds
+    `permissions.grant` (and may set Staff access on the Access tab anyway) counts as holding it.
+    """
     defaults = DEFAULT_PERMISSIONS.get(target.role, frozenset())
     if not defaults:
         return []
@@ -131,7 +137,9 @@ async def grant_defaults(session: AsyncSession, actor: User, target: User) -> li
             select(Permission.code).where(Permission.is_active, _assignable_to(target.role))
         )
     )
-    actor_perms = await effective_permissions(session, actor)
+    actor_perms = set(await effective_permissions(session, actor))
+    if GRANT_PERMISSION in actor_perms:
+        actor_perms.add(MANAGE_ACCESS_PERMISSION)
     codes = sorted(defaults & assignable & actor_perms, key=lambda c: PERMISSION_ORDER.get(c, 999))
     for code in codes:
         session.add(UserPermission(user_id=target.id, permission_code=code, granted_by=actor.id))

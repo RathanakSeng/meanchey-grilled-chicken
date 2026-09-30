@@ -3,17 +3,27 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.deps import SessionDep, require_permission
+from app.deps import SessionDep, require_any_permission
 from app.models import User
 from app.permissions import features as feature_service
 from app.permissions.hierarchy import ensure_can_manage
 from app.permissions.registry import MENUS
-from app.schemas.feature import FeatureLevelIn, FeatureMenuOut, FeatureOut, UserFeaturesOut
+from app.permissions.service import GRANT_PERMISSION, MANAGE_ACCESS_PERMISSION
+from app.schemas.feature import (
+    FeatureLevelIn,
+    FeatureLevelOut,
+    FeatureMenuOut,
+    FeatureOut,
+    UserFeaturesOut,
+)
 from app.services.user_service import get_user_or_404
 
 router = APIRouter(tags=["features"])
 
-CanManageFeatures = Annotated[User, Depends(require_permission("permissions.grant"))]
+# The GM and the superadmin (permissions.grant), or a supervisor with Staff access.
+CanManageFeatures = Annotated[
+    User, Depends(require_any_permission(GRANT_PERMISSION, MANAGE_ACCESS_PERMISSION))
+]
 
 
 def _out(state: feature_service.FeatureState) -> FeatureOut:
@@ -25,7 +35,9 @@ def _out(state: feature_service.FeatureState) -> FeatureOut:
         name_km=f.name_km,
         description_en=f.description_en,
         description_km=f.description_km,
-        levels=[level for level, _ in f.levels],
+        levels=[
+            FeatureLevelOut(level=level, allowed=level in state.allowed) for level, _ in f.levels
+        ],
         current_level=state.current_level,
         can_edit=state.can_edit,
     )
@@ -54,7 +66,7 @@ async def set_user_feature(
     actor: CanManageFeatures,
     session: SessionDep,
 ) -> FeatureOut:
-    """Set Off / View only / Full access. Only the feature's own permissions change."""
+    """Set Off / View only / [Record /] Full access. Only the feature's own permissions change."""
     target = await get_user_or_404(session, user_id, actor)
     state = await feature_service.set_level(session, actor, target, feature, body.level)
     return _out(state)

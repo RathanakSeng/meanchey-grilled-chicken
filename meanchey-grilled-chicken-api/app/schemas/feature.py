@@ -5,6 +5,12 @@ from pydantic import BaseModel, Field
 from app.permissions.registry import Menu
 
 
+class FeatureLevelOut(BaseModel):
+    level: str
+    # False when the viewer may not give this level: above a supervisor's own access.
+    allowed: bool
+
+
 class FeatureOut(BaseModel):
     code: str
     menu: Menu
@@ -12,8 +18,8 @@ class FeatureOut(BaseModel):
     name_km: str
     description_en: str
     description_km: str
-    # Level codes, in order (always starts with "off").
-    levels: list[str]
+    # Levels in order (always starts with "off").
+    levels: list[FeatureLevelOut]
     # One of `levels`, or "custom" when the user's permissions match no level exactly.
     current_level: str
     can_edit: bool

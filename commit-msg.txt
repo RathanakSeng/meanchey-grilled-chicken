@@ -1,6 +1,13 @@
-<ADD, UPDATE><BOTH><ROLE-LIMITS>: configurable active user limits per role (default 2 GMs, 3 supervisors, 10 staff)
+<ADD, UPDATE><BOTH><STAFF-ACCESS>: supervisors set staff access (capped by their own), staff management View / Record / Full, supervisors default to View only
 
-- API: role_limits table (migration 0008, seeded 2/3/10, single-GM index dropped); limit checked with a row lock on create, reactivate and role change (ROLE_LIMIT_REACHED with role/limit/active; race-safe); lowering below the active count keeps everyone (over_limit); GM_ALREADY_EXISTS kept but no longer raised
-- API: GET/PUT /settings/role-limits (superadmin only, audited as settings.role_limit_update), GET /users/role-capacity (managed roles only); several GMs verified (no scope over each other, all get alerts)
-- UI: Settings → User limits (per-role limit, unlimited toggle, over-limit warning, last changed by); capacity in the create form, change-role sheet and users list; translated ROLE_LIMIT_REACHED; audit label
-- Tests (limits per role and actor, concurrency, settings guards, capacity, two GMs, migration, redaction and superset sweeps) and docs in both projects, plural GM wording
+- API: users.manage_access + staff_access feature (supervisor only); staff_management record level;
+  supervisor defaults Staff management View, Staff access Full; features endpoints accept
+  permissions.grant or users.manage_access, supervisor cap (PERMISSION_NOT_HELD {feature, level}),
+  levels as {level, allowed}; can_manage_features covers both; GM defaults exclude manage_access;
+  creators with permissions.grant give manage_access; migration 0009 moves supervisors at Full
+  staff management to View only (feature.set, source default_change, System)
+- UI: Access tab disables levels above the supervisor's own ("Higher than your own access"),
+  Staff access row, Staff management / Staff access legend lines, per-segment disabled state in
+  SegmentedControl, "New default for supervisors" in the audit log, km/en texts
+- Tests: test_staff_access, test_migration_staff_defaults; existing tests updated for new defaults
+- Docs: API FEATURES §4/§5/§6/§9/§10/§12, ARCHITECTURE §6/§12/§15; UI FEATURES §8–§10/§15, ARCHITECTURE §8/§13/§16

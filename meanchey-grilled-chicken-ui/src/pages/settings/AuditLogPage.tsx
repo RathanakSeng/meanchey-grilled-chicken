@@ -114,6 +114,9 @@ function FeatureChange({ details }: { details: Record<string, unknown> }) {
         from: level(details.from),
         to: level(details.to),
       })}
+      {details.source === 'default_change' && (
+        <span className="block text-xs text-stone-500">{t('audit.defaultChange')}</span>
+      )}
     </span>
   )
 }

@@ -187,12 +187,16 @@
       "customers": "Customers",
       "staff_management": "Staff management",
       "production": "Production",
-      "production_plan": "Production plan"
+      "production_plan": "Production plan",
+      "staff_access": "Staff access"
     },
     "legendRecord": "Record: can start batches and fill in steps, but can't reopen finished steps.",
     "gmHint": "Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced).",
     "levelNotAvailable": "Not available for this feature",
-    "legendPlan": "Production plan: View only = see plans and receive production alerts; Full access = also set and confirm plans."
+    "legendPlan": "Production plan: View only = see plans and receive production alerts; Full access = also set and confirm plans.",
+    "aboveOwnAccess": "Higher than your own access",
+    "legendStaffManagement": "Staff management: View only = see staff; Record = also add staff; Full access = also edit their info.",
+    "legendStaffAccess": "Staff access: Full access = can set what staff can use, up to their own access."
   },
   "audit": {
     "title": "Audit log",
@@ -254,7 +258,8 @@
     "productionStep": "Step {{step}} · {{name}}",
     "cancelReason": "Reason: {{reason}}",
     "alsoReopened": "Also back to draft: step {{steps}}",
-    "roleLimitChange": "{{role}}: {{from}} → {{to}}"
+    "roleLimitChange": "{{role}}: {{from}} → {{to}}",
+    "defaultChange": "New default for supervisors"
   },
   "profile": {
     "title": "My profile",
@@ -384,7 +389,7 @@
     "FORBIDDEN_SCOPE": "You can't manage this user.",
     "FORBIDDEN_ROLE": "Your role can't access this feature.",
     "MISSING_PERMISSION": "You don't have permission to do this.",
-    "PERMISSION_NOT_HELD": "You can only grant or revoke permissions you hold yourself.",
+    "PERMISSION_NOT_HELD": "You can't give more access than you have.",
     "PERMISSION_NOT_ASSIGNABLE": "This permission can't be given to this role.",
     "PERMISSION_NOT_FOUND": "Permission not found.",
     "FEATURE_NOT_FOUND": "This feature doesn't exist.",

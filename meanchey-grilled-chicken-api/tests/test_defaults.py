@@ -45,13 +45,14 @@ async def test_gm_gets_all_phase1_partner_and_production_permissions(client, sup
 
 
 async def test_supervisor_defaults(client, superadmin, make_user) -> None:
-    """Every feature at full access; supervisors never get users.delete or permissions.grant."""
+    """Workstation features at full access; staff management View only plus Staff access.
+    Supervisors never get users.delete or permissions.grant."""
     gm = await make_user(Role.GENERAL_MANAGER)
     sup = await _create(client, gm, "supervisor", "default_sup")
     assert await _perms_of(client, superadmin, sup["id"]) == {
         "users.view",
-        "users.create",
-        "users.update",
+        # Adding and editing staff are the GM's to allow (Record / Full access).
+        "users.manage_access",
         *PARTNERS,
         *(PRODUCTION - {"production.delete"}),  # cancelling batches is GM-only
         # No production plan: Off by default, the GM decides who plans and gets the alerts.
@@ -63,7 +64,8 @@ async def test_supervisor_defaults_limited_to_creator_permissions(
 ) -> None:
     gm = await make_user(Role.GENERAL_MANAGER, perms=["users.view", "users.create"])
     sup = await _create(client, gm, "supervisor", "limited_sup")
-    assert await _perms_of(client, superadmin, sup["id"]) == {"users.view", "users.create"}
+    # No permissions.grant: no Staff access either (users.manage_access comes with the grant).
+    assert await _perms_of(client, superadmin, sup["id"]) == {"users.view"}
 
 
 async def test_staff_has_no_permissions(client, superadmin, make_user) -> None:

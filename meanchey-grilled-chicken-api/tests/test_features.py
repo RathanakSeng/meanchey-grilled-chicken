@@ -65,7 +65,12 @@ def test_levels_are_exact_sets() -> None:
         "full": frozenset(SUPPLIER_FULL),
     }
     # Supervisors never deactivate users, so full staff management has no users.delete.
-    assert STAFF_MGMT.level_map["full"] == {"users.view", "users.create", "users.update"}
+    assert STAFF_MGMT.level_map == {
+        "off": frozenset(),
+        "view": {"users.view"},
+        "record": {"users.view", "users.create"},
+        "full": {"users.view", "users.create", "users.update"},
+    }
 
 
 def test_grant_and_reset_password_belong_to_no_feature() -> None:
@@ -158,7 +163,9 @@ async def test_gm_sees_staff_features_off_by_default(client, make_user) -> None:
     features = body["menus"][0]["features"]
     assert [f["code"] for f in features] == ["suppliers", "customers", "production"]
     assert all(f["current_level"] == "off" and f["can_edit"] for f in features)
-    assert features[0]["levels"] == ["off", "view", "full"]
+    assert features[0]["levels"] == [
+        {"level": level, "allowed": True} for level in ("off", "view", "full")
+    ]
     assert features[0]["name_km"] == "អ្នកផ្គត់ផ្គង់"
 
 
@@ -170,11 +177,13 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
     # Workstation first, then settings.
     assert menus == [
         ("workstation", ["suppliers", "customers", "production", "production_plan"]),
-        ("settings", ["staff_management"]),
+        ("settings", ["staff_management", "staff_access"]),
     ]
     levels = {code: f["current_level"] for code, f in (await _features(client, gm, sup)).items()}
-    # Everything at full access, except the production plan (Off by default).
+    # Workstation at full access, except the production plan (Off by default); staff
+    # management View only; Staff access Full.
     assert levels.pop("production_plan") == "off"
+    assert levels.pop("staff_management") == "view"
     assert set(levels.values()) == {"full"}
 
 
@@ -274,8 +283,10 @@ async def test_gm_turns_off_supervisor_staff_management(client, make_user) -> No
 # --- Guards -------------------------------------------------------------------------------------
 
 
-async def test_supervisor_cannot_use_feature_endpoints(client, make_user) -> None:
-    sup = await make_user(Role.SUPERVISOR)
+async def test_supervisor_without_staff_access_cannot_use_feature_endpoints(
+    client, make_user
+) -> None:
+    sup = await make_user(Role.SUPERVISOR, perms=["users.view", "suppliers.view"])
     staff = await make_user(Role.STAFF)
     assert_error(
         await client.get(f"/users/{staff.id}/features", headers=auth(sup)),
@@ -328,5 +339,8 @@ async def test_me_reports_can_manage_features(client, superadmin, make_user) -> 
     staff = await make_user(Role.STAFF)
     assert (await _me(client, superadmin))["can_manage_features"] is True
     assert (await _me(client, gm))["can_manage_features"] is True
-    assert (await _me(client, sup))["can_manage_features"] is False
+    no_access = await make_user(Role.SUPERVISOR, perms=["users.view"])
+    # Supervisors: Staff access (users.manage_access) is on by default.
+    assert (await _me(client, sup))["can_manage_features"] is True
+    assert (await _me(client, no_access))["can_manage_features"] is False
     assert (await _me(client, staff))["can_manage_features"] is False

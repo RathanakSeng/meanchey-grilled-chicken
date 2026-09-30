@@ -41,12 +41,19 @@ async def test_superadmin_sees_the_gm_at_full_access(client, superadmin, make_us
     menus = [(m["menu"], [f["code"] for f in m["features"]]) for m in r.json()["menus"]]
     assert menus == [
         ("workstation", ["suppliers", "customers", "production", "production_plan"]),
-        ("settings", ["staff_management"]),
+        ("settings", ["staff_management"]),  # Staff access is for supervisors only
     ]
     features = await _features(client, superadmin, gm)
     assert {f["current_level"] for f in features.values()} == {"full"}
     assert all(f["can_edit"] for f in features.values())
-    assert features["production"]["levels"] == ["off", "view", "record", "full"]
+    assert [lv["level"] for lv in features["production"]["levels"]] == [
+        "off",
+        "view",
+        "record",
+        "full",
+    ]
+    # The superadmin may give any level.
+    assert all(lv["allowed"] for f in features.values() for lv in f["levels"])
 
 
 @pytest.mark.parametrize(
@@ -113,5 +120,6 @@ async def test_gm_still_manages_supervisors_and_staff(client, make_user) -> None
         "production",
         "production_plan",
         "staff_management",
+        "staff_access",
     }
     assert (await _set(client, gm, sup, "production", "record")).status_code == 200

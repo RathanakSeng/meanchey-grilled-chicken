@@ -130,6 +130,7 @@ async def test_permission_matrix(client, superadmin, make_user) -> None:
         "users.view",
         "users.create",
         "users.update",
+        "users.manage_access",
     }
     assert perms["users.view"]["granted"] is True
     assert all(p["can_edit"] is True and p["reason"] is None for p in perms.values())
@@ -148,7 +149,7 @@ async def test_permission_catalog(client, superadmin) -> None:
     users, partners, production, plan = r.json()
     assert users["module"] == "users"
     assert users["name_km"]
-    assert len(users["permissions"]) == 6
+    assert len(users["permissions"]) == 7  # incl. users.manage_access (supervisors only)
     assert partners["module"] == "partners"
     assert partners["name_km"] == "ដៃគូ"
     assert [p["code"] for p in partners["permissions"]] == [

@@ -41,6 +41,7 @@ export interface Me {
   manageable_roles: Role[]
   can_self_reset_password: boolean
   /** May set feature access levels (the Access tab on user details). */
+  /** permissions.grant (GM, superadmin) or users.manage_access (supervisor, staff only). */
   can_manage_features: boolean
 }
 
@@ -147,8 +148,9 @@ export interface Feature extends Localized {
   menu: FeatureMenu
   description_en: string
   description_km: string
-  /** Settable levels, in order (always starts with `off`). */
-  levels: FeatureLevel[]
+  /** Settable levels, in order (always starts with `off`). `allowed` is false when the level is
+   *  above the viewer's own access (a supervisor setting staff access). */
+  levels: { level: FeatureLevel; allowed: boolean }[]
   current_level: FeatureLevel | 'custom'
   can_edit: boolean
 }

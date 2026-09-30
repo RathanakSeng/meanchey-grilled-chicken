@@ -87,7 +87,7 @@ async def test_gm_cannot_change_itself_or_the_hidden_account(client, superadmin,
 
 
 async def test_supervisor_cannot_change_roles(client, make_user) -> None:
-    sup = await make_user(Role.SUPERVISOR)  # holds users.update (staff management: Full)
+    sup = await make_user(Role.SUPERVISOR, perms=["users.view", "users.create", "users.update"])
     staff = await make_user(Role.STAFF)
     other = await make_user(Role.SUPERVISOR)
     assert_error(await _change(client, sup, staff, "supervisor"), 403, "FORBIDDEN_SCOPE")

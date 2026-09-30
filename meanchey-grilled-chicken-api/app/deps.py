@@ -3,7 +3,8 @@
 - `CurrentUser`: an authenticated, active user who does not have to change their password.
 - `PendingUser`: same, but also allowed while a password change is pending
   (used only by /auth/me, /auth/change-password and /auth/logout).
-- `require_permission(*codes)`, `require_role(*roles)`: route guards returning the current user.
+- `require_permission(*codes)`, `require_any_permission(*codes)`, `require_role(*roles)`: route
+  guards returning the current user.
 - Scope checks live in `app.permissions.hierarchy.ensure_can_manage`.
 """
 
@@ -64,6 +65,20 @@ def require_permission(*codes: str):
         if missing:
             raise AppError(
                 403, ErrorCode.MISSING_PERMISSION, "Missing permission", {"required": missing}
+            )
+        return user
+
+    return dependency
+
+
+def require_any_permission(*codes: str):
+    """At least one of `codes` (MISSING_PERMISSION lists them all otherwise)."""
+
+    async def dependency(user: CurrentUser, session: SessionDep) -> User:
+        held = await effective_permissions(session, user)
+        if not held & set(codes):
+            raise AppError(
+                403, ErrorCode.MISSING_PERMISSION, "Missing permission", {"required": list(codes)}
             )
         return user
 

@@ -106,7 +106,7 @@ Home                      everyone
 - **Each item appears only when the user is allowed to open it.** The rules are unchanged from before: Users needs `users.view`, and Audit log is for the superadmin and general manager.
 - **Settings is always shown,** because everyone can open My profile.
 - **Workstation is always shown,** even when none of its pages are visible, so its hub can explain that nothing is available yet.
-- **Staff** see Home, Workstation and Settings. Workstation shows the "no access yet" message and Settings only My profile, which follows from the permissions with no special handling. Once a general manager sets e.g. Suppliers to *View only* on the Access tab, Suppliers appears for that staff member.
+- **Staff** see Home, Workstation and Settings. Workstation shows the "no access yet" message and Settings only My profile, which follows from the permissions with no special handling. Once a general manager (or their supervisor) sets e.g. Suppliers to *View only* on the Access tab, Suppliers appears for that staff member.
 - **Desktop sidebar:** Home, Workstation and Settings.
   - While you're anywhere under Workstation or Settings, that section's visible sub-pages are listed indented below it.
   - The current page and its section are highlighted.
@@ -293,7 +293,7 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
   - *Locked*;
   - *Password change pending*.
 - Pagination, with 20 per page.
-- **New user** button, shown with `users.create`.
+- **New user** button, shown with `users.create`. Supervisors start without it (Staff management *View only*); a GM allows it per supervisor with *Record* or *Full access*. Without it the list is read-only, with no hint naming other roles.
 - **Capacity line** under the total, for the roles the viewer manages: *"Supervisors 2 / 3 · Staff 7 / 10"* (*no limit* when unlimited).
 
 **Create a user** (`users.create`)
@@ -309,7 +309,7 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
 - **Initial-password note:** the initial password is the Telegram username, and it must be changed at first sign-in.
 - **After saving,** it opens the new user's page with a confirmation showing the initial password.
 
-**Edit a user** (`users.update`)
+**Edit a user** (`users.update`; supervisors only at Staff management *Full access*)
 
 - Same fields; the role isn't edited here (see **Change role** on the user's page, §9). Staff can be given a new position at any time; it has no effect on their access.
 - If the user is linked to Telegram and you change their username, a warning says the link will be removed.
@@ -323,7 +323,7 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
 
   | Action | Permission |
   |---|---|
-  | **Edit** | `users.update` |
+  | **Edit** | `users.update` (supervisors: only when a GM set Staff management to Full access) |
   | **Reset password** | `users.reset_password` (general manager) |
   | **Change role** | general manager (staff ↔ supervisor) and superadmin (general manager / supervisor / staff) |
   | **Deactivate** / **Reactivate** | `users.delete` (general manager; supervisors never) |
@@ -342,10 +342,12 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
   | Viewer | Details | Access | Permissions (advanced) |
   |---|---|---|---|
   | General manager (supervisor / staff) | ✅ | ✅ | — |
-  | Supervisor (staff) | ✅ | — | — |
+  | Supervisor (staff) | ✅ | ✅ with Staff access (default) | — |
   | Superadmin (general manager, supervisor, staff) | ✅ | ✅ | ✅ |
 
-  When the superadmin opens the **general manager**, the Access tab shows the GM's levels for Suppliers, Customers, Production and Staff management (only the superadmin can change them); the GM-only powers are on Permissions (advanced).
+  A supervisor opening a staff member without *Edit* (the default) sees a read-only page: Details, plus the Access tab when it has Staff access. Nobody sees an Access tab on their own profile, and staff never see one.
+
+  When the superadmin opens the **general manager**, the Access tab shows the GM's levels for Suppliers, Customers, Production, Production plan and Staff management (only the superadmin can change them); the GM-only powers are on Permissions (advanced).
 
   A `?tab=` the viewer can't open falls back to Details.
 - Success and error messages are shown inline and are translated.
@@ -354,25 +356,26 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
 
 ### Access tab (ការចូលប្រើ)
 
-How general managers decide what supervisors and staff can use (and how the superadmin decides what each general manager can use). Shown when the viewer may manage access (*can manage features*) and at least one feature applies to the user. A general manager can set **any level of any feature** available to that user's role; nothing here depends on the general manager's own permissions.
+How general managers decide what supervisors and staff can use (and how the superadmin decides what each general manager can use), and how **supervisors** decide what their **staff** can use. Shown when the viewer may manage access (*can manage features*) and at least one feature applies to the user. A general manager can set **any level of any feature** available to that user's role; nothing here depends on the general manager's own permissions.
 
-- **Grouped by menu:** **Workstation** (Suppliers, Customers, Production, Production plan: GM and supervisors only), then **Settings** (Staff management: supervisors, and general managers when the superadmin views them).
-- Each row: the feature's name and a one-line description (from the server, in the current language), and a segmented control with the levels the server lists for that feature: **Off · View only · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · ពេញលេញ*), and for Production **Off · View only · Record · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · កត់ត្រា · ពេញលេញ*).
-- A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't reopen finished steps (shown when a feature has it); *Full access* = can add, edit and deactivate, and in Production also reopen finished steps. For Staff management, Full access means add and edit staff: supervisors never deactivate people. When Production plan is listed: *"Production plan: View only = see plans and receive production alerts; Full access = also set and confirm plans."*
+- **Supervisors** (with **Staff access**, on by default) see the Access tab of **staff** only, with the same layout: Suppliers, Customers and Production. They can give a level **up to their own** (what a GM or the superadmin gave them): higher segments are disabled, with the tooltip *"Higher than your own access"* (*ខ្ពស់ជាងសិទ្ធិរបស់អ្នក*). *Off* and lower levels are always available, also for a level a GM set higher. If the server still refuses (the supervisor's access was lowered meanwhile), the message reads *"You can't give more access than you have."* When a GM lowers the supervisor later, levels the supervisor already gave stay as they are.
+- **Grouped by menu:** **Workstation** (Suppliers, Customers, Production, Production plan: GM and supervisors only), then **Settings** (Staff management: supervisors, and general managers when the superadmin views them; **Staff access**: supervisors only).
+- Each row: the feature's name and a one-line description (from the server, in the current language), and a segmented control with the levels the server lists for that feature: **Off · View only · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · ពេញលេញ*); for Production and Staff management **Off · View only · Record · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · កត់ត្រា · ពេញលេញ*); for Staff access **Off · Full access**, described as *"Can set what staff can use, up to their own access."*
+- A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't reopen finished steps (shown when Production is listed); *Full access* = can add, edit and deactivate, and in Production also reopen finished steps. When Production plan is listed: *"Production plan: View only = see plans and receive production alerts; Full access = also set and confirm plans."* When Staff management is listed: *"Staff management: View only = see staff; Record = also add staff; Full access = also edit their info."* (supervisors never deactivate people). When Staff access is listed: *"Staff access: Full access = can set what staff can use, up to their own access."*
 - **Each click saves** immediately, with a spinner on that row. On error the previous level comes back and a translated message is shown.
 - From *Off*, *View only* has a dashed outline as the suggested next step; it still takes a click.
 - **Custom:** if a user's permissions match no level (only possible through the superadmin's detailed permissions), a neutral *Custom* badge is shown and no level is selected. Picking a level replaces it.
-- Rows are disabled only when the user is deactivated. No explanation mentions other roles.
-- Defaults: supervisors start with everything at **Full access** except **Production plan (Off)**, staff with everything **Off**; general managers at **Full access**.
+- Rows are disabled only when the user is deactivated; single segments only when above a supervisor's own access. No explanation mentions other roles.
+- Defaults: supervisors start with Suppliers, Customers and Production at **Full access**, **Production plan Off**, **Staff management View only** and **Staff access Full access**; staff with everything **Off**; general managers at **Full access**. Supervisors who had Staff management at Full access before this default changed were moved to View only once (audit log: *"New default for supervisors"*, by System).
 - **General manager as the target** (superadmin only): a hint under the legend says *"Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced)."* Lowering Staff management takes creating / editing users (at *Off*, the Users list) away from the GM.
 - Changes take effect on the user's next menu refresh (within a minute, or at once on their next "no permission" answer). If you change your own access, your menus refresh immediately.
-- **Every row has the same columns, in the same order:** Off · View only · Record · Full access. A feature without a level (Record exists only for Production) shows a muted "—" in that column (tooltip: *Not available for this feature*), so each level sits in the same place for every feature. On large screens the columns have one fixed width and line up exactly; on tablets, phones and in the Mini App the control sits under the name, full width, with large touch targets, as a 2 × 2 grid on phones. If no feature on the tab has Record, the column isn't shown.
+- **Every row has the same columns, in the same order:** Off · View only · Record · Full access. A feature without a level (Record exists only for Production and Staff management; Staff access has only Off and Full access) shows a muted "—" in that column (tooltip: *Not available for this feature*), so each level sits in the same place for every feature. On large screens the columns have one fixed width and line up exactly; on tablets, phones and in the Mini App the control sits under the name, full width, with large touch targets, as a 2 × 2 grid on phones. If no feature on the tab has Record, the column isn't shown.
 
 ### Permissions (advanced), superadmin only
 
 Only for the superadmin. Shows the detailed permissions under the feature levels: grouped by module, each with its localized name, description and code, a checkbox, and a lock reason from the server when it can't be changed (e.g. the user is deactivated). Clicking a checkbox grants or revokes that one permission immediately. General-manager-only permissions (deactivate users, reset passwords, manage access, cancel production batches) are managed here. Revoking *manage access* from the GM removes the GM's Access tab.
 
-Supervisors and staff never see any permission or access information.
+Supervisors never see detailed permissions; they see feature levels only on the Access tab of their staff (with Staff access). Staff never see any permission or access information.
 
 ## 11. Audit log
 
@@ -455,15 +458,17 @@ Supervisors and staff never see any permission or access information.
 |---|---|---|---|---|
 | Home, Workstation, Settings hub | ✅ | ✅ | ✅ | ✅ |
 | Settings → My profile | ✅ | ✅ | ✅ | ✅ |
-| Settings → Users (list / detail) | ✅ all below | ✅ supervisors, staff | Staff management ≥ View only (default Full): staff | ❌ |
-| Create / edit user | ✅ | ✅ | Staff management = Full (default) | ❌ |
+| Settings → Users (list / detail) | ✅ all below | ✅ supervisors, staff | Staff management ≥ View only (default View only): staff | ❌ |
+| Add staff | ✅ | ✅ | Staff management ≥ Record (only if allowed; default View only) | ❌ |
+| Edit staff info | ✅ | ✅ | Staff management = Full (only if allowed) | ❌ |
 | Change role (promote / demote) | ✅ GM ↔ supervisor ↔ staff | ✅ supervisor ↔ staff | ❌ | ❌ |
 | Settings → User limits (role limits) | ✅ | ❌ | ❌ | ❌ |
 | Role capacity in the users list and forms | ✅ all three roles | ✅ supervisors, staff | ✅ staff | ❌ |
 | Deactivate / reactivate users | ✅ | ✅ | ❌ never | ❌ |
 | Reset others' password | ✅ | ✅ | ❌ never | ❌ |
 | Reset own password | ✅ | ✅ | ❌ | ❌ |
-| User detail → Access tab | ✅ | ✅ (supervisors, staff) | ❌ | ❌ |
+| User detail → Access tab | ✅ | ✅ (supervisors, staff) | Staff access = Full (default ✅): staff only, up to its own levels | ❌ |
+| Set staff access (Suppliers, Customers, Production of staff) | ✅ | ✅ | ✅ default (Staff access), never above its own | ❌ |
 | User detail → Permissions (advanced) | ✅ | ❌ | ❌ | ❌ |
 | Settings → Audit log | ✅ everything | ✅ without detailed permission entries | ❌ | ❌ |
 | Workstation → Suppliers (list, figures) | ✅ | ✅ | Suppliers ≥ View only (default Full) | Suppliers ≥ View only (default Off) |
@@ -479,6 +484,6 @@ Supervisors and staff never see any permission or access information.
 | Header bell | ✅ | ✅ | ✅ (empty without plan access) | ✅ (always empty) |
 | My profile → Telegram card | ✅ | ❌ | ❌ | ❌ |
 
-"Suppliers = Full" etc. refers to the levels a general manager sets on the Access tab (§10). "(default)" is the level a new account starts with.
+"Suppliers = Full" etc. refers to the levels a general manager (for staff also their supervisor) sets on the Access tab (§10). "(default)" is the level a new account starts with.
 
 This matrix depends **only on role and access levels**. A staff member's position (e.g. `Grill cook` or `អ្នកដឹកជញ្ជូន`) never changes it: two staff with the same levels see exactly the same menu and screens.

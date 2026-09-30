@@ -40,5 +40,6 @@ class MeOut(BaseModel):
     permissions: list[str]
     manageable_roles: list[Role]
     can_self_reset_password: bool
-    # Holds permissions.grant: may set feature access levels (Access tab).
+    # Holds permissions.grant (GM, superadmin) or users.manage_access (supervisor: staff only,
+    # capped by their own access): may set feature access levels (Access tab).
     can_manage_features: bool

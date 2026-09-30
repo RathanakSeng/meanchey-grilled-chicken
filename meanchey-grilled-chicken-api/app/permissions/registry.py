@@ -112,6 +112,19 @@ PERMISSIONS: list[PermissionDef] = [
         # Lets the general manager set feature access levels; supervisors never grant.
         assignable_to=_GM_ONLY,
     ),
+    PermissionDef(
+        code="users.manage_access",
+        module="users",
+        name_en="Manage staff access",
+        name_km="គ្រប់គ្រងសិទ្ធិបុគ្គលិក",
+        description_en=(
+            "Set the feature access levels of staff within your scope, up to your own access."
+        ),
+        description_km=("កំណត់កម្រិតសិទ្ធិប្រើប្រាស់មុខងាររបស់បុគ្គលិកក្នុងដែនគ្រប់គ្រងរបស់អ្នក មិនលើសសិទ្ធិរបស់អ្នកឡើយ។"),
+        # A supervisor's own grantor permission. Not permissions.grant: its stale rows on old
+        # supervisors would silently become effective again.
+        assignable_to=(Role.SUPERVISOR,),
+    ),
 ]
 
 
@@ -370,15 +383,30 @@ FEATURES: list[FeatureDef] = [
         menu="settings",
         name_en="Staff management",
         name_km="គ្រប់គ្រងបុគ្គលិក",
-        description_en="See staff accounts; with full access, also add and edit them.",
-        description_km="មើលគណនីបុគ្គលិក។ បើមានសិទ្ធិពេញលេញ អាចបន្ថែម និងកែប្រែបានផងដែរ។",
+        description_en=(
+            "See staff accounts; record also adds staff, full access also edits their info."
+        ),
+        description_km=(
+            "មើលគណនីបុគ្គលិក។ កម្រិតកត់ត្រាអាចបន្ថែមបុគ្គលិក ចំណែកសិទ្ធិពេញលេញអាចកែប្រែព័ត៌មានរបស់ពួកគេបានផងដែរ។"
+        ),
         applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
         # Supervisors never deactivate users (users.delete is general-manager only).
         levels=(
             ("off", ()),
             ("view", ("users.view",)),
+            ("record", ("users.view", "users.create")),
             ("full", ("users.view", "users.create", "users.update")),
         ),
+    ),
+    FeatureDef(
+        code="staff_access",
+        menu="settings",
+        name_en="Staff access",
+        name_km="សិទ្ធិបុគ្គលិក",
+        description_en="Can set what staff can use, up to their own access.",
+        description_km="អាចកំណត់អ្វីដែលបុគ្គលិកអាចប្រើបាន មិនលើសសិទ្ធិរបស់ខ្លួនឡើយ។",
+        applies_to=(Role.SUPERVISOR,),
+        levels=(("off", ()), ("full", ("users.manage_access",))),
     ),
 ]
 
@@ -395,11 +423,17 @@ def _feature_defaults(role: Role, levels: dict[str, Level]) -> frozenset[str]:
 
 # Granted automatically when a user of this role is created (limited to what the creator holds).
 DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
-    Role.GENERAL_MANAGER: frozenset(p.code for p in PERMISSIONS if p.module == "users")
+    # users.manage_access is supervisor-only: the GM sets access with permissions.grant.
+    Role.GENERAL_MANAGER: frozenset(
+        p.code
+        for p in PERMISSIONS
+        if p.module == "users" and Role.GENERAL_MANAGER in p.assignable_to
+    )
     | _PARTNER_CODES
     | _PRODUCTION_CODES
     | _PLAN_CODES,
-    # Every feature at full access, except the production plan (off: the GM decides who plans).
+    # Workstation features at full access, except the production plan (off: the GM decides who
+    # plans). Staff: view them and set their access; adding or editing staff is the GM's call.
     Role.SUPERVISOR: _feature_defaults(
         Role.SUPERVISOR,
         {
@@ -407,7 +441,8 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
             "customers": "full",
             "production": "full",
             "production_plan": "off",
-            "staff_management": "full",
+            "staff_management": "view",
+            "staff_access": "full",
         },
     ),
     # Every feature off.

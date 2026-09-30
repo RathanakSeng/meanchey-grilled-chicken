@@ -170,12 +170,15 @@ The limits are set by the superadmin (§17).
 | List users | `users.view` | Only roles the actor manages | Filters: `role`, `position` (case-insensitive exact match), `status` (`active` / `inactive` / `all`), `q` (name, Telegram, phone, position), paging |
 | List positions | `users.view` | Only roles the actor manages | `GET /users/positions`: distinct positions of **active** users in scope, sorted. Distinct is case-insensitive, and the most used spelling is returned. Feeds the UI's suggestions and position filter. |
 | View a user | `users.view` | yes | |
-| Create a user | `users.create` | Role must be manageable | Default permissions are granted automatically (§5.3). The role needs a free slot (`409 ROLE_LIMIT_REACHED`, §17). |
-| Edit a user | `users.update` | yes | Name, phone, language, position (staff, free text), Telegram username. Changing the username unbinds the Telegram account. |
-| Change role (promote / demote) | `users.update` | current **and** new role manageable | `POST /users/{id}/role` `{role, position?}`. The actor must manage both the current and the new role: the **general manager** moves users between **staff and supervisor**; the **superadmin** between **general manager, supervisor and staff**. Supervisors can't change roles, and nobody changes their own. The new role's default access **replaces** the old one (supervisor: every feature Full; staff: every feature Off; general manager: all GM permissions); adjust it afterwards with feature levels. Demoting to staff needs a `position`; promoting clears it (`POSITION_REQUIRED` / `POSITION_NOT_ALLOWED`). The new role needs a free slot when the user is active (`ROLE_LIMIT_REACHED`, §17); an inactive user changes role freely (reactivating checks later). Same role again: no-op, no check. The username, password and Telegram link are kept. |
+| Create a user | `users.create` | Role must be manageable | Default permissions are granted automatically (§5.3). The role needs a free slot (`409 ROLE_LIMIT_REACHED`, §17). Supervisors: only when a GM set their Staff management to **Record** or **Full access** (default View only). |
+| Edit a user | `users.update` | yes | Name, phone, language, position (staff, free text), Telegram username. Changing the username unbinds the Telegram account. Supervisors: only at Staff management **Full access**. |
+| Change role (promote / demote) | `users.update` | current **and** new role manageable | `POST /users/{id}/role` `{role, position?}`. The actor must manage both the current and the new role: the **general manager** moves users between **staff and supervisor**; the **superadmin** between **general manager, supervisor and staff**. Supervisors can't change roles, and nobody changes their own. The new role's default access **replaces** the old one (supervisor: the supervisor defaults of §5.3; staff: every feature Off; general manager: all GM permissions); adjust it afterwards with feature levels. Demoting to staff needs a `position`; promoting clears it (`POSITION_REQUIRED` / `POSITION_NOT_ALLOWED`). The new role needs a free slot when the user is active (`ROLE_LIMIT_REACHED`, §17); an inactive user changes role freely (reactivating checks later). Same role again: no-op, no check. The username, password and Telegram link are kept. |
 | Deactivate / reactivate | `users.delete` | yes | Soft delete: `is_active=false`, `deleted_at`. Reactivation re-checks the role limit (`ROLE_LIMIT_REACHED`) and username uniqueness. Deactivating frees a slot. |
 | Reset password | `users.reset_password` | yes | §2 |
 | Edit own profile | signed in | self | `PATCH /me`: name, phone, language |
+| Set staff access (feature levels) | `permissions.grant` or `users.manage_access` | yes | §12.3. A supervisor (`users.manage_access`) reaches staff only and can't give more than it has. |
+
+**Supervisors and staff, by default:** they **see** staff (`users.view`) and **set their access** (`users.manage_access`, Staff access), but don't add staff or edit their info. A GM (or the superadmin) allows adding (Staff management *Record*) or adding and editing (*Full access*) per supervisor. Without `users.create` / `users.update` → `403 MISSING_PERMISSION`. Supervisors never change roles or deactivate.
 
 ---
 
@@ -184,7 +187,7 @@ The limits are set by the superadmin (§17).
 Access has two layers:
 
 - **Detailed permissions** (this section) are the underlying mechanism. Only the **superadmin** sees and edits them.
-- **Feature access levels** (§12) sit on top. General managers set *Off / View only / Full access* per feature for supervisors and staff and never sees a permission code.
+- **Feature access levels** (§12) sit on top. General managers set *Off / View only / [Record /] Full access* per feature for supervisors and staff, and supervisors with Staff access for staff (up to their own access); neither ever sees a permission code.
 
 ### 5.1 Registry (code is the source of truth)
 
@@ -217,14 +220,16 @@ Inactive permissions are ignored everywhere: effective permissions, catalog, gra
 
 | Code | Meaning | Assignable to | In feature |
 |---|---|---|---|
-| `users.view` | View users in own scope | GM, supervisor | Staff management |
-| `users.create` | Create users in own scope | GM, supervisor | Staff management |
-| `users.update` | Edit users in own scope | GM, supervisor | Staff management |
+| `users.view` | View users in own scope | GM, supervisor | Staff management (View only and up) |
+| `users.create` | Create users in own scope | GM, supervisor | Staff management (Record and up) |
+| `users.update` | Edit users in own scope | GM, supervisor | Staff management (Full access) |
 | `users.delete` | Deactivate / reactivate users in own scope | **GM only** | — |
 | `users.reset_password` | Reset passwords (others in scope, and self) | GM only | — |
 | `permissions.grant` | Set feature access levels (GM); grant / revoke detailed permissions (superadmin only, §5.4) | **GM only** | — |
+| `users.manage_access` | Set feature access levels of **staff** in own scope, never above the actor's own access (§12.3) | **supervisor only** | Staff access (Full access) |
 
-- **Supervisors never deactivate users and never grant access.** `users.delete` and `permissions.grant` are no longer assignable to supervisors. Rows stored before this change stay in the table but have no effect: effective permissions filter on `assignable_to` at read time (§5.5).
+- **Supervisors never deactivate users and never hold `permissions.grant`.** `users.delete` and `permissions.grant` are no longer assignable to supervisors. Rows stored before this change stay in the table but have no effect: effective permissions filter on `assignable_to` at read time (§5.5). Supervisors set staff access with their own permission, `users.manage_access`, instead: making `permissions.grant` assignable again would silently revive those stale rows.
+- `users.manage_access` is not assignable to the GM: the GM sets access with `permissions.grant`. When a GM (or the superadmin) creates a supervisor, holding `permissions.grant` counts as holding `users.manage_access` for the "limited to what the creator holds" rule (§5.3).
 - No `users` permission is assignable to staff.
 
 **Module `partners`** (§11)
@@ -263,11 +268,13 @@ Cancelling batches is a general-manager decision, like deactivating users: `prod
 | Role | On creation |
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
-| General manager | All `users` permissions (incl. `users.delete`, `users.reset_password`, `permissions.grant`), all partner permissions, all four `production.*` permissions and both `production_plan.*` permissions. |
-| Supervisor | Every feature at **Full access** except the **Production plan, which is Off**: Suppliers, Customers, Production (view, record, reopen finished steps; not cancel), Staff management (= `users.view/create/update`). Limited to what the creator holds. The GM gives plan access (and with it the alerts) to the supervisors who need it. |
+| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions and both `production_plan.*` permissions. |
+| Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
 | Staff | Every feature **Off** (no permissions). |
 
-`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing. The `production_plan.*` permissions were backfilled to existing active general managers only (supervisors' default is Off).
+`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing. The `production_plan.*` permissions were backfilled to existing active general managers only (supervisors' default is Off). `users.manage_access` is backfilled to existing **active supervisors** (Staff access Full).
+
+**Default change for existing supervisors (migration `0009`).** Staff management used to default to Full access. Migration `0009_supervisor_staff_defaults` moved every supervisor whose staff management was **exactly Full** (`users.view/create/update`) to **View only** (removes `users.create` and `users.update`), deactivated supervisors included so that reactivating doesn't bring Full back. Supervisors at a custom or lower level were left alone. Each changed supervisor got one `feature.set` audit entry with no actor (System) and `details.source = "default_change"`. It runs once (Alembic); its downgrade does nothing.
 
 ### 5.4 Detailed grant rules (superadmin only)
 
@@ -291,7 +298,7 @@ Grant and revoke are idempotent.
 
 - `permissions`: the user's effective codes, meaning active permissions that are granted to them and still assignable to their role. The UI builds menus from them;
 - `manageable_roles`, `can_self_reset_password`;
-- `can_manage_features`: holds `permissions.grant`, i.e. may set feature levels (the Access tab).
+- `can_manage_features`: holds `permissions.grant` **or** `users.manage_access`, i.e. may set feature levels (the Access tab): the GM and the superadmin for anyone they manage, a supervisor with Staff access for staff.
 
 `GET /users/{id}/permissions` (superadmin only) returns every permission assignable to the target's role, grouped by module. Each item has `granted`, `granted_by`, `granted_at`, `can_edit` and `reason` (the error code of the first rule that blocks editing, or `null`).
 
@@ -306,7 +313,7 @@ Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `ta
 | Authentication | `auth.login` (method: password / telegram), `auth.login_failed` (with reason), `auth.locked`, `auth.logout`, `auth.password_changed`, `auth.telegram_bound` |
 | Users | `user.create` (includes default permissions), `user.update` (field diff), `user.role_change` (`from`, `to`, `position_from`, `position_to`, `permissions_added`, `permissions_removed`), `user.deactivate`, `user.reactivate`, `user.password_reset`, `user.password_self_reset` |
 | Permissions | `permission.grant` (`details.source = "default_backfill"` and no actor when granted by the startup backfill), `permission.revoke` (includes `downstream_grants`). **Superadmin only.** |
-| Access | `feature.set`: one entry per change, `details = {feature, from, to, added, removed}` (`from` may be `custom`). No individual `permission.*` entries are written for it. |
+| Access | `feature.set`: one entry per change, `details = {feature, from, to, added, removed}` (`from` may be `custom`). The actor is whoever set it (a GM, the superadmin or a supervisor). No individual `permission.*` entries are written for it. `details.source = "default_change"` and no actor: written by a migration that changed a default for existing users (migration `0009`: supervisors' Staff management Full → View only). |
 | Suppliers | `supplier.create`, `supplier.update` (field diff), `supplier.deactivate`, `supplier.reactivate`. `details.name` holds the record's name. |
 | Customers | `customer.create`, `customer.update` (field diff), `customer.deactivate`, `customer.reactivate`. `details.name` holds the record's name. |
 | Production | `production.create`, `production.step_finish` (`step`: 1–3), `production.step_reopen` (`step`, `reopened_steps`: e.g. `[1, 2, 3]`), `production.cancel` (`reason`). `details.code` holds the batch code. **Draft saves are not audited.** |
@@ -407,7 +414,7 @@ Every error has the same shape:
 | Authentication | `NOT_AUTHENTICATED`, `INVALID_TOKEN`, `TOKEN_EXPIRED`, `INVALID_REFRESH_TOKEN`, `INVALID_CREDENTIALS`, `ACCOUNT_LOCKED`, `ACCOUNT_DISABLED`, `PASSWORD_CHANGE_REQUIRED` |
 | Passwords | `WRONG_CURRENT_PASSWORD`, `PASSWORD_TOO_SHORT`, `PASSWORD_EQUALS_USERNAME` |
 | Telegram | `TELEGRAM_NOT_CONFIGURED` (also: linking without a bot token), `INVALID_TELEGRAM_DATA`, `TELEGRAM_DATA_EXPIRED`, `USER_NOT_REGISTERED` |
-| Authorization | `FORBIDDEN_SCOPE`, `FORBIDDEN_ROLE`, `MISSING_PERMISSION`, `PERMISSION_NOT_HELD`, `PERMISSION_NOT_ASSIGNABLE`, `PERMISSION_NOT_FOUND`, `PERMISSION_GRANT_RESTRICTED` (kept; never reachable by non-superadmins today) |
+| Authorization | `FORBIDDEN_SCOPE`, `FORBIDDEN_ROLE`, `MISSING_PERMISSION`, `PERMISSION_NOT_HELD` (also: a supervisor setting a staff level above its own access, `details = {feature, level}`), `PERMISSION_NOT_ASSIGNABLE`, `PERMISSION_NOT_FOUND`, `PERMISSION_GRANT_RESTRICTED` (kept; never reachable by non-superadmins today) |
 | Access levels | `FEATURE_NOT_FOUND` (404), `FEATURE_NOT_APPLICABLE` (422) |
 | Users | `USER_NOT_FOUND`, `USER_INACTIVE`, `INVALID_TELEGRAM_USERNAME`, `DUPLICATE_TELEGRAM_USERNAME`, `ROLE_LIMIT_REACHED` (409, `details = {role, limit, active}`), `GM_ALREADY_EXISTS` (kept, no longer raised), `POSITION_REQUIRED`, `POSITION_NOT_ALLOWED` |
 | Suppliers & customers | `SUPPLIER_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `DUPLICATE_PHONE` (409), `INVALID_PHONE` (422, `details.min_digits` / `max_digits`), `SUPPLIER_INACTIVE` (422, production step 1 finish) |
@@ -452,8 +459,8 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | GET | `/users/{id}/permissions` | role: superadmin |
 | PUT | `/users/{id}/permissions/{code}` | role: superadmin + grant rules |
 | DELETE | `/users/{id}/permissions/{code}` | role: superadmin + grant rules |
-| GET | `/users/{id}/features` | `permissions.grant` + scope |
-| PUT | `/users/{id}/features/{feature}` | `permissions.grant` + scope + level rules (§12) |
+| GET | `/users/{id}/features` | `permissions.grant` or `users.manage_access` + scope |
+| PUT | `/users/{id}/features/{feature}` | `permissions.grant` or `users.manage_access` + scope + level rules and cap (§12.3) |
 | GET | `/audit-logs` | role: superadmin or general manager |
 | GET | `/settings/role-limits` | role: superadmin |
 | PUT | `/settings/role-limits/{role}` | role: superadmin |
@@ -535,7 +542,7 @@ Two lists with the same shape and rules, kept in separate tables (`suppliers`, `
 
 ## 12. Feature access levels
 
-How general managers give access. Each feature switches a group of detailed permissions at once: **Off**, **View only**, **Record** (only features that define it) or **Full access**.
+How general managers (and, for staff, supervisors with Staff access) give access. Each feature switches a group of detailed permissions at once: **Off**, **View only**, **Record** (only features that define it) or **Full access**.
 
 ### 12.1 Registry
 
@@ -547,14 +554,19 @@ How general managers give access. Each feature switches a group of detailed perm
 | `customers` | workstation | GM, supervisor, staff | `customers.view` | — | `customers.view/create/update/delete` |
 | `production` | workstation | GM, supervisor, staff | `production.view` | `production.view/create` | `production.view/create/update` |
 | `production_plan` | workstation | GM, supervisor | `production_plan.view` | — | `production_plan.view/manage` |
-| `staff_management` | settings | GM, supervisor | `users.view` | — | `users.view/create/update` |
+| `staff_management` | settings | GM, supervisor | `users.view` | `users.view/create` | `users.view/create/update` |
+| `staff_access` | settings | supervisor | — | — | `users.manage_access` |
 
-**Record** means "can start batches and fill in steps, but can't reopen finished steps". **Full access** in Production adds reopening finished steps; cancelling batches (`production.delete`) is GM-only and outside the levels.
+**Staff management:** *View only* = see staff; *Record* = also add staff; *Full access* = also edit their info (name, phone, Telegram username, position, language). Deactivating stays GM-only (`users.delete`). A GM with default permissions still reads as Full access.
+
+**Staff access** (supervisors only): *Full access* = may set the Suppliers / Customers / Production levels of staff, up to the supervisor's own levels (§12.3); *Off* = no Access tab.
+
+**Record** in Production means "can start batches and fill in steps, but can't reopen finished steps". **Full access** in Production adds reopening finished steps; cancelling batches (`production.delete`) is GM-only and outside the levels.
 
 **Feature levels for general managers.** Every feature also applies to the GM, but only the superadmin manages the GM (role scope), so only the superadmin sets them, on the GM's Access tab. The GM never sees or changes its own levels (`FORBIDDEN_SCOPE` on `/users/{own id}/features`). A GM with default permissions reads as **Full access** everywhere. The GM-only powers (`users.delete`, `users.reset_password`, `permissions.grant`, `production.delete`) are not in any feature and stay detailed permissions, set by the superadmin on **Permissions (advanced)**; level changes never touch them. Note that Staff management below *Full access* takes creating / editing users (or, at *Off*, the Users list) away from the GM, and revoking `permissions.grant` removes the GM's Access tab for everyone it manages.
 
 - `users.delete`, `users.reset_password` and `permissions.grant` belong to **no** feature: they stay general-manager-only and are managed as detailed permissions by the superadmin.
-- **Startup validation** (`validate_features`, at import and in bootstrap): every code a feature uses exists, is assignable to every role in `applies_to`, and has no `grantable_by`; the first level is `off` with no codes; levels are unique and follow the order `off` → `view` → `record` → `full` (`LEVELS`), where any after `off` may be omitted (only production uses `record`). A mismatch stops the API from starting.
+- **Startup validation** (`validate_features`, at import and in bootstrap): every code a feature uses exists, is assignable to every role in `applies_to`, and has no `grantable_by`; the first level is `off` with no codes; levels are unique and follow the order `off` → `view` → `record` → `full` (`LEVELS`), where any after `off` may be omitted (production and staff management use `record`; staff access has only `off` and `full`). A mismatch stops the API from starting.
 - **Production plan:** *View only* = see plans and receive the production alerts; *Full access* = also set and confirm plans. Supervisors start at *Off*; the GM starts at *Full access*.
 
 ### 12.2 Current level
@@ -563,22 +575,27 @@ A user's level for a feature is the level whose code set **exactly equals** the 
 
 ### 12.3 Endpoints
 
-**A general manager can set any level of any feature** that applies to a supervisor or staff member (the superadmin also to the GM). Unlike detailed grants, the GM's own feature permissions don't matter here: the Access layer is theirs. (Detailed permissions, §5.4, stay superadmin-only.)
+Two kinds of grantor:
 
-`GET /users/{id}/features` (`permissions.grant` + scope) returns the features that apply to the target's role, grouped by menu (workstation first, then settings; empty menus omitted). Each feature: `code`, `menu`, names/descriptions, `levels` (in order: 4 for production, 3 for the others), `current_level` (`off` / `view` / `record` / `full` / `custom`) and `can_edit` (the actor manages access and the target, and the target is active).
+- **General manager and superadmin (`permissions.grant`): any level of any feature** that applies to a user they manage (supervisors and staff; the superadmin also the GM). Unlike detailed grants, their own feature permissions don't matter here: the Access layer is theirs. (Detailed permissions, §5.4, stay superadmin-only.)
+- **Supervisor with Staff access (`users.manage_access`, without `permissions.grant`):** only staff (normal scope: another supervisor or a GM → `FORBIDDEN_SCOPE`), and **capped**: every code of the target level must be in the supervisor's own effective permissions, i.e. what a GM or the superadmin gave them. Setting `off`, or any level within its own, is allowed, including lowering a level a GM set higher.
+- **No cascade:** when a GM later lowers a supervisor's access, staff levels that supervisor set earlier are **not** changed (like revoking, §5.4); the supervisor just can't raise them again.
+
+`GET /users/{id}/features` (`permissions.grant` or `users.manage_access` + scope) returns the features that apply to the target's role, grouped by menu (workstation first, then settings; empty menus omitted). Each feature: `code`, `menu`, names/descriptions, `levels` (in order; each `{level, allowed}`, where `allowed` is false when the level is above a supervisor's own access, always true for the GM and the superadmin), `current_level` (`off` / `view` / `record` / `full` / `custom`) and `can_edit` (the actor manages access and the target, and the target is active). Nothing in the response to a supervisor describes a GM or the superadmin (§13).
 
 `PUT /users/{id}/features/{feature}` with `{ "level": "off" | "view" | "record" | "full" }` (one of the feature's levels) checks, in order:
 
-1. `permissions.grant` (route guard) → `MISSING_PERMISSION`
+1. `permissions.grant` or `users.manage_access` (route guard) → `MISSING_PERMISSION` (`details.required` lists both)
 2. the target exists and is visible to the actor (§13) → `USER_NOT_FOUND`; the target is in scope → `FORBIDDEN_SCOPE`
 3. the feature exists → `FEATURE_NOT_FOUND`
 4. it applies to the target's role → `FEATURE_NOT_APPLICABLE`
 5. the level exists for the feature → `VALIDATION_ERROR`
-6. the target is active → `USER_INACTIVE`
+6. supervisors only: every code of the level is in the actor's effective permissions → `403 PERMISSION_NOT_HELD`, `details = {feature, level}`
+7. the target is active → `USER_INACTIVE`
 
 It then applies a **diff within the feature's codes only** (grants the missing codes with `granted_by` = actor, revokes the extra ones) in one transaction; the user's other permissions are untouched. Setting `custom` → a level overwrites it. Setting the current level again is a no-op: `200`, nothing written. Each change writes one `feature.set` audit entry (§6).
 
-The superadmin can use these endpoints too.
+The superadmin can use these endpoints too. Adding and editing staff info stay separate (`users.create` / `users.update`, §4): Staff access alone doesn't allow them.
 
 ---
 
