@@ -16,6 +16,7 @@ from app.models.production import (
     ProductionRawMaterial,
 )
 from app.models.refresh_token import RefreshToken
+from app.models.role_limit import RoleLimit
 from app.models.user import User
 
 __all__ = [
@@ -37,6 +38,7 @@ __all__ = [
     "ProductionRawMaterial",
     "RefreshToken",
     "Role",
+    "RoleLimit",
     "Supplier",
     "TelegramLinkToken",
     "User",

@@ -22,10 +22,7 @@ from app.schemas.user import (
 from app.services.audit_service import record
 from app.services.auth_service import SELF_RESET_ROLES, reset_to_default_password, revoke_all_tokens
 from app.services.redaction import hides_user
-
-
-def _gm_exists_error() -> AppError:
-    return AppError(409, ErrorCode.GM_ALREADY_EXISTS, "An active general manager already exists")
+from app.services.role_limit_service import ensure_slot
 
 
 def _duplicate_username_error() -> AppError:
@@ -41,8 +38,6 @@ async def _flush_or_conflict(session: AsyncSession) -> None:
     except IntegrityError as e:
         await session.rollback()
         msg = str(e.orig)
-        if "uq_users_single_active_gm" in msg:
-            raise _gm_exists_error() from e
         if "uq_users_active_telegram_username" in msg:
             raise _duplicate_username_error() from e
         raise
@@ -66,13 +61,6 @@ async def _username_taken(
     session: AsyncSession, username: str, exclude_id: uuid.UUID | None = None
 ) -> bool:
     stmt = select(User.id).where(User.telegram_username == username, User.is_active)
-    if exclude_id is not None:
-        stmt = stmt.where(User.id != exclude_id)
-    return (await session.scalar(stmt.limit(1))) is not None
-
-
-async def _active_gm_exists(session: AsyncSession, exclude_id: uuid.UUID | None = None) -> bool:
-    stmt = select(User.id).where(User.role == Role.GENERAL_MANAGER, User.is_active)
     if exclude_id is not None:
         stmt = stmt.where(User.id != exclude_id)
     return (await session.scalar(stmt.limit(1))) is not None
@@ -161,10 +149,10 @@ async def create_user(session: AsyncSession, actor: User, data: UserCreate) -> U
     ensure_can_manage_role(actor, data.role)
     _check_position(data.role, data.position)
     username = normalize_telegram_username(data.telegram_username)
-    if data.role == Role.GENERAL_MANAGER and await _active_gm_exists(session):
-        raise _gm_exists_error()
     if await _username_taken(session, username):
         raise _duplicate_username_error()
+    # Last: locks the role's limit row until commit (concurrent creates take turns).
+    await ensure_slot(session, data.role)
 
     user = User(
         role=data.role,
@@ -256,12 +244,9 @@ async def change_role(session: AsyncSession, actor: User, target: User, data: Ro
             )
         return target
     _check_position(data.role, data.position)
-    if (
-        data.role == Role.GENERAL_MANAGER
-        and target.is_active
-        and await _active_gm_exists(session, exclude_id=target.id)
-    ):
-        raise _gm_exists_error()
+    if target.is_active:
+        # Only the new role needs a free slot; leaving the old one frees a slot there.
+        await ensure_slot(session, data.role)
 
     old_role, old_position = target.role, target.position
     target.role = data.role
@@ -302,8 +287,6 @@ async def reactivate_user(session: AsyncSession, actor: User, target: User) -> U
     ensure_can_manage(actor, target)
     if target.is_active:
         return target
-    if target.role == Role.GENERAL_MANAGER and await _active_gm_exists(session, target.id):
-        raise _gm_exists_error()
     if target.telegram_username and await _username_taken(
         session, target.telegram_username, exclude_id=target.id
     ):
@@ -320,6 +303,7 @@ async def reactivate_user(session: AsyncSession, actor: User, target: User) -> U
         )
         if bound_elsewhere is not None:
             target.telegram_user_id = None
+    await ensure_slot(session, target.role)
     target.is_active = True
     target.deleted_at = None
     target.failed_login_count = 0

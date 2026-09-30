@@ -99,13 +99,14 @@ Home                      everyone
 └── Settings              everyone          /settings
     ├── Users             users.view        /settings/users
     ├── Audit log         superadmin, GM    /settings/audit-logs
+    ├── User limits       superadmin        /settings/user-limits
     └── My profile        everyone          /settings/profile
 ```
 
 - **Each item appears only when the user is allowed to open it.** The rules are unchanged from before: Users needs `users.view`, and Audit log is for the superadmin and general manager.
 - **Settings is always shown,** because everyone can open My profile.
 - **Workstation is always shown,** even when none of its pages are visible, so its hub can explain that nothing is available yet.
-- **Staff** see Home, Workstation and Settings. Workstation shows the "no access yet" message and Settings only My profile, which follows from the permissions with no special handling. Once the general manager sets e.g. Suppliers to *View only* on the Access tab, Suppliers appears for that staff member.
+- **Staff** see Home, Workstation and Settings. Workstation shows the "no access yet" message and Settings only My profile, which follows from the permissions with no special handling. Once a general manager sets e.g. Suppliers to *View only* on the Access tab, Suppliers appears for that staff member.
 - **Desktop sidebar:** Home, Workstation and Settings.
   - While you're anywhere under Workstation or Settings, that section's visible sub-pages are listed indented below it.
   - The current page and its section are highlighted.
@@ -140,7 +141,7 @@ With no visible cards (staff by default) it shows *"You don't have access to any
 
 ### 6.1 Suppliers and customers
 
-**Paths:** `/workstation/suppliers`, `/workstation/customers`. **Who can open them:** users whose Suppliers / Customers access is *View only* or *Full access* (§10): by default the general manager and supervisors; staff once the general manager turns it on. Both pages work the same way.
+**Paths:** `/workstation/suppliers`, `/workstation/customers`. **Who can open them:** users whose Suppliers / Customers access is *View only* or *Full access* (§10): by default general managers and supervisors; staff once a general manager turns it on. Both pages work the same way.
 
 Top to bottom:
 
@@ -170,7 +171,7 @@ Top to bottom:
 
 ### 6.2 Production (ផលិតកម្ម)
 
-**Paths:** `/workstation/production` (list) and `/workstation/production/<id>?step=1|2|3` (a batch). **Who can open them:** Production access *View only* or higher (§10): by default the general manager and supervisors; staff once the general manager turns it on.
+**Paths:** `/workstation/production` (list) and `/workstation/production/<id>?step=1|2|3` (a batch). **Who can open them:** Production access *View only* or higher (§10): by default general managers and supervisors; staff once a general manager turns it on.
 
 A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ការនាំចូល) → **Processing** (ការផលិត) → **Standardize** (ការវេចខ្ចប់). Each step is filled in as a draft that **saves itself**, and is locked with **Finish step**. A step opens only once the previous one is finished. **Between steps 2 and 3 a planner sets and confirms the packaging plan** (§6.3): step 3 stays locked until then.
 
@@ -219,7 +220,7 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ក�
 
 ### 6.3 Production plan (ផែនការវេចខ្ចប់)
 
-**Paths:** `/workstation/production-plans` (list) and `/workstation/production-plans/<batch id>` (a plan). **Who can open them:** Production plan access *View only* or *Full access* (§10): by default the general manager; supervisors once the general manager turns it on; never staff. Plans are created by finishing step 2; step 3 can't start until the plan is confirmed.
+**Paths:** `/workstation/production-plans` (list) and `/workstation/production-plans/<batch id>` (a plan). **Who can open them:** Production plan access *View only* or *Full access* (§10): by default general managers; supervisors once a general manager turns it on; never staff. Plans are created by finishing step 2; step 3 can't start until the plan is confirmed.
 
 **List:** status chips **Waiting for plan** (default, with the count) · **Confirmed** · **Completed** · **All**, and a search (batch code or supplier), kept in the address. Each row / card: batch code, production date, supplier, chickens, wings / thighs, the planned packs and a status badge. Cancelled batches never appear.
 
@@ -244,7 +245,7 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
 
 "again" is added when a step was finished again after a reopen. Tapping one marks it read and opens it; **Mark all as read** clears the count. Empty: *"No notifications yet."*
 
-**Who gets them:** everyone with Production plan access (the general manager, supervisors given access, and the system account), also on **Telegram** when their Telegram account is linked, with an **Open plan** / **Open batch** button into the Mini App. Staff get none.
+**Who gets them:** everyone with Production plan access (general managers, supervisors given access, and the system account), also on **Telegram** when their Telegram account is linked, with an **Open plan** / **Open batch** button into the Mini App. Staff get none.
 
 ## 7. Settings
 
@@ -255,10 +256,20 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
   | Card | Shown to |
   |---|---|
   | Users | holders of `users.view` |
-  | Audit log | superadmin, general manager |
+  | Audit log | superadmin, general managers |
+  | User limits | superadmin |
   | My profile | everyone |
 
 - The cards come from the same menu definition as the sidebar, so a new Settings page appears here automatically.
+
+### 7.1 User limits (ចំនួនអ្នកប្រើប្រាស់), superadmin only
+
+**Path:** `/settings/user-limits`. How many **active** users each role may have: **General manager** (default 2), **Supervisor** (default 3) and **Staff** (default 10).
+
+- One row per role: *"2 / 3 active"*, a number input (1–999) and **Save**, with an inline *Saved* or error. Supervisor and Staff also have an **Unlimited** checkbox; general managers always have a limit of at least 1.
+- **Over the limit** (after lowering it): an amber warning on the row, e.g. *"4 active — above the limit of 3. No new supervisors can be added until someone is deactivated."* Nobody is deactivated automatically.
+- *Last changed by … · time* under each changed row, and a note that only active users count.
+- Changes are in the audit log as *Changed user limit* (*"Staff: 10 → 12"*), visible to the superadmin only.
 
 ## 8. Users
 
@@ -266,8 +277,8 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
 
 | Viewer | Sees |
 |---|---|
-| Superadmin | general manager, supervisors, staff |
-| General manager | supervisors, staff |
+| Superadmin | general managers, supervisors, staff |
+| General manager | supervisors, staff (not other general managers) |
 | Supervisor | staff |
 
 **List**
@@ -283,10 +294,11 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
   - *Password change pending*.
 - Pagination, with 20 per page.
 - **New user** button, shown with `users.create`.
+- **Capacity line** under the total, for the roles the viewer manages: *"Supervisors 2 / 3 · Staff 7 / 10"* (*no limit* when unlimited).
 
 **Create a user** (`users.create`)
 
-- **Role:** limited to the roles the viewer may create. It defaults to the lowest one, usually staff.
+- **Role:** limited to the roles the viewer may create, each with its capacity (*"Supervisor (3 / 3) — full"*). A full role can't be picked, and a note says *"Roles marked full have reached their limit — deactivate someone or ask for the limit to be raised."* It defaults to the lowest role with a free slot, usually staff. If **every** role the viewer can create is full, the page shows that message instead of the form.
 - **Position (job title):** staff only, and required for them.
   - Free text, up to 50 characters, in any language. Examples: `Grill cook`, `Cashier`, `អ្នកដឹកជញ្ជូន`.
   - As you type, positions already used in your scope are suggested, which keeps spelling consistent.
@@ -317,8 +329,8 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
   | **Deactivate** / **Reactivate** | `users.delete` (general manager; supervisors never) |
 
   - Reset password sets the password back to the Telegram username. The dialog explains the user will be signed out everywhere and must choose a new password.
-  - Deactivate / Reactivate is a soft on/off switch. A deactivated user is signed out immediately.
-  - **Change role** opens a panel (drawer on PC, bottom sheet on phones) listing the roles you can move this user to. Choosing *Staff* asks for a position (with suggestions). A note explains that access is reset to the new role's defaults, adjustable afterwards on the Access tab. Only one active general manager is allowed; otherwise a translated error is shown. The user stays signed in; their menus update at the next refresh.
+  - Deactivate / Reactivate is a soft on/off switch. A deactivated user is signed out immediately and frees a slot in their role. Reactivating needs a free slot: otherwise *"The supervisor limit (3) is reached."*
+  - **Change role** opens a panel (drawer on PC, bottom sheet on phones) listing the roles you can move this user to. Choosing *Staff* asks for a position (with suggestions). A note explains that access is reset to the new role's defaults, adjustable afterwards on the Access tab. Each role shows its capacity (*"Supervisor (2 / 2)"*); for an active user a full role is disabled with *"Limit reached — deactivate someone or ask for the limit to be raised."* (an inactive user can be moved, and needs a free slot when reactivated). The user stays signed in; their menus update at the next refresh.
 
 - **Details tab:**
   - full name, Telegram username and whether it's **linked** to a Telegram account;
@@ -342,16 +354,16 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
 
 ### Access tab (ការចូលប្រើ)
 
-How the general manager decides what supervisors and staff can use (and how the superadmin decides what the general manager can use). Shown when the viewer may manage access (*can manage features*) and at least one feature applies to the user. The general manager can set **any level of any feature** available to that user's role; nothing here depends on the general manager's own permissions.
+How general managers decide what supervisors and staff can use (and how the superadmin decides what each general manager can use). Shown when the viewer may manage access (*can manage features*) and at least one feature applies to the user. A general manager can set **any level of any feature** available to that user's role; nothing here depends on the general manager's own permissions.
 
-- **Grouped by menu:** **Workstation** (Suppliers, Customers, Production, Production plan: GM and supervisors only), then **Settings** (Staff management: supervisors, and the general manager when the superadmin views it).
+- **Grouped by menu:** **Workstation** (Suppliers, Customers, Production, Production plan: GM and supervisors only), then **Settings** (Staff management: supervisors, and general managers when the superadmin views them).
 - Each row: the feature's name and a one-line description (from the server, in the current language), and a segmented control with the levels the server lists for that feature: **Off · View only · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · ពេញលេញ*), and for Production **Off · View only · Record · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · កត់ត្រា · ពេញលេញ*).
 - A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't reopen finished steps (shown when a feature has it); *Full access* = can add, edit and deactivate, and in Production also reopen finished steps. For Staff management, Full access means add and edit staff: supervisors never deactivate people. When Production plan is listed: *"Production plan: View only = see plans and receive production alerts; Full access = also set and confirm plans."*
 - **Each click saves** immediately, with a spinner on that row. On error the previous level comes back and a translated message is shown.
 - From *Off*, *View only* has a dashed outline as the suggested next step; it still takes a click.
 - **Custom:** if a user's permissions match no level (only possible through the superadmin's detailed permissions), a neutral *Custom* badge is shown and no level is selected. Picking a level replaces it.
 - Rows are disabled only when the user is deactivated. No explanation mentions other roles.
-- Defaults: supervisors start with everything at **Full access** except **Production plan (Off)**, staff with everything **Off**; the general manager at **Full access**.
+- Defaults: supervisors start with everything at **Full access** except **Production plan (Off)**, staff with everything **Off**; general managers at **Full access**.
 - **General manager as the target** (superadmin only): a hint under the legend says *"Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced)."* Lowering Staff management takes creating / editing users (at *Off*, the Users list) away from the GM.
 - Changes take effect on the user's next menu refresh (within a minute, or at once on their next "no permission" answer). If you change your own access, your menus refresh immediately.
 - **Every row has the same columns, in the same order:** Off · View only · Record · Full access. A feature without a level (Record exists only for Production) shows a muted "—" in that column (tooltip: *Not available for this feature*), so each level sits in the same place for every feature. On large screens the columns have one fixed width and line up exactly; on tablets, phones and in the Mini App the control sits under the name, full width, with large touch targets, as a 2 × 2 grid on phones. If no feature on the tab has Record, the column isn't shown.
@@ -364,7 +376,7 @@ Supervisors and staff never see any permission or access information.
 
 ## 11. Audit log
 
-**Path:** `/settings/audit-logs`. **Who can open it:** the general manager and the superadmin. The general manager doesn't see entries made by the superadmin (nor detailed permission changes).
+**Path:** `/settings/audit-logs`. **Who can open it:** general managers and the superadmin. General managers don't see entries made by the superadmin (nor detailed permission changes).
 
 - A chronological list of security events:
   - sign-ins and failed sign-ins;
@@ -372,7 +384,7 @@ Supervisors and staff never see any permission or access information.
   - password changes and resets;
   - user creation, edits, role changes (e.g. *"Staff → Supervisor"*), deactivation and reactivation;
   - access changes (*Changed access*), shown as e.g. *"Suppliers: View only → Full access"*;
-  - detailed permission grants and revokes, including automatic ones on deploy: **superadmin only** (the general manager sees access changes instead);
+  - detailed permission grants and revokes, including automatic ones on deploy: **superadmin only** (general managers see access changes instead);
   - profile updates;
   - suppliers and customers added, edited, deactivated and reactivated;
   - production: batch started, step finished and step reopened (*"Step 1 · Intake"*, plus *"Also back to draft: step 2, 3"* when later steps were reopened with it), batch cancelled (with the reason). Draft saves aren't logged;
@@ -446,6 +458,8 @@ Supervisors and staff never see any permission or access information.
 | Settings → Users (list / detail) | ✅ all below | ✅ supervisors, staff | Staff management ≥ View only (default Full): staff | ❌ |
 | Create / edit user | ✅ | ✅ | Staff management = Full (default) | ❌ |
 | Change role (promote / demote) | ✅ GM ↔ supervisor ↔ staff | ✅ supervisor ↔ staff | ❌ | ❌ |
+| Settings → User limits (role limits) | ✅ | ❌ | ❌ | ❌ |
+| Role capacity in the users list and forms | ✅ all three roles | ✅ supervisors, staff | ✅ staff | ❌ |
 | Deactivate / reactivate users | ✅ | ✅ | ❌ never | ❌ |
 | Reset others' password | ✅ | ✅ | ❌ never | ❌ |
 | Reset own password | ✅ | ✅ | ❌ | ❌ |
@@ -465,6 +479,6 @@ Supervisors and staff never see any permission or access information.
 | Header bell | ✅ | ✅ | ✅ (empty without plan access) | ✅ (always empty) |
 | My profile → Telegram card | ✅ | ❌ | ❌ | ❌ |
 
-"Suppliers = Full" etc. refers to the levels the general manager sets on the Access tab (§10). "(default)" is the level a new account starts with.
+"Suppliers = Full" etc. refers to the levels a general manager sets on the Access tab (§10). "(default)" is the level a new account starts with.
 
 This matrix depends **only on role and access levels**. A staff member's position (e.g. `Grill cook` or `អ្នកដឹកជញ្ជូន`) never changes it: two staff with the same levels see exactly the same menu and screens.

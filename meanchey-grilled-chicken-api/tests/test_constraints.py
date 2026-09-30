@@ -12,18 +12,11 @@ async def test_db_allows_only_one_superadmin(session) -> None:
         await session.flush()
 
 
-async def test_db_allows_only_one_active_gm(session, make_user) -> None:
+async def test_db_allows_several_active_gms(session, make_user) -> None:
+    """How many is the role limit's job (services/role_limit_service.py), not an index."""
     await make_user(Role.GENERAL_MANAGER, "gm_one")
-    session.add(
-        User(
-            role=Role.GENERAL_MANAGER,
-            full_name="Second GM",
-            telegram_username="gm_two",
-            password_hash=hash_password("x"),
-        )
-    )
-    with pytest.raises(IntegrityError, match="uq_users_single_active_gm"):
-        await session.flush()
+    await make_user(Role.GENERAL_MANAGER, "gm_two")
+    await make_user(Role.GENERAL_MANAGER, "gm_three")
 
 
 async def test_db_allows_second_gm_when_first_is_inactive(session, make_user) -> None:
@@ -50,23 +43,24 @@ async def test_db_requires_telegram_username_for_non_superadmin(session) -> None
         await session.flush()
 
 
-async def test_api_rejects_second_gm(client, superadmin, make_user) -> None:
+async def test_api_allows_a_second_gm_but_not_a_third(client, superadmin, make_user) -> None:
     await make_user(Role.GENERAL_MANAGER, "gm_one")
-    r = await client.post(
-        "/users",
-        json={"role": "general_manager", "full_name": "GM 2", "telegram_username": "gm_two"},
-        headers=auth(superadmin),
-    )
-    assert_error(r, 409, "GM_ALREADY_EXISTS")
+
+    def body(name: str) -> dict:
+        return {"role": "general_manager", "full_name": name, "telegram_username": name}
+
+    r = await client.post("/users", json=body("gm_two"), headers=auth(superadmin))
+    assert r.status_code == 201, r.text
+    r = await client.post("/users", json=body("gm_three"), headers=auth(superadmin))
+    assert_error(r, 409, "ROLE_LIMIT_REACHED")
 
 
-async def test_api_cannot_reactivate_gm_while_another_is_active(
-    client, superadmin, make_user
-) -> None:
+async def test_api_cannot_reactivate_a_gm_above_the_limit(client, superadmin, make_user) -> None:
     old = await make_user(Role.GENERAL_MANAGER, "gm_old", is_active=False)
-    await make_user(Role.GENERAL_MANAGER, "gm_new")
+    await make_user(Role.GENERAL_MANAGER, "gm_one")
+    await make_user(Role.GENERAL_MANAGER, "gm_two")
     r = await client.post(f"/users/{old.id}/reactivate", headers=auth(superadmin))
-    assert_error(r, 409, "GM_ALREADY_EXISTS")
+    assert_error(r, 409, "ROLE_LIMIT_REACHED")
 
 
 async def test_nobody_can_create_a_superadmin(client, superadmin, make_user) -> None:

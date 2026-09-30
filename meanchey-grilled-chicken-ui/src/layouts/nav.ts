@@ -1,7 +1,7 @@
 import { useCanAccess, type AccessRule } from '@/auth/usePermission'
 import type { IconName } from '@/components/icons'
 import { paths } from '@/lib/paths'
-import { AUDIT_ROLES } from '@/lib/roles'
+import { AUDIT_ROLES, ROLE_LIMIT_ROLES } from '@/lib/roles'
 
 export type NavBadgeKind = 'pendingPlans'
 
@@ -90,6 +90,13 @@ export const NAV_ITEMS: NavItem[] = [
         descriptionKey: 'settings.auditDescription',
         icon: 'audit',
         roles: AUDIT_ROLES,
+      },
+      {
+        to: paths.userLimits,
+        labelKey: 'nav.userLimits',
+        descriptionKey: 'settings.userLimitsDescription',
+        icon: 'sliders',
+        roles: ROLE_LIMIT_ROLES,
       },
       {
         to: paths.profile,

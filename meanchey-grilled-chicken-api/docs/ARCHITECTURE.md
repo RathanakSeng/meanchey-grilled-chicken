@@ -100,11 +100,12 @@ app/
 │   ├── plan_service.py  # packaging plans: list, detail, save, confirm (batch version, pieces rule)
 │   ├── notification_service.py # alert recipients, rows in the Finish transaction, the bell
 │   ├── telegram_link_service.py # superadmin one-time Telegram link (create, consume, unlink)
+│   ├── role_limit_service.py # role limits: ensure_slot (row lock + count), settings, capacity
 │   ├── audit_service.py # record() + listing (viewer-aware filters)
 │   └── redaction.py     # hides the superadmin from other viewers: viewer context, hides(), middleware
 ├── api/                 # thin routers: auth, me, users, permissions (superadmin), features, audit,
 │                        #   partners (build_router(kind) → /suppliers, /customers), production,
-│                        #   production_plans, notifications
+│                        #   production_plans, notifications, settings (role limits)
 └── bot/
     ├── setup.py         # create_bot(), create_dispatcher(): the one place handlers are registered
     ├── handlers.py      # /start (incl. /start link_<token>), /lang (create_router())
@@ -197,6 +198,7 @@ erDiagram
     users ||--o{ notifications : "recipient (CASCADE)"
     production_batches ||..o{ notifications : "entity (no FK)"
     users ||--o{ telegram_link_tokens : "one-time link"
+    users ||--o{ role_limits : "updated_by"
 
     users {
         uuid id PK
@@ -363,6 +365,12 @@ erDiagram
         text telegram_error
         timestamptz sent_at
     }
+    role_limits {
+        varchar32 role PK "general_manager | supervisor | staff"
+        int max_active "null = unlimited (not for GM), 1-999"
+        uuid updated_by FK
+        timestamptz updated_at
+    }
     telegram_link_tokens {
         uuid id PK
         uuid user_id FK
@@ -382,7 +390,8 @@ erDiagram
   - Only its *presence* is tied to the role: required for staff, forbidden otherwise (`ck_users_position_staff_only`).
   - `GET /users/positions` returns the distinct values for suggestions (case-insensitive grouping, most used spelling).
 - **Partial unique indexes** enforce the business invariants. See FEATURES §3.
-- **Uniqueness only counts active users,** so a deactivated user's username can be reused; that's how roles change in Phase 1.
+- **Role limits** (`role_limits`, migration `0008`): one row per limited role, seeded 2 / 3 / 10 (bootstrap inserts any missing row, never overwrites). CHECKs keep `max_active` null or 1–999 and never null for the general manager. The migration dropped `uq_users_single_active_gm`; `services/role_limit_service.ensure_slot` locks the role's row (`FOR UPDATE`) and counts active users inside the create / reactivate / role-change transaction, so concurrent requests for the last slot are serialized.
+- **Uniqueness only counts active users,** so a deactivated user's username can be reused.
 - **`permissions` rows are never deleted.** Removing a permission from the registry flips `is_active`.
 - **`suppliers` / `customers`** share their columns and indexes through `PartnerMixin` (`models/partner.py`), migration `0004`:
   - `ix_<table>_name_lower` on `lower(name)` for case-insensitive sorting and search;
@@ -405,7 +414,7 @@ erDiagram
 
 ## 6. Authorization model
 
-Authorization combines **two independent axes**, plus a **feature layer** on top of permissions for the general manager:
+Authorization combines **two independent axes**, plus a **feature layer** on top of permissions for general managers:
 
 **The superadmin can do everything the general manager can.** It holds every permission implicitly, manages every other role, and every `require_role(...)` that lists `general_manager` also lists `superadmin` (the audit log). Role checks on `general_manager` in services are business rules (one active GM), never access checks. `tests/test_superadmin_superset.py` enforces this for every route, including future ones (§12).
 
@@ -469,7 +478,7 @@ flowchart LR
 
 - A feature (`registry.FEATURES`) maps each level to an exact set of codes. Levels come from `LEVELS = (off, view, record, full)` in that order; a feature starts with `off` and may omit any of the others (only `production` has `record` = view + create). `current_level` = the level whose set equals the user's effective codes within the feature, else `custom`; this works unchanged for any number of levels.
 - `set_level` checks, in order: scope (`FORBIDDEN_SCOPE`; the hidden account is already `USER_NOT_FOUND`), `FEATURE_NOT_FOUND`, `FEATURE_NOT_APPLICABLE`, unknown level (`VALIDATION_ERROR`), target active (`USER_INACTIVE`). The level is a plain string in the body so this order holds.
-- Unlike detailed grants there is **no held-by-grantor rule**: whoever holds `permissions.grant` (the general manager) can set any level of any applicable feature. Detailed permissions keep `PERMISSION_NOT_HELD` and are superadmin-only anyway.
+- Unlike detailed grants there is **no held-by-grantor rule**: whoever holds `permissions.grant` (general managers) can set any level of any applicable feature. Detailed permissions keep `PERMISSION_NOT_HELD` and are superadmin-only anyway.
 - **Role changes** (`user_service.change_role`) call `service.reset_to_role_defaults`: all grants are replaced by `DEFAULT_PERMISSIONS[new role]` (not limited to what the actor holds), in the same transaction as the role update and the `user.role_change` audit entry.
 - The diff touches only the feature's codes, in one transaction, with one `feature.set` audit entry and no `permission.*` entries. Re-setting the current level writes nothing.
 - `DEFAULT_PERMISSIONS` for supervisors and staff is computed from feature levels (supervisor: all Full; staff: all Off).
@@ -639,7 +648,7 @@ In webhook mode the API can run **multiple uvicorn workers or replicas**.
   | `RequestValidationError` | `422 VALIDATION_ERROR`, with `details.fields[] = {loc, type, msg}` |
   | Starlette `HTTPException` | `NOT_FOUND`, `METHOD_NOT_ALLOWED` or `HTTP_ERROR` |
 
-- **Database constraint violations become API errors.** `_flush_or_conflict` in `user_service` catches `IntegrityError` and maps the name of the violated partial unique index to a domain code (`GM_ALREADY_EXISTS`, `DUPLICATE_TELEGRAM_USERNAME`).
+- **Database constraint violations become API errors.** `_flush_or_conflict` in `user_service` catches `IntegrityError` and maps the name of the violated partial unique index to a domain code (`DUPLICATE_TELEGRAM_USERNAME`). The old single-GM mapping (`GM_ALREADY_EXISTS`) is gone with its index; role limits are checked under a row lock instead (§5).
   - The code also checks these conditions up front, for friendly errors.
   - The database index is the real guarantee under concurrency.
 
@@ -692,7 +701,7 @@ Settings are read at import time by `app.db` to build the engine. Tests therefor
 | Engine | `DB_NULL_POOL=true` avoids connection reuse across pytest-asyncio event loops. |
 | HTTP | `httpx.AsyncClient` over `ASGITransport(app)`: in-process, no server. |
 | Auth in tests | `auth(user)` mints an access token directly. Login flows have their own tests. |
-| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation; default backfill, `grantable_by` and `reason`; suppliers/customers CRUD, validation, phone rules, duplicates, search/sort/paging, stats month boundary, audit entities (parametrized over both lists); feature levels (mapping, diffs, check order, defaults, startup validation); detailed permissions superadmin-only; **superadmin invisibility sweep** over every GET route from the OpenAPI schema plus key mutations, as GM / supervisor / staff; **superadmin ⊇ GM sweep** (`test_superadmin_superset.py`): every route and method in the schema is called as the GM and, wherever the GM isn't refused with 403, as the superadmin, which must not get 403 either (placeholders filled with targets both manage; empty bodies unless a valid one is needed to reach a service-level check; both accounts reset between calls); production steps, drafts, versions, reopen (cascading), cancel (GM only), codes under concurrency, stats; GM feature levels set by the superadmin; packaging plan (feature and backfill, lifecycle through reopen sequences, pieces rule, confirm, lock, versions, cancelled, legacy batches, audit, list and detail) and the step 3 gate and comment rule; notifications (recipients by permission, rows only with a successful Finish, Telegram per language with the web_app button, `not_linked` / `bot_off` / `failed`, polling-mode bot, repeat after reopen, resend, own-only bell, "System" actor); superadmin Telegram link (hashed single-use token, expiry, id taken, unlink, role guard); migrations `0006` and `0007` backfills. |
+| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation; default backfill, `grantable_by` and `reason`; suppliers/customers CRUD, validation, phone rules, duplicates, search/sort/paging, stats month boundary, audit entities (parametrized over both lists); feature levels (mapping, diffs, check order, defaults, startup validation); detailed permissions superadmin-only; **superadmin invisibility sweep** over every GET route from the OpenAPI schema plus key mutations, as GM / supervisor / staff; **superadmin ⊇ GM sweep** (`test_superadmin_superset.py`): every route and method in the schema is called as the GM and, wherever the GM isn't refused with 403, as the superadmin, which must not get 403 either (placeholders filled with targets both manage; empty bodies unless a valid one is needed to reach a service-level check; both accounts reset between calls); production steps, drafts, versions, reopen (cascading), cancel (GM only), codes under concurrency, stats; GM feature levels set by the superadmin; packaging plan (feature and backfill, lifecycle through reopen sequences, pieces rule, confirm, lock, versions, cancelled, legacy batches, audit, list and detail) and the step 3 gate and comment rule; notifications (recipients by permission, rows only with a successful Finish, Telegram per language with the web_app button, `not_linked` / `bot_off` / `failed`, polling-mode bot, repeat after reopen, resend, own-only bell, "System" actor); superadmin Telegram link (hashed single-use token, expiry, id taken, unlink, role guard); role limits (defaults, create / reactivate / role change at the limit per role and actor, freed slots, unlimited, range, lowering below the count, superadmin-only settings and hidden audit, capacity per viewer, two GMs out of each other's scope and both alerted) including **concurrent creates for the last slot** (several requests at once, each with its own session: exactly one succeeds; the test fails without the row lock); migrations `0006`, `0007` and `0008`. |
 | Telegram | Never contacted. Alert tests put a runtime with a `RecordingSession` bot on `app.state` (webhook mode) or replace `notify.bot_factory` (polling); background tasks finish before the in-process request returns, so assertions see the final `telegram_status`. `tests/telegram_fakes.RecordingSession` is an aiogram `BaseSession` that records Bot API calls (`SendMessage`, `SetWebhook`, …) and returns canned responses, or simulates an outage. `BOT_MODE=off` by default; webhook tests put their own `TelegramRuntime` on `app.state`. |
 
 Run:
@@ -727,7 +736,7 @@ uv run ruff check . && uv run ruff format --check .
 
 To add a business feature, for example `orders`:
 
-1. **Registry:** add a `ModuleDef` and `PermissionDef`s (with `assignable_to`) to `permissions/registry.py`, **and a `FeatureDef`** in `FEATURES` (`menu`, `applies_to`, levels `off` / `view` / `full` → codes) so the general manager can switch it on the Access tab. `menu` is `"workstation"` for day-to-day work (e.g. `FeatureDef(code="orders", menu="workstation", …)`) or `"settings"` for administration; a new menu goes into both `Menu` and `MENUS` (the display order). Startup validation checks the feature against the permissions. Update `DEFAULT_PERMISSIONS` (supervisor/staff defaults are built from feature levels). There is no migration for permissions.
+1. **Registry:** add a `ModuleDef` and `PermissionDef`s (with `assignable_to`) to `permissions/registry.py`, **and a `FeatureDef`** in `FEATURES` (`menu`, `applies_to`, levels `off` / `view` / `full` → codes) so general managers can switch it on the Access tab. `menu` is `"workstation"` for day-to-day work (e.g. `FeatureDef(code="orders", menu="workstation", …)`) or `"settings"` for administration; a new menu goes into both `Menu` and `MENUS` (the display order). Startup validation checks the feature against the permissions. Update `DEFAULT_PERMISSIONS` (supervisor/staff defaults are built from feature levels). There is no migration for permissions.
 2. **Models and migration:** add the feature's tables in `models/`, then:
    ```bash
    uv run alembic revision --autogenerate -m "orders"
@@ -759,7 +768,7 @@ A third list with the same fields needs a model class, a `PartnerKind`, a router
 | Role hierarchy separate from permissions | Keeps "who" (organizational structure) and "what" (features) orthogonal, so each can change independently. |
 | Invariants in database indexes, not only in code | Race-proof: two concurrent "create GM" requests cannot both succeed. |
 | Uniqueness only among active users | Supports "deactivate and recreate" without renaming old records. |
-| Role change resets access to the new role's defaults | A promoted or demoted user never keeps access meant for the old role (leftover rows would silently come back if the role changed again). The general manager fine-tunes afterwards with feature levels. |
+| Role change resets access to the new role's defaults | A promoted or demoted user never keeps access meant for the old role (leftover rows would silently come back if the role changed again). A general manager fine-tunes afterwards with feature levels. |
 | Reload the user on every request | Deactivation and forced password change take effect instantly. The cost is one primary-key lookup. |
 | Opaque, hashed, rotating refresh tokens | A database leak doesn't expose usable tokens, and each token can be revoked individually. |
 | No cascade on revoke | Predictable behavior. Follow-up is surfaced through the audit log instead of silently removing other people's access. |
@@ -774,10 +783,11 @@ A third list with the same fields needs a model class, a `PartnerKind`, a router
 | Plan gate before step 3 | Packing follows a decision (how many 4-piece and 2-piece packs), so step 3 is locked until a planner confirms it, and the API enforces it (`PRODUCTION_PLAN_REQUIRED`), not just the UI. The plan lives in its own table with its own permissions, so who plans is independent of who records; it shares the batch `version`, so plan and step writes can't overwrite each other. Reopening step 1 or 2 resets it to pending (the counts may change); a mismatch between plan and actual needs a comment rather than being forbidden. |
 | Notifications stored first, Telegram after commit | An alert must exist exactly when the step was finished, and Telegram must never slow down or break a Finish. Rows are written in the Finish transaction (the bell always works); sending happens afterwards in a background task that records its outcome per row, so failures are visible and can be resent. No queue or worker process is needed at this size. |
 | Superadmin links Telegram with a one-time token | The superadmin has no Telegram username to be matched by, and must stay invisible. A short-lived, single-use, hashed deep-link token binds exactly the account that opens it, without the superadmin typing an id, and the bot's replies never mention a role. |
+| Role limits in a table with a row lock instead of a unique index | A partial unique index can only express "at most one". Limits the superadmin can change need a number stored as data; locking that row while counting keeps the check race-safe (one request takes the last slot) without a table lock. Lowering a limit never deactivates anyone: it only blocks new users, which is safer than guessing whom to remove. |
 | Cancelling batches is GM-only | Cancelling removes a batch from the figures: a management decision, like deactivating people. Outside the feature levels, so a supervisor at Full access can fix steps but not cancel. |
 | Feature levels for managers, detailed permissions for the superadmin | Managers think in "who can use Suppliers, and how much", not in permission codes. Levels are exact code sets over the same `user_permissions` table, so nothing else changes and the superadmin can still fine-tune (shown as `custom`). |
 | Superadmin redacted for all other viewers | The superadmin is an operator account, not part of the business. Hiding it at the serialization edge (one `UserRef` schema, one lookup helper, fail-closed) covers new endpoints by default, and a route-walking test guards against regressions. |
-| Supervisors never deactivate users or grant access | Keeps people decisions with the general manager. Enforced by `assignable_to`, so older grants lose their effect without a data migration. |
+| Supervisors never deactivate users or grant access | Keeps people decisions with general managers. Enforced by `assignable_to`, so older grants lose their effect without a data migration. |
 | Backfill role defaults only for newly inserted permissions | New features reach existing managers on deploy with no manual grants, and it runs exactly once per permission, so a later deliberate revoke is never undone by a restart. |
 | `grantable_by` on the permission, not a new role rule | Keeps the hierarchy (who manages whom) unchanged, and restricts only the permissions that need it, per target role. The superadmin is exempt, matching "implicit-all". Unused today; kept for later. |
 | Separate `suppliers` and `customers` tables, one generic implementation | Each list gets its own ids, indexes and future columns, while the code and tests are written once. |

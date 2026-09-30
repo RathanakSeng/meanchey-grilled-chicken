@@ -24,6 +24,7 @@ import { useErrorMessage } from '@/lib/errors'
 import { useFormatDate } from '@/lib/format'
 import { isSuperadmin } from '@/lib/roles'
 import type { User, UserFeatures } from '@/lib/types'
+import { invalidateRoleCapacity } from '@/lib/useRoleCapacity'
 import { RoleChangeSheet } from './RoleChangeSheet'
 import { UserAccessTab, userFeaturesKey } from './UserAccessTab'
 import { UserPermissionsTab } from './UserPermissionsTab'
@@ -79,6 +80,7 @@ export function UserDetailPage() {
       if (user) queryClient.setQueryData(['user', id], user)
       else void queryClient.invalidateQueries({ queryKey: ['user', id] })
       void queryClient.invalidateQueries({ queryKey: ['users'] })
+      invalidateRoleCapacity(queryClient)
       void queryClient.invalidateQueries({ queryKey: ['user-permissions', id] })
       void queryClient.invalidateQueries({ queryKey: userFeaturesKey(id) })
       setNotice(

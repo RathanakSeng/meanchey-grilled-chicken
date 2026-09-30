@@ -15,6 +15,7 @@ import { useErrorMessage } from '@/lib/errors'
 import type { Page, Role, User } from '@/lib/types'
 import { useDebounced } from '@/lib/useDebounced'
 import { usePositions } from '@/lib/usePositions'
+import { useRoleCapacity } from '@/lib/useRoleCapacity'
 
 type Status = 'active' | 'inactive' | 'all'
 const PAGE_SIZE = 20
@@ -33,6 +34,7 @@ export function UsersListPage() {
   const [status, setStatus] = useState<Status>('active')
   const [page, setPage] = useState(1)
   const search = useDebounced(q.trim())
+  const capacity = useRoleCapacity()
 
   const params = {
     q: search || undefined,
@@ -62,7 +64,25 @@ export function UsersListPage() {
       <PageHeader
         back={paths.settings}
         title={t('users.title')}
-        subtitle={query.data && t('common.total', { count: query.data.total })}
+        subtitle={
+          <>
+            {query.data && t('common.total', { count: query.data.total })}
+            {capacity.data && capacity.data.length > 0 && (
+              <span className="mt-0.5 flex flex-wrap gap-x-2 text-xs tabular-nums">
+                {capacity.data.map((c, i) => (
+                  <span key={c.role} className="whitespace-nowrap">
+                    {i > 0 && <span aria-hidden>· </span>}
+                    {t('roleCapacity.line', {
+                      roles: t(`userLimits.pluralTitle.${c.role}`),
+                      count: c.active,
+                      limit: c.limit ?? t('roleCapacity.noLimit'),
+                    })}
+                  </span>
+                ))}
+              </span>
+            )}
+          </>
+        }
         actions={
           <Can permission="users.create">
             <Button onClick={() => navigate(paths.newUser)}>

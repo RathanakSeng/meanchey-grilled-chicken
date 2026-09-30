@@ -395,3 +395,30 @@ export interface TelegramLink {
 export const PRODUCTION_COMMENT_MAX_LENGTH = 1000
 export const PLAN_NOTE_MAX_LENGTH = 500
 export const CANCEL_REASON_MAX_LENGTH = 500
+
+// --- Role limits ------------------------------------------------------------------------------
+
+/** Roles with a configurable number of active users (the superadmin is always exactly one). */
+export type LimitedRole = 'general_manager' | 'supervisor' | 'staff'
+
+export interface RoleLimit {
+  role: LimitedRole
+  /** null = unlimited (never for the general manager). */
+  max_active: number | null
+  active: number
+  /** More active users than the limit (it was lowered): nobody new until some leave. */
+  over_limit: boolean
+  updated_by: UserRef | null
+  updated_at: string | null
+}
+
+export interface RoleCapacity {
+  role: LimitedRole
+  active: number
+  /** null = unlimited */
+  limit: number | null
+  full: boolean
+}
+
+/** Same range as the API. */
+export const ROLE_LIMIT_MAX = 999

@@ -37,6 +37,8 @@ export function useErrorMessage() {
         params.time = formatDate(details.locked_until, { timeStyle: 'short' })
       }
       if (typeof details.min_length === 'number') params.min = details.min_length
+      // ROLE_LIMIT_REACHED: {role, limit, active} → "The supervisor limit (3) is reached."
+      if (typeof details.role === 'string') params.roleName = t(`userLimits.singular.${details.role}`)
       params.min ??= 8
       return t(`errors.${code}`, { ...params, defaultValue: t('errors.UNKNOWN') })
     },

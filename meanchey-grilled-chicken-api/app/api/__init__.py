@@ -9,6 +9,7 @@ from app.api import (
     permissions,
     production,
     production_plans,
+    settings,
     users,
 )
 from app.api.partners import customers_router, suppliers_router
@@ -25,3 +26,4 @@ api_router.include_router(customers_router)
 api_router.include_router(production.router)
 api_router.include_router(production_plans.router)
 api_router.include_router(notifications.router)
+api_router.include_router(settings.router)

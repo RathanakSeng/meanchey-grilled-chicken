@@ -41,6 +41,8 @@ const ACTIONS = [
   'production_plan.update',
   'production_plan.confirm',
 ]
+// Superadmin settings (hidden from the GM by the API like everything the superadmin does).
+const SUPERADMIN_ACTIONS = ['settings.role_limit_update']
 // Detailed permission entries are listed by the API for the superadmin only.
 const PERMISSION_ACTIONS = ['permission.grant', 'permission.revoke']
 const ENTITY_TYPES = ['supplier', 'customer', 'production_batch'] as const
@@ -136,6 +138,18 @@ function Details({ log }: { log: AuditLog }) {
       </span>
     )
   }
+  if (log.action === 'settings.role_limit_update') {
+    const value = (v: unknown) => (v === null || v === undefined ? t('userLimits.unlimited') : String(v))
+    return (
+      <span className="block text-sm text-stone-700">
+        {t('audit.roleLimitChange', {
+          role: t(`userLimits.pluralTitle.${String(d.role)}`, { defaultValue: String(d.role) }),
+          from: value(d.from),
+          to: value(d.to),
+        })}
+      </span>
+    )
+  }
   if (log.action === 'production_plan.confirm') {
     return (
       <span className="block text-sm text-stone-700">
@@ -200,7 +214,7 @@ export function AuditLogPage() {
   const { t } = useTranslation()
   const { me } = useAuth()
   const actions =
-    isSuperadmin(me?.user.role) ? [...ACTIONS, ...PERMISSION_ACTIONS] : ACTIONS
+    isSuperadmin(me?.user.role) ? [...ACTIONS, ...PERMISSION_ACTIONS, ...SUPERADMIN_ACTIONS] : ACTIONS
   const formatDate = useFormatDate()
   const errorMessage = useErrorMessage()
   const [action, setAction] = useState('')

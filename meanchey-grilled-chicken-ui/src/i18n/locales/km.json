@@ -37,7 +37,8 @@
     "logout": "ចាកចេញ",
     "menu": "ម៉ឺនុយ",
     "production": "ផលិតកម្ម",
-    "productionPlans": "ផែនការវេចខ្ចប់"
+    "productionPlans": "ផែនការវេចខ្ចប់",
+    "userLimits": "ចំនួនអ្នកប្រើប្រាស់"
   },
   "roles": {
     "superadmin": "ប្រព័ន្ធ",
@@ -245,13 +246,15 @@
       "production_plan_update": "បានកែផែនការវេចខ្ចប់",
       "production_plan_confirm": "បានបញ្ជាក់ផែនការវេចខ្ចប់",
       "profile_telegram_link": "បានភ្ជាប់គណនី Telegram",
-      "profile_telegram_unlink": "បានផ្តាច់គណនី Telegram"
+      "profile_telegram_unlink": "បានផ្តាច់គណនី Telegram",
+      "settings_role_limit_update": "បានកែចំនួនអ្នកប្រើប្រាស់កំណត់"
     },
     "featureChange": "{{feature}}៖ {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
     "productionStep": "ជំហានទី {{step}} · {{name}}",
     "cancelReason": "មូលហេតុ៖ {{reason}}",
-    "alsoReopened": "ត្រឡប់ទៅព្រាងដែរ៖ ជំហានទី {{steps}}"
+    "alsoReopened": "ត្រឡប់ទៅព្រាងដែរ៖ ជំហានទី {{steps}}",
+    "roleLimitChange": "{{role}}៖ {{from}} → {{to}}"
   },
   "profile": {
     "title": "ប្រវត្តិរូបរបស់ខ្ញុំ",
@@ -350,7 +353,8 @@
   "settings": {
     "usersDescription": "បង្កើត កែប្រែ និងកំណត់សិទ្ធិឱ្យអ្នកប្រើប្រាស់។",
     "auditDescription": "មើលថាអ្នកណាបានធ្វើអ្វី និងនៅពេលណា។",
-    "profileDescription": "ព័ត៌មានផ្ទាល់ខ្លួន ភាសា និងពាក្យសម្ងាត់របស់អ្នក។"
+    "profileDescription": "ព័ត៌មានផ្ទាល់ខ្លួន ភាសា និងពាក្យសម្ងាត់របស់អ្នក។",
+    "userLimitsDescription": "ចំនួនអ្នកគ្រប់គ្រងទូទៅ អ្នកត្រួតពិនិត្យ និងបុគ្គលិក ដែលអាចសកម្មបាន។"
   },
   "forbidden": {
     "title": "គ្មានសិទ្ធិចូលប្រើ",
@@ -389,7 +393,6 @@
     "USER_INACTIVE": "អ្នកប្រើប្រាស់នេះត្រូវបានបិទ។",
     "INVALID_TELEGRAM_USERNAME": "ឈ្មោះ Telegram ត្រូវមាន ៥–៣២ តួអក្សរ៖ a–z, 0–9 ឬ _។",
     "DUPLICATE_TELEGRAM_USERNAME": "ឈ្មោះ Telegram នេះត្រូវបានប្រើរួចហើយ។",
-    "GM_ALREADY_EXISTS": "មានអ្នកគ្រប់គ្រងទូទៅសកម្មម្នាក់រួចហើយ។",
     "POSITION_REQUIRED": "បុគ្គលិកត្រូវមានមុខតំណែង។",
     "POSITION_NOT_ALLOWED": "មានតែបុគ្គលិកប៉ុណ្ណោះដែលមានមុខតំណែង។",
     "SUPPLIER_NOT_FOUND": "រកមិនឃើញអ្នកផ្គត់ផ្គង់។",
@@ -419,7 +422,8 @@
     "PRODUCTION_PLAN_LOCKED": "ជំហានទី៣ បានបញ្ចប់ហើយ ដូច្នេះមិនអាចកែផែនការបានទេ។ សូមបើកជំហានទី៣ ឡើងវិញជាមុនសិន។",
     "PRODUCTION_PLAN_EXCEEDS_OUTPUT": "ផែនការប្រើស្លាប ឬភ្លៅលើសចំនួនដែលបានផលិត។",
     "PRODUCTION_PLAN_COMMENT_REQUIRED": "កញ្ចប់ខុសពីផែនការ — សូមបញ្ចូលមតិយោបល់។",
-    "NOTIFICATION_NOT_FOUND": "រកមិនឃើញការជូនដំណឹងទេ។"
+    "NOTIFICATION_NOT_FOUND": "រកមិនឃើញការជូនដំណឹងទេ។",
+    "ROLE_LIMIT_REACHED": "ចំនួន{{roleName}}បានដល់ចំនួនកំណត់ ({{limit}}) ហើយ។"
   },
   "permissions": {
     "readOnlyNotice": "អ្នកអាចមើលសិទ្ធិទាំងនេះ ប៉ុន្តែមិនអាចផ្លាស់ប្តូរនៅទីនេះបានទេ។",
@@ -671,5 +675,41 @@
     "unlink": "ផ្តាច់",
     "unlinkTitle": "ផ្តាច់ Telegram?",
     "unlinkBody": "ការជូនដំណឹងផលិតកម្មនឹងលែងផ្ញើទៅគណនី Telegram នេះទៀតហើយ។"
+  },
+  "userLimits": {
+    "title": "ចំនួនអ្នកប្រើប្រាស់",
+    "subtitle": "ចំនួនអ្នកប្រើប្រាស់សកម្មអតិបរមា តាមតួនាទី",
+    "activeOf": "សកម្ម {{active}} / {{limit}}",
+    "unlimited": "គ្មានកំណត់",
+    "maxActive": "ចំនួនកំណត់សម្រាប់ {{role}}",
+    "range": "សូមបញ្ចូលលេខពី 1 ដល់ {{max}} ឬធីក គ្មានកំណត់។",
+    "rangeGm": "សូមបញ្ចូលលេខពី 1 ដល់ {{max}}។",
+    "overLimit": "សកម្ម {{active}} — លើសចំនួនកំណត់ {{limit}}។ មិនអាចបន្ថែម{{roles}}ថ្មីបានទេ រហូតដល់មាននរណាម្នាក់ត្រូវបានបិទដំណើរការ។",
+    "lastChanged": "កែចុងក្រោយដោយ {{name}} · {{time}}",
+    "note": "រាប់តែអ្នកប្រើប្រាស់សកម្មប៉ុណ្ណោះ។ ការបន្ថយចំនួនកំណត់មិនបិទដំណើរការនរណាម្នាក់ទេ៖ តួនាទីនោះគ្រាន់តែពេញ រហូតដល់មានអ្នកត្រូវបានបិទដំណើរការ ឬប្តូរតួនាទី។",
+    "plural": {
+      "general_manager": "អ្នកគ្រប់គ្រងទូទៅ",
+      "supervisor": "អ្នកត្រួតពិនិត្យ",
+      "staff": "បុគ្គលិក"
+    },
+    "pluralTitle": {
+      "general_manager": "អ្នកគ្រប់គ្រងទូទៅ",
+      "supervisor": "អ្នកត្រួតពិនិត្យ",
+      "staff": "បុគ្គលិក"
+    },
+    "singular": {
+      "general_manager": "អ្នកគ្រប់គ្រងទូទៅ",
+      "supervisor": "អ្នកត្រួតពិនិត្យ",
+      "staff": "បុគ្គលិក"
+    }
+  },
+  "roleCapacity": {
+    "option": "{{role}} ({{count}} / {{limit}})",
+    "optionFull": "{{role}} ({{count}} / {{limit}}) — ពេញ",
+    "noLimit": "គ្មានកំណត់",
+    "line": "{{roles}} {{count}} / {{limit}}",
+    "fullHint": "ដល់ចំនួនកំណត់ហើយ — សូមបិទដំណើរការនរណាម្នាក់ ឬស្នើឱ្យបង្កើនចំនួនកំណត់។",
+    "someFull": "តួនាទីដែលសម្គាល់ថាពេញ បានដល់ចំនួនកំណត់ហើយ — សូមបិទដំណើរការនរណាម្នាក់ ឬស្នើឱ្យបង្កើនចំនួនកំណត់។",
+    "allFull": "តួនាទីទាំងអស់ដែលអ្នកអាចបន្ថែមបាន ដល់ចំនួនកំណត់ហើយ — សូមបិទដំណើរការនរណាម្នាក់ ឬស្នើឱ្យបង្កើនចំនួនកំណត់។"
   }
 }

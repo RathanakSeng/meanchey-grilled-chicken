@@ -16,6 +16,7 @@ import {
   type User,
 } from '@/lib/types'
 import { normalizePosition, POSITIONS_QUERY_KEY, usePositions } from '@/lib/usePositions'
+import { invalidateRoleCapacity, useRoleCapacity } from '@/lib/useRoleCapacity'
 
 interface FormState {
   role: Role
@@ -34,6 +35,17 @@ export function UserFormPage({ mode }: { mode: 'create' | 'edit' }) {
   const queryClient = useQueryClient()
   const errorMessage = useErrorMessage()
   const roles = me?.manageable_roles ?? []
+  const capacity = useRoleCapacity()
+  const isFull = (r: Role) => capacity.byRole(r)?.full ?? false
+  const roleLabel = (r: Role) => {
+    const c = capacity.byRole(r)
+    if (!c) return t(`roles.${r}`)
+    return t(c.full ? 'roleCapacity.optionFull' : 'roleCapacity.option', {
+      role: t(`roles.${r}`),
+      count: c.active,
+      limit: c.limit ?? t('roleCapacity.noLimit'),
+    })
+  }
 
   const existing = useQuery({
     queryKey: ['user', id],
@@ -66,6 +78,13 @@ export function UserFormPage({ mode }: { mode: 'create' | 'edit' }) {
 
   const positions = usePositions()
 
+  // Start on a role with a free slot (the lowest one, usually staff).
+  useEffect(() => {
+    if (mode !== 'create' || !capacity.data || !isFull(form.role)) return
+    const free = [...roles].reverse().find((r) => !isFull(r))
+    if (free) setForm((f) => ({ ...f, role: free }))
+  }, [capacity.data])
+
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
 
@@ -94,6 +113,7 @@ export function UserFormPage({ mode }: { mode: 'create' | 'edit' }) {
     },
     onSuccess: (user) => {
       void queryClient.invalidateQueries({ queryKey: ['users'] })
+      if (mode === 'create') invalidateRoleCapacity(queryClient)
       void queryClient.invalidateQueries({ queryKey: POSITIONS_QUERY_KEY })
       queryClient.setQueryData(['user', user.id], user)
       navigate(paths.user(user.id), {
@@ -112,12 +132,29 @@ export function UserFormPage({ mode }: { mode: 'create' | 'edit' }) {
     e.preventDefault()
     mutation.mutate()
   }
+  const allFull =
+    mode === 'create' && capacity.data !== undefined && roles.length > 0 && roles.every(isFull)
   const backTo = mode === 'create' || !id ? paths.users : paths.user(id)
   const normalized = normalizeUsername(form.telegram_username)
   const usernameChanged =
     mode === 'edit' &&
     existing.data?.telegram_linked &&
     normalized !== existing.data.telegram_username
+
+  // Every role the actor can create is full: say so instead of showing a form that can't succeed.
+  if (allFull) {
+    return (
+      <>
+        <PageHeader title={t('userForm.createTitle')} back={backTo} />
+        <Card className="max-w-2xl">
+          <Alert tone="warning">{t('roleCapacity.allFull')}</Alert>
+          <Button variant="secondary" className="mt-4" onClick={() => navigate(backTo)}>
+            {t('common.back')}
+          </Button>
+        </Card>
+      </>
+    )
+  }
 
   return (
     <>
@@ -136,8 +173,8 @@ export function UserFormPage({ mode }: { mode: 'create' | 'edit' }) {
                   onChange={(e) => set('role', e.target.value as Role)}
                 >
                   {roles.map((r) => (
-                    <option key={r} value={r}>
-                      {t(`roles.${r}`)}
+                    <option key={r} value={r} disabled={isFull(r)}>
+                      {roleLabel(r)}
                     </option>
                   ))}
                 </Select>
@@ -236,13 +273,20 @@ export function UserFormPage({ mode }: { mode: 'create' | 'edit' }) {
           </Field>
 
           <div className="space-y-3 sm:col-span-2">
+            {mode === 'create' && roles.some(isFull) && (
+              <Alert tone="warning">{t('roleCapacity.someFull')}</Alert>
+            )}
             {mode === 'create' && <Alert tone="info">{t('userForm.initialPasswordNote')}</Alert>}
             {usernameChanged && <Alert tone="warning">{t('userForm.usernameChangeNote')}</Alert>}
             {mutation.isError && <Alert tone="error">{errorMessage(mutation.error)}</Alert>}
           </div>
 
           <div className="flex gap-2 sm:col-span-2">
-            <Button type="submit" loading={mutation.isPending}>
+            <Button
+              type="submit"
+              loading={mutation.isPending}
+              disabled={mode === 'create' && isFull(form.role)}
+            >
               {mode === 'create' ? t('userForm.create') : t('common.save')}
             </Button>
             <Button variant="secondary" onClick={() => navigate(backTo)}>

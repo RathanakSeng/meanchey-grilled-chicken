@@ -18,18 +18,13 @@ class User(Base):
             "role = 'superadmin' OR telegram_username IS NOT NULL",
             name="telegram_username_required",
         ),
-        # Business invariants enforced by the database, not only in code.
+        # Business invariants enforced by the database, not only in code. How many active
+        # general managers, supervisors and staff there may be is configurable: role_limits.
         Index(
             "uq_users_single_superadmin",
             "role",
             unique=True,
             postgresql_where=text("role = 'superadmin'"),
-        ),
-        Index(
-            "uq_users_single_active_gm",
-            "role",
-            unique=True,
-            postgresql_where=text("role = 'general_manager' AND is_active"),
         ),
         # Unique among active users so a deactivated account's username can be reused.
         Index(

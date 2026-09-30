@@ -37,7 +37,8 @@
     "logout": "Log out",
     "menu": "Menu",
     "production": "Production",
-    "productionPlans": "Production plan"
+    "productionPlans": "Production plan",
+    "userLimits": "User limits"
   },
   "roles": {
     "superadmin": "System",
@@ -245,13 +246,15 @@
       "production_plan_update": "Edited packaging plan",
       "production_plan_confirm": "Confirmed packaging plan",
       "profile_telegram_link": "Linked Telegram account",
-      "profile_telegram_unlink": "Unlinked Telegram account"
+      "profile_telegram_unlink": "Unlinked Telegram account",
+      "settings_role_limit_update": "Changed user limit"
     },
     "featureChange": "{{feature}}: {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
     "productionStep": "Step {{step}} · {{name}}",
     "cancelReason": "Reason: {{reason}}",
-    "alsoReopened": "Also back to draft: step {{steps}}"
+    "alsoReopened": "Also back to draft: step {{steps}}",
+    "roleLimitChange": "{{role}}: {{from}} → {{to}}"
   },
   "profile": {
     "title": "My profile",
@@ -350,7 +353,8 @@
   "settings": {
     "usersDescription": "Create and edit users and manage their permissions.",
     "auditDescription": "See who did what, and when.",
-    "profileDescription": "Your details, language and password."
+    "profileDescription": "Your details, language and password.",
+    "userLimitsDescription": "How many general managers, supervisors and staff can be active."
   },
   "forbidden": {
     "title": "No access",
@@ -389,7 +393,6 @@
     "USER_INACTIVE": "This user is deactivated.",
     "INVALID_TELEGRAM_USERNAME": "Telegram username must be 5–32 characters: a–z, 0–9 or _.",
     "DUPLICATE_TELEGRAM_USERNAME": "This Telegram username is already in use.",
-    "GM_ALREADY_EXISTS": "There is already an active general manager.",
     "POSITION_REQUIRED": "Staff must have a position.",
     "POSITION_NOT_ALLOWED": "Only staff have a position.",
     "SUPPLIER_NOT_FOUND": "Supplier not found.",
@@ -419,7 +422,8 @@
     "PRODUCTION_PLAN_LOCKED": "Step 3 is finished, so the plan can't change. Reopen step 3 first.",
     "PRODUCTION_PLAN_EXCEEDS_OUTPUT": "The plan uses more wings or thighs than were produced.",
     "PRODUCTION_PLAN_COMMENT_REQUIRED": "The packs differ from the plan — add a comment.",
-    "NOTIFICATION_NOT_FOUND": "Notification not found."
+    "NOTIFICATION_NOT_FOUND": "Notification not found.",
+    "ROLE_LIMIT_REACHED": "The {{roleName}} limit ({{limit}}) is reached."
   },
   "permissions": {
     "readOnlyNotice": "You can view these permissions, but you can't change them here.",
@@ -671,5 +675,41 @@
     "unlink": "Unlink",
     "unlinkTitle": "Unlink Telegram?",
     "unlinkBody": "Production alerts will no longer reach this Telegram account."
+  },
+  "userLimits": {
+    "title": "User limits",
+    "subtitle": "Maximum number of active users per role",
+    "activeOf": "{{active}} / {{limit}} active",
+    "unlimited": "Unlimited",
+    "maxActive": "Limit for {{role}}",
+    "range": "Enter a number from 1 to {{max}}, or tick Unlimited.",
+    "rangeGm": "Enter a number from 1 to {{max}}.",
+    "overLimit": "{{active}} active — above the limit of {{limit}}. No new {{roles}} can be added until someone is deactivated.",
+    "lastChanged": "Last changed by {{name}} · {{time}}",
+    "note": "Only active users count. Lowering a limit never deactivates anyone: the role is simply full until some users are deactivated or change role.",
+    "plural": {
+      "general_manager": "general managers",
+      "supervisor": "supervisors",
+      "staff": "staff"
+    },
+    "pluralTitle": {
+      "general_manager": "General managers",
+      "supervisor": "Supervisors",
+      "staff": "Staff"
+    },
+    "singular": {
+      "general_manager": "general manager",
+      "supervisor": "supervisor",
+      "staff": "staff"
+    }
+  },
+  "roleCapacity": {
+    "option": "{{role}} ({{count}} / {{limit}})",
+    "optionFull": "{{role}} ({{count}} / {{limit}}) — full",
+    "noLimit": "no limit",
+    "line": "{{roles}} {{count}} / {{limit}}",
+    "fullHint": "Limit reached — deactivate someone or ask for the limit to be raised.",
+    "someFull": "Roles marked full have reached their limit — deactivate someone or ask for the limit to be raised.",
+    "allFull": "Every role you can add has reached its limit — deactivate someone or ask for the limit to be raised."
   }
 }

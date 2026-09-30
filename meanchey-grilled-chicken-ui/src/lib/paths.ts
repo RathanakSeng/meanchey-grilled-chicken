@@ -15,6 +15,7 @@ export const paths = {
   user: (id: string) => `/settings/users/${id}`,
   editUser: (id: string) => `/settings/users/${id}/edit`,
   auditLogs: '/settings/audit-logs',
+  userLimits: '/settings/user-limits',
   profile: '/settings/profile',
 } as const
 

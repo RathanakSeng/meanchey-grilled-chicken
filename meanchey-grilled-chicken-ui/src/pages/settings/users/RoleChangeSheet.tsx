@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { ClientError, getError, useErrorMessage } from '@/lib/errors'
 import { normalizePosition, POSITIONS_QUERY_KEY, usePositions } from '@/lib/usePositions'
 import { POSITION_MAX_LENGTH, type Role, type User } from '@/lib/types'
+import { invalidateRoleCapacity, useRoleCapacity } from '@/lib/useRoleCapacity'
 import { userFeaturesKey } from './UserAccessTab'
 
 interface Props {
@@ -30,13 +31,16 @@ export function RoleChangeSheet({ user, roles, open, onClose, onChanged }: Props
   const [role, setRole] = useState<Role | null>(null)
   const [position, setPosition] = useState('')
   const [error, setError] = useState<unknown>(null)
+  const capacity = useRoleCapacity()
+  // An inactive user takes no slot, so only an active one is limited by the new role's capacity.
+  const isFull = (r: Role) => user.is_active && (capacity.byRole(r)?.full ?? false)
 
   useEffect(() => {
     if (!open) return
-    setRole(roles[0] ?? null)
+    setRole(roles.find((r) => !isFull(r)) ?? null)
     setPosition('')
     setError(null)
-  }, [open, roles])
+  }, [open, roles, capacity.data])
 
   const change = useMutation({
     mutationFn: async (body: { role: Role; position?: string }) =>
@@ -47,6 +51,7 @@ export function RoleChangeSheet({ user, roles, open, onClose, onChanged }: Props
       void queryClient.invalidateQueries({ queryKey: userFeaturesKey(user.id) })
       void queryClient.invalidateQueries({ queryKey: ['user-permissions', user.id] })
       void queryClient.invalidateQueries({ queryKey: POSITIONS_QUERY_KEY })
+      invalidateRoleCapacity(queryClient)
       onChanged(updated)
     },
     onError: setError,
@@ -93,28 +98,44 @@ export function RoleChangeSheet({ user, roles, open, onClose, onChanged }: Props
         <fieldset>
           <legend className="mb-2 text-sm font-medium text-stone-700">{t('roleChange.newRole')}</legend>
           <div className="grid gap-2">
-            {roles.map((r) => (
-              <label
-                key={r}
-                className={cx(
-                  'flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ring-1 ring-inset',
-                  role === r ? 'bg-brand-50 ring-brand-400' : 'ring-stone-200 hover:bg-stone-50',
-                )}
-              >
-                <input
-                  type="radio"
-                  name="role"
-                  value={r}
-                  checked={role === r}
-                  onChange={() => {
-                    setRole(r)
-                    setError(null)
-                  }}
-                  className="h-4 w-4 border-stone-300 text-brand-600 focus:ring-brand-500"
-                />
-                <span className="text-sm font-medium text-stone-900">{t(`roles.${r}`)}</span>
-              </label>
-            ))}
+            {roles.map((r) => {
+              const full = isFull(r)
+              const c = capacity.byRole(r)
+              return (
+                <label
+                  key={r}
+                  className={cx(
+                    'flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 ring-1 ring-inset',
+                    full ? 'cursor-not-allowed opacity-60 ring-stone-200' : 'cursor-pointer',
+                    !full && (role === r ? 'bg-brand-50 ring-brand-400' : 'ring-stone-200 hover:bg-stone-50'),
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="role"
+                    value={r}
+                    checked={role === r}
+                    disabled={full}
+                    onChange={() => {
+                      setRole(r)
+                      setError(null)
+                    }}
+                    className="h-4 w-4 border-stone-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-stone-900">
+                      {t(`roles.${r}`)}
+                      {c && (
+                        <span className="ml-1 font-normal tabular-nums text-stone-500">
+                          ({c.active} / {c.limit ?? t('roleCapacity.noLimit')})
+                        </span>
+                      )}
+                    </span>
+                    {full && <span className="block text-xs text-amber-700">{t('roleCapacity.fullHint')}</span>}
+                  </span>
+                </label>
+              )
+            })}
           </div>
         </fieldset>
 

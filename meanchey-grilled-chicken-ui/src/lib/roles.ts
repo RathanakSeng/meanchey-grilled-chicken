@@ -12,5 +12,8 @@ export function isSuperadmin(role: Role | null | undefined): boolean {
 /** The superadmin's login name (its password-equals-username check). */
 export const SUPERADMIN_LOGIN = 'superadmin'
 
+/** Who may set the role limits (Settings → User limits). */
+export const ROLE_LIMIT_ROLES: Role[] = ['superadmin']
+
 /** Who may open the audit log. */
 export const AUDIT_ROLES: Role[] = ['superadmin', 'general_manager']

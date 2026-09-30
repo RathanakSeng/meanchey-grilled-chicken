@@ -1,6 +1,6 @@
 """Idempotent startup tasks: sync the permission registry (backfilling role defaults for newly
-added permissions), seed the superadmin and
-(in webhook mode) register the Telegram webhook.
+added permissions), seed the superadmin, make sure every role has a limit row (defaults 2 / 3 / 10;
+existing rows are never changed) and (in webhook mode) register the Telegram webhook.
 
 Run with `python -m app.bootstrap`; also runs on API startup.
 """
@@ -10,11 +10,13 @@ import logging
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.security import hash_password
-from app.models import Role, User
+from app.models import Role, RoleLimit, User
+from app.models.role_limit import DEFAULT_ROLE_LIMITS
 from app.permissions.registry import validate_features
 from app.permissions.sync import backfill_defaults, sync_registry
 
@@ -43,6 +45,15 @@ async def seed_superadmin(session: AsyncSession) -> None:
     log.info("seeded superadmin account")
 
 
+async def seed_role_limits(session: AsyncSession) -> None:
+    """Insert the default limit for any role without a row (the migration seeds them too)."""
+    await session.execute(
+        pg_insert(RoleLimit)
+        .values([{"role": r.value, "max_active": n} for r, n in DEFAULT_ROLE_LIMITS.items()])
+        .on_conflict_do_nothing(index_elements=[RoleLimit.role])
+    )
+
+
 async def register_webhook(session: AsyncSession, telegram: "TelegramRuntime | None") -> None:
     """Webhook mode + auto-set: make sure Telegram points at our webhook. Never raises."""
     from app.bot.registration import ensure_webhook
@@ -67,6 +78,7 @@ async def bootstrap(session: AsyncSession, telegram: "TelegramRuntime | None" = 
     new_codes = await sync_registry(session)
     await backfill_defaults(session, new_codes)
     await seed_superadmin(session)
+    await seed_role_limits(session)
     if settings.webhook_enabled and settings.telegram_webhook_auto_set:
         await register_webhook(session, telegram)
     await session.commit()

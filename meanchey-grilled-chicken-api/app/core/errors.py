@@ -42,7 +42,9 @@ class ErrorCode(StrEnum):
     USER_INACTIVE = "USER_INACTIVE"
     INVALID_TELEGRAM_USERNAME = "INVALID_TELEGRAM_USERNAME"
     DUPLICATE_TELEGRAM_USERNAME = "DUPLICATE_TELEGRAM_USERNAME"
+    # No longer raised (several GMs are allowed, up to the role limit); codes are never removed.
     GM_ALREADY_EXISTS = "GM_ALREADY_EXISTS"
+    ROLE_LIMIT_REACHED = "ROLE_LIMIT_REACHED"
     POSITION_REQUIRED = "POSITION_REQUIRED"
     POSITION_NOT_ALLOWED = "POSITION_NOT_ALLOWED"
     # Partners (suppliers, customers)

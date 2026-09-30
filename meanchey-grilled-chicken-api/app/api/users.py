@@ -3,12 +3,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.deps import SessionDep, require_permission
+from app.core.errors import AppError, ErrorCode
+from app.deps import CurrentUser, SessionDep, require_permission
 from app.models import Role, User
 from app.models.user import POSITION_MAX_LENGTH
 from app.permissions.hierarchy import ensure_can_manage
+from app.permissions.service import effective_permissions
+from app.schemas.role_limit import RoleCapacityOut
 from app.schemas.user import RoleChange, UserCreate, UserOut, UserPage, UserStatus, UserUpdate
-from app.services import user_service
+from app.services import role_limit_service, user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -52,11 +55,29 @@ async def list_users(
     )
 
 
-# Declared before /{user_id} so "positions" isn't parsed as a UUID.
+# Declared before /{user_id} so "positions" / "role-capacity" aren't parsed as UUIDs.
 @router.get("/positions", response_model=list[str])
 async def list_positions(actor: CanView, session: SessionDep) -> list[str]:
     """Distinct (case-insensitive) positions of active users in the actor's scope, sorted."""
     return await user_service.list_positions(session, actor)
+
+
+async def _can_view_or_create(user: CurrentUser, session: SessionDep) -> User:
+    held = await effective_permissions(session, user)
+    if not {"users.view", "users.create"} & held:
+        raise AppError(
+            403, ErrorCode.MISSING_PERMISSION, "Missing permission", {"required": ["users.view"]}
+        )
+    return user
+
+
+@router.get("/role-capacity", response_model=list[RoleCapacityOut])
+async def role_capacity(
+    actor: Annotated[User, Depends(_can_view_or_create)], session: SessionDep
+) -> list[RoleCapacityOut]:
+    """Active users and limit per role the actor manages (GM: supervisor, staff; supervisor:
+    staff). `full` = no new active user of that role until someone leaves it."""
+    return await role_limit_service.capacity(session, actor)
 
 
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)

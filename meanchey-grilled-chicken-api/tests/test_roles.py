@@ -107,9 +107,10 @@ async def test_superadmin_promotes_and_demotes_everyone_below(
     sup = await make_user(Role.SUPERVISOR)
     staff = await make_user(Role.STAFF)
 
-    # Only one active general manager.
+    # Promoting needs a free general manager slot.
+    await make_user(Role.GENERAL_MANAGER)  # 2 of 2
     assert_error(
-        await _change(client, superadmin, sup, "general_manager"), 409, "GM_ALREADY_EXISTS"
+        await _change(client, superadmin, sup, "general_manager"), 409, "ROLE_LIMIT_REACHED"
     )
 
     assert (await _change(client, superadmin, gm, "supervisor")).status_code == 200

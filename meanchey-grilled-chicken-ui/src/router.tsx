@@ -4,7 +4,7 @@ import { PublicOnly, RequireAccess, RequireAuth } from '@/auth/guards'
 import { Spinner } from '@/components/ui'
 import { AppShell } from '@/layouts/AppShell'
 import { LEGACY_PREFIXES, paths } from '@/lib/paths'
-import { AUDIT_ROLES } from '@/lib/roles'
+import { AUDIT_ROLES, ROLE_LIMIT_ROLES } from '@/lib/roles'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
 import { HomePage } from '@/pages/HomePage'
 import { LoginPage } from '@/pages/LoginPage'
@@ -14,6 +14,7 @@ import { WorkstationPage } from '@/pages/workstation/WorkstationPage'
 import { AuditLogPage } from '@/pages/settings/AuditLogPage'
 import { ProfilePage } from '@/pages/settings/ProfilePage'
 import { SettingsPage } from '@/pages/settings/SettingsPage'
+import { UserLimitsPage } from '@/pages/settings/UserLimitsPage'
 import { UserDetailPage } from '@/pages/settings/users/UserDetailPage'
 import { UserFormPage } from '@/pages/settings/users/UserFormPage'
 import { UsersListPage } from '@/pages/settings/users/UsersListPage'
@@ -185,6 +186,14 @@ export const router = createBrowserRouter([
                 element: (
                   <RequireAccess roles={AUDIT_ROLES}>
                     <AuditLogPage />
+                  </RequireAccess>
+                ),
+              },
+              {
+                path: 'user-limits',
+                element: (
+                  <RequireAccess roles={ROLE_LIMIT_ROLES}>
+                    <UserLimitsPage />
                   </RequireAccess>
                 ),
               },

@@ -90,6 +90,11 @@ async def world(client, session, superadmin, make_user) -> dict:
     await client.put(
         f"/users/{staff_id}/features/suppliers", json={"level": "view"}, headers=auth(superadmin)
     )
+    # A role limit the superadmin changed (settings.role_limit_update, updated_by).
+    r = await client.put(
+        "/settings/role-limits/staff", json={"max_active": 12}, headers=auth(superadmin)
+    )
+    assert r.status_code == 200, r.text
     # Superadmin-targeted audit entries (its own sign-in, a failed one).
     await client.post("/auth/login", json={"username": "superadmin", "password": "wrong"})
     await client.post("/auth/login", json={"username": "superadmin", "password": "superadmin"})

@@ -80,7 +80,8 @@ src/
 │   ├── format.ts          # dates, localized names, initials, username normalize
 │   ├── telegram.ts        # telegram handle, isTelegramMiniApp, initTelegram, openTelegramLink
 │   ├── paths.ts           # app routes (paths.users, paths.user(id)…), legacy prefixes, parentPath, isUnder
-│   ├── roles.ts           # isSuperadmin, AUDIT_ROLES, SUPERADMIN_LOGIN: superadmin checks in one place
+│   ├── roles.ts           # isSuperadmin, AUDIT_ROLES, ROLE_LIMIT_ROLES, SUPERADMIN_LOGIN: superadmin checks in one place
+│   ├── useRoleCapacity.ts # ['role-capacity'] query, byRole(), invalidateRoleCapacity()
 │   ├── types.ts           # API types (mirror of the API schemas)
 │   ├── usePositions.ts    # ['user-positions'] query
 │   └── useDebounced.ts
@@ -99,7 +100,7 @@ src/
 │   │                      #   PlanCard (plan card, "waiting for plan", plan vs actual)
 │   │   └── production-plans/ # PlanListPage, PlanPage (lazy), PlanBadge, api.ts (planKeys, pending count:
 │   │                      #   outside the lazy chunk because the nav badge uses it)
-│   └── settings/          # SettingsPage (hub), AuditLogPage, ProfilePage, TelegramLinkCard (superadmin), users/* (incl. UserAccessTab, UserPermissionsTab, RoleChangeSheet)
+│   └── settings/          # SettingsPage (hub), AuditLogPage, ProfilePage, TelegramLinkCard (superadmin), UserLimitsPage (superadmin), users/* (incl. UserAccessTab, UserPermissionsTab, RoleChangeSheet)
 └── types/telegram.d.ts    # minimal Telegram.WebApp typings
 ```
 
@@ -226,7 +227,8 @@ sequenceDiagram
         new                          RequireAccess users.create → UserForm(create)
         :id                          UserDetail (?tab=permissions)
         :id/edit                     RequireAccess users.update → UserForm(edit)
-      audit-logs                     RequireAccess roles=AUDIT_ROLES (superadmin, general manager)
+      audit-logs                     RequireAccess roles=AUDIT_ROLES (superadmin, general managers)
+      user-limits                    RequireAccess roles=ROLE_LIMIT_ROLES (superadmin) → UserLimitsPage
       profile                        Profile
     /users, /users/*                 LegacyRedirect → /settings/users…
     /audit-logs, /audit-logs/*       LegacyRedirect → /settings/audit-logs…
@@ -234,7 +236,7 @@ sequenceDiagram
     *                                NotFound (e.g. a top-level /production: there is no redirect)
 ```
 
-**Paths.** Every frontend URL comes from `lib/paths.ts` (`paths.users`, `paths.user(id)`, `paths.editUser(id)`, `paths.suppliers`, `paths.customers`, `paths.production`, `paths.productionBatch(id, step?)`, `paths.productionPlans`, `paths.productionPlan(batchId)`, …). Components never write route literals, so moving a page is a one-file change. API URLs such as `api.get('/users')` are unrelated and stay literal.
+**Paths.** Every frontend URL comes from `lib/paths.ts` (`paths.users`, `paths.user(id)`, `paths.editUser(id)`, `paths.suppliers`, `paths.customers`, `paths.production`, `paths.productionBatch(id, step?)`, `paths.productionPlans`, `paths.productionPlan(batchId)`, `paths.userLimits`, …). Components never write route literals, so moving a page is a one-file change. API URLs such as `api.get('/users')` are unrelated and stay literal.
 
 **Legacy redirects.** `LegacyRedirect` swaps the old prefix (from `LEGACY_PREFIXES`) for the new one and keeps the rest of the path, the query string and the hash, e.g. `/users/<id>/edit?x=1#a` → `/settings/users/<id>/edit?x=1#a`.
 
@@ -343,6 +345,8 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 | `['production-plans', params]` | `GET /production-plans` (`keepPreviousData`) |
 | `['production-plans-pending']` | `GET /production-plans?page_size=1` → `pending_count` (nav badge; refetched every 60 s; only with `production_plan.view`) |
 | `['production-plan', batchId]` | `GET /production-plans/{batchId}`; written with `setQueryData` by Save and Confirm |
+| `['role-limits']` | `GET /settings/role-limits` (superadmin, User limits page); written with `setQueryData` by each Save |
+| `['role-capacity']` | `GET /users/role-capacity` via `useRoleCapacity()` in `lib/useRoleCapacity.ts` (enabled with `users.view` or `users.create`, staleTime 30 s): create form, role change sheet, users list |
 | `['notifications-unread']` | `GET /notifications?unread_only=true&page_size=1` → `unread_count` (the bell; polled every 60 s **and on window focus**, from the app shell, not per page) |
 | `['notifications', params]` | `GET /notifications` (the bell's list, refetched when it opens) |
 
@@ -350,6 +354,7 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 - Supplier / customer mutations (create, edit, deactivate, reactivate) write the returned record into `[entity, id]` and invalidate both the list prefix (`[resource]`) and the stats key, so the table and the KPI cards update together. The keys are built by `partnerKeys(config)`.
 - Production: draft saves only write the returned batch into `['production-batch', id]`. Finish, reopen, cancel and "New production" also invalidate `['production']` and `['production-stats']` (`onBatchChanged` in `production/api.ts`), and the plan keys (finishing or reopening steps creates or resets the plan). The keys are built by `productionKeys`.
 - Plans: Save and Confirm write the returned plan into `['production-plan', batchId]` and invalidate the plan list, the pending count, the batch and the production list. On `PRODUCTION_CONFLICT` the plan is refetched and a notice shown (no merge UI: a plan has three fields). Confirm with unsaved edits sends the PATCH first, then confirms with the new version.
+- Role limits: creating a user, reactivating, deactivating and changing a role call `invalidateRoleCapacity()` (`['role-capacity']` and `['role-limits']`); saving a limit writes `['role-limits']` and invalidates `['role-capacity']`. `ROLE_LIMIT_REACHED` is translated with the role name from its `details.role` (`useErrorMessage`).
 - Notifications: opening one marks it read (`POST /notifications/{id}/read`), **Mark all as read** calls `read-all`; both invalidate `['notifications']` and `['notifications-unread']`.
 - Defaults: `retry: 1`, `refetchOnWindowFocus: false`. The Telegram WebView focuses and blurs often, so refetching on focus would be noisy. The unread count is the one exception (a single tiny request, and the point of the bell).
 
@@ -528,4 +533,5 @@ The page brings the KPI cards (`KpiGrid`), URL-driven filters (`?q&deactivated=1
 | Step 3 locked in the UI while the plan is pending | The API refuses step 3 saves until the plan is confirmed, so the form would only produce autosave errors. A clear "Waiting for the packaging plan" card (with Open plan for planners) replaces it; the plan card under the stepper shows the state at every step. |
 | Bell polled from the app shell | One 60-second poll (plus window focus) for the unread count serves every page; the list itself loads only when the bell opens. Telegram delivers the same alerts in real time, so no websocket is needed. |
 | Plan-vs-actual comment rule mirrored in the UI | The API refuses Finish without a comment when packs differ; the form shows the difference as it's typed and lists the missing comment among the Finish blockers, so the refusal never surprises anyone. |
+| Capacity shown before submitting | The API is the authority on role limits (row lock, `ROLE_LIMIT_REACHED`), but a manager shouldn't fill in a whole form to learn the role is full: the form, the role sheet and the list show *active / limit* up front, and the server error remains the fallback for races. |
 | Back = parent route, not history | Mini App sessions often start from a deep link with no history. The route structure always gives a meaningful "up". |

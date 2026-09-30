@@ -78,7 +78,7 @@ async def _clean_database() -> None:
             text(
                 "TRUNCATE audit_logs, refresh_tokens, user_permissions, permissions, users, "
                 "bot_prefs, app_settings, production_batches, production_batch_counters, "
-                "suppliers, customers RESTART IDENTITY CASCADE"
+                "suppliers, customers, role_limits RESTART IDENTITY CASCADE"
             )
         )
     async with SessionLocal() as session:
