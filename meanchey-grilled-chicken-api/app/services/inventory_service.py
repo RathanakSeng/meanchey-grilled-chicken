@@ -8,6 +8,10 @@ applies the deltas, refuses with `409 INVENTORY_INSUFFICIENT` if any balance wou
 (the caller's whole action is then rolled back), and inserts the movements with the balances
 after. It never commits.
 
+Every catalog item today has `origin = production`: it changes only through production, and
+`set_value` refuses it for everyone (INVENTORY_ITEM_PRODUCTION_ONLY). Adjustments remain for
+future `manual` items. Migration 0011 removed the adjustments made before this rule.
+
 Production rules (tracked batches only, `production_batches.inventory_tracked`):
 - Finish step 1/2/3 writes the movements of `step_deltas`.
 - Reopen reverses the un-reversed movements of the steps sent back to draft, latest step first;
@@ -21,7 +25,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, exists, func, select
+from sqlalchemy import Select, and_, case, exists, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -46,12 +50,15 @@ from app.inventory.catalog import (
     wasted_byproduct,
 )
 from app.models import InventoryBalance, InventoryMovement, ProductionBatch, User, utcnow
+from app.permissions.service import effective_permissions
 from app.production.catalog import BYPRODUCT_CODES
 from app.schemas.common import UserRef
 from app.schemas.inventory import (
+    InventoryItemDetailOut,
     InventoryItemOut,
     InventoryOut,
     InventorySectionOut,
+    ItemSourceOut,
     MovementBatch,
     MovementOut,
     MovementPage,
@@ -356,8 +363,26 @@ def _field_error(loc: list[str], msg: str) -> dict[str, Any]:
 
 
 async def set_value(session: AsyncSession, actor: User, item_code: str, data: SetValueIn) -> None:
-    """Set an item's balance to the given value(s): one adjustment movement of the difference."""
+    """Set an item's balance to the given value(s): one adjustment movement of the difference.
+
+    Only for `manual` items, with inventory.adjust (no item is manual today). Production items
+    change only through production: refused for everyone, the superadmin included.
+    """
     item = _item(item_code)
+    if item.origin == "production":
+        raise AppError(
+            409,
+            ErrorCode.INVENTORY_ITEM_PRODUCTION_ONLY,
+            "This item changes only through production",
+            {"item_code": item.code},
+        )
+    if "inventory.adjust" not in await effective_permissions(session, actor):
+        raise AppError(
+            403,
+            ErrorCode.MISSING_PERMISSION,
+            "Missing permission",
+            {"required": ["inventory.adjust"]},
+        )
     errors = []
     if data.count is None and data.kg is None:
         errors.append(_field_error(["body"], "Give a count or a kg value"))
@@ -417,6 +442,78 @@ def _names(code: str) -> tuple[str, str]:
     return (item.name_en, item.name_km) if item else (code, code)
 
 
+def _item_out(item: ItemDef, bal: InventoryBalance | None, last_change: datetime | None):
+    return InventoryItemOut(
+        code=item.code,
+        section=item.section,
+        group=item.group,
+        name_en=item.name_en,
+        name_km=item.name_km,
+        tracks_count=item.tracks_count,
+        tracks_kg=item.tracks_kg,
+        kg_estimated=item.kg_estimated,
+        origin=item.origin,
+        count=(bal.count if bal else 0) if item.tracks_count else None,
+        kg=(bal.kg if bal else Decimal(0)) if item.tracks_kg else None,
+        # None: never changed.
+        updated_at=last_change,
+    )
+
+
+async def item_detail(session: AsyncSession, item_code: str) -> InventoryItemDetailOut:
+    """One item with its balance and, per batch, what it currently contributes.
+
+    A batch's contribution is the sum of all its movements for the item (reversals included), so
+    the contributions add up to the balance while stock only changes through production. Stock
+    going out (sales, delivery) will need an allocation rule (e.g. oldest batch first) to keep
+    this true.
+    """
+    item = _item(item_code)
+    bal = await session.get(InventoryBalance, item.code)
+    last = await session.scalar(
+        select(func.max(InventoryMovement.created_at)).where(
+            InventoryMovement.item_code == item.code
+        )
+    )
+    reversal = aliased(InventoryMovement)
+    still_open = and_(
+        InventoryMovement.reversal_of.is_(None),
+        ~exists().where(reversal.reversal_of == InventoryMovement.id),
+    )
+    rows = (
+        await session.execute(
+            select(
+                ProductionBatch.id,
+                ProductionBatch.code,
+                func.coalesce(func.sum(InventoryMovement.count_delta), 0),
+                func.coalesce(func.sum(InventoryMovement.kg_delta), 0),
+                func.bool_or(and_(still_open, InventoryMovement.kg_estimated)),
+                func.max(case((still_open, InventoryMovement.step))),
+            )
+            .join(ProductionBatch, ProductionBatch.id == InventoryMovement.batch_id)
+            .where(
+                InventoryMovement.item_code == item.code,
+                InventoryMovement.source == "production",
+            )
+            .group_by(ProductionBatch.id, ProductionBatch.code, ProductionBatch.created_at)
+            .order_by(ProductionBatch.created_at, ProductionBatch.code)
+        )
+    ).all()
+    sources = [
+        ItemSourceOut(
+            batch_id=batch_id,
+            code=code,
+            count=int(count) if item.tracks_count else None,
+            kg=Decimal(kg) if item.tracks_kg else None,
+            kg_estimated=bool(estimated),
+            last_step=int(step or 0),
+        )
+        for batch_id, code, count, kg, estimated, step in rows
+        if (item.tracks_count and count) or (item.tracks_kg and kg)
+    ]
+    return InventoryItemDetailOut(**_item_out(item, bal, last).model_dump(), sources=sources)
+
+
 async def overview(session: AsyncSession) -> InventoryOut:
     balances = {b.item_code: b for b in await session.scalars(select(InventoryBalance))}
     # Last change = the latest movement (a balance row alone may just have been created).
@@ -433,22 +530,7 @@ async def overview(session: AsyncSession) -> InventoryOut:
         items = []
         for item in (i for i in ITEMS if i.section == section):
             bal = balances.get(item.code)
-            items.append(
-                InventoryItemOut(
-                    code=item.code,
-                    section=item.section,
-                    group=item.group,
-                    name_en=item.name_en,
-                    name_km=item.name_km,
-                    tracks_count=item.tracks_count,
-                    tracks_kg=item.tracks_kg,
-                    kg_estimated=item.kg_estimated,
-                    count=(bal.count if bal else 0) if item.tracks_count else None,
-                    kg=(bal.kg if bal else Decimal(0)) if item.tracks_kg else None,
-                    # None: never changed.
-                    updated_at=last.get(item.code),
-                )
-            )
+            items.append(_item_out(item, bal, last.get(item.code)))
         sections.append(InventorySectionOut(section=section, items=items))
     return InventoryOut(sections=sections)
 

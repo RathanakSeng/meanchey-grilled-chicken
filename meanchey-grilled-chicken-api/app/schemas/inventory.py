@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, field_validator
 
-from app.inventory.catalog import Group, Section
+from app.inventory.catalog import Group, Origin, Section
 from app.models.inventory import ADJUST_REASON_MAX_LENGTH
 from app.schemas.common import UserRef
 
@@ -27,9 +27,29 @@ class InventoryItemOut(BaseModel):
     tracks_kg: bool
     # The kg of this item is estimated (wasted pieces: rejected count x average piece weight).
     kg_estimated: bool
+    # `production`: changes only through production (every item today); `manual`: set by hand.
+    origin: Origin
     count: int | None
     kg: KgOut | None
     updated_at: datetime | None
+
+
+class ItemSourceOut(BaseModel):
+    """What one batch currently contributes to an item's balance (net of its reversals)."""
+
+    batch_id: uuid.UUID
+    code: str
+    count: int | None
+    kg: KgOut | None
+    kg_estimated: bool
+    # The latest step of this batch that still contributes (1–3).
+    last_step: int
+
+
+class InventoryItemDetailOut(InventoryItemOut):
+    # Production items: the net contribution of each batch (non-zero only), oldest batch first.
+    # The totals equal the balance.
+    sources: list[ItemSourceOut]
 
 
 class InventorySectionOut(BaseModel):

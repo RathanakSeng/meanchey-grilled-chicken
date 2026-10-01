@@ -13,6 +13,9 @@ from typing import Literal
 from app.production.catalog import BYPRODUCTS
 
 Section = Literal["stock", "wasted"]
+# `production`: changes only through production (finish / reopen / cancel); no manual changes for
+# anyone. `manual`: set by hand (`POST /inventory/items/{code}/set`); none exist yet.
+Origin = Literal["production", "manual"]
 # Display groups: stock is raw / processed / packed; wasted is its own group.
 Group = Literal["raw", "processed", "packed", "wasted"]
 SECTIONS: tuple[Section, ...] = ("stock", "wasted")
@@ -50,8 +53,9 @@ class ItemDef:
     tracks_kg: bool
     order: int
     # Its kg comes from production as an estimate (wasted pieces: rejected count x the batch's
-    # average piece weight); adjustments can still set an exact value.
+    # average piece weight).
     kg_estimated: bool = False
+    origin: Origin = "production"
 
 
 def _items() -> list[ItemDef]:

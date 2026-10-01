@@ -10,9 +10,17 @@ dates: each is recorded by the server when its step is finished.
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PlainSerializer
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from app.models.production import (
     CANCEL_REASON_MAX_LENGTH,
@@ -252,10 +260,19 @@ class BatchOut(BaseModel):
     byproducts: list[ByproductOut]
     computed: ComputedOut
     catalog: CatalogOut
+    # Only for viewers with inventory.history (otherwise both keys are left out of the response).
     # False for batches created before inventory existed: they never move stock.
-    inventory_tracked: bool
+    inventory_tracked: bool | None = None
     # Net stock changes of the finished steps (reversed ones left out); empty when untracked.
-    stock_changes: list[StockChangeOut]
+    stock_changes: list[StockChangeOut] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_inventory(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if self.stock_changes is None:
+            data.pop("inventory_tracked", None)
+            data.pop("stock_changes", None)
+        return data
 
 
 class BatchListItem(BaseModel):

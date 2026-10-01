@@ -269,23 +269,24 @@ PERMISSIONS += [
         module="inventory",
         name_en="View inventory",
         name_km="មើលស្តុក",
-        description_en="See stock, wasted items and the history of stock movements.",
-        description_km="មើលស្តុក ទំនិញខូចខាត និងប្រវត្តិនៃការកែប្រែស្តុក។",
+        description_en="See stock and wasted items, and where the current stock came from.",
+        description_km="មើលស្តុក ទំនិញខូចខាត និងប្រភពនៃស្តុកបច្ចុប្បន្ន។",
         assignable_to=_EVERYONE,
     ),
     PermissionDef(
-        code="inventory.adjust",
+        code="inventory.history",
         module="inventory",
-        name_en="Set stock values",
-        name_km="កំណត់តម្លៃស្តុក",
+        name_en="View inventory history",
+        name_km="មើលប្រវត្តិស្តុក",
         description_en=(
-            "Set the stock of an item to a counted value, with a reason (opening stock and "
-            "corrections)."
+            "See every stock movement: the History tab, an item's recent changes and a batch's "
+            "stock changes."
         ),
-        description_km="កំណត់ស្តុករបស់ទំនិញមួយទៅតាមចំនួនដែលបានរាប់ ដោយបញ្ជាក់មូលហេតុ (ស្តុកដើម និងការកែតម្រូវ)។",
-        # Only the GM (when the superadmin allows it) and the superadmin set stock values.
-        assignable_to=_GM_ONLY,
+        description_km="មើលការកែប្រែស្តុកទាំងអស់៖ ផ្ទាំងប្រវត្តិ ការកែប្រែថ្មីៗរបស់ទំនិញ និងការកែប្រែស្តុករបស់បាច់។",
+        assignable_to=_MANAGERS,
     ),
+    # `inventory.adjust` (set stock values) was removed: every item comes from production and
+    # changes only through it. The sync marks it inactive; it can return with manual items.
 ]
 
 # --- Feature access levels -------------------------------------------------------------------
@@ -318,6 +319,10 @@ class FeatureDef:
     applies_to: tuple[Role, ...]
     # Ordered level -> permission codes. Always starts with "off" -> (); order follows LEVELS.
     levels: tuple[tuple[Level, tuple[str, ...]], ...]
+    # Only grantors who hold every code of the feature see it and may set it (the superadmin
+    # always does). For everyone else it doesn't exist: omitted from GET /users/{id}/features,
+    # FEATURE_NOT_FOUND on PUT, and its feature.set audit entries are hidden from them.
+    grantor_must_hold: bool = False
 
     @property
     def level_map(self) -> dict[str, frozenset[str]]:
@@ -417,15 +422,18 @@ FEATURES: list[FeatureDef] = [
         levels=(("off", ()), ("view", ("inventory.view",))),
     ),
     FeatureDef(
-        code="inventory_adjust",
+        code="inventory_history",
         menu="workstation",
-        name_en="Set stock values",
-        name_km="កំណត់តម្លៃស្តុក",
-        description_en="Set an item's stock to a counted value, with a reason.",
-        description_km="កំណត់ស្តុករបស់ទំនិញទៅតាមចំនួនដែលបានរាប់ ដោយបញ្ជាក់មូលហេតុ។",
-        # General manager only: set by the superadmin on the GM's Access tab.
-        applies_to=(Role.GENERAL_MANAGER,),
-        levels=(("off", ()), ("full", ("inventory.adjust",))),
+        name_en="Inventory history",
+        name_km="ប្រវត្តិស្តុក",
+        description_en=(
+            "Every stock movement, an item's recent changes and a batch's stock changes."
+        ),
+        description_km="ការកែប្រែស្តុកទាំងអស់ ការកែប្រែថ្មីៗរបស់ទំនិញ និងការកែប្រែស្តុករបស់បាច់។",
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
+        levels=(("off", ()), ("view", ("inventory.history",))),
+        # Given by the superadmin, or by a GM who has it: invisible to anyone else.
+        grantor_must_hold=True,
     ),
     FeatureDef(
         code="staff_management",
@@ -481,7 +489,7 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
     | _PARTNER_CODES
     | _PRODUCTION_CODES
     | _PLAN_CODES
-    # Inventory View; setting stock values is Off until the superadmin allows it.
+    # Inventory View; Inventory history is Off until the superadmin allows it.
     | {"inventory.view"},
     # Workstation features at full access, except the production plan (off: the GM decides who
     # plans). Staff: view them and set their access; adding or editing staff is the GM's call.
@@ -493,6 +501,7 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
             "production": "full",
             "production_plan": "off",
             "inventory": "view",
+            "inventory_history": "off",
             "staff_management": "view",
             "staff_access": "full",
         },

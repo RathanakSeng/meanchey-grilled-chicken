@@ -11,6 +11,10 @@ Two kinds of grantor:
 - `users.manage_access` without `permissions.grant` (a supervisor with Staff access) reaches staff
   only (normal scope) and is capped: every code of the level must be in the supervisor's own
   effective permissions. Lowering the supervisor later doesn't change staff levels already set.
+
+Features with `grantor_must_hold` (e.g. inventory_history) exist only for grantors who hold every
+code of the feature (the superadmin always does): for anyone else they're left out of the matrix
+and `set_level` answers FEATURE_NOT_FOUND, so the feature isn't revealed. No cascade either.
 """
 
 from dataclasses import dataclass
@@ -44,6 +48,16 @@ def current_level(feature: FeatureDef, held: set[str] | frozenset[str]) -> str:
 
 def features_for(target: User) -> list[FeatureDef]:
     return [f for f in FEATURES if target.role in f.applies_to]
+
+
+def visible_to(feature: FeatureDef, actor_perms: set[str] | frozenset[str]) -> bool:
+    """A grantor sees a `grantor_must_hold` feature only while holding all of its codes."""
+    return not feature.grantor_must_hold or feature.codes <= actor_perms
+
+
+def hidden_features(actor_perms: set[str] | frozenset[str]) -> list[str]:
+    """Codes of the features this viewer must not learn about (also hides their audit entries)."""
+    return [f.code for f in FEATURES if not visible_to(f, actor_perms)]
 
 
 @dataclass
@@ -86,6 +100,7 @@ async def feature_matrix(session: AsyncSession, actor: User, target: User) -> li
             allowed=allowed_levels(f, actor_perms),
         )
         for f in features_for(target)
+        if visible_to(f, actor_perms)
     ]
 
 
@@ -95,14 +110,16 @@ async def set_level(
     """Set one feature's level for `target`. Checks, in order (after the route guard for
     `permissions.grant` or `users.manage_access`, and the hidden-account lookup):
 
-    FORBIDDEN_SCOPE, FEATURE_NOT_FOUND, FEATURE_NOT_APPLICABLE, VALIDATION_ERROR (unknown level),
+    FORBIDDEN_SCOPE, FEATURE_NOT_FOUND (also for a `grantor_must_hold` feature the actor doesn't
+    hold), FEATURE_NOT_APPLICABLE, VALIDATION_ERROR (unknown level),
     PERMISSION_NOT_HELD (supervisors only: a level above their own access), USER_INACTIVE. The
     feature permissions of a GM or the superadmin are not checked.
     """
     if not can_manage(actor, target):
         raise AppError(403, ErrorCode.FORBIDDEN_SCOPE, "Target user is outside your scope")
+    actor_perms = await effective_permissions(session, actor)
     feature = FEATURES_BY_CODE.get(feature_code)
-    if feature is None:
+    if feature is None or not visible_to(feature, actor_perms):
         raise AppError(404, ErrorCode.FEATURE_NOT_FOUND, f"Unknown feature {feature_code}")
     if target.role not in feature.applies_to:
         raise AppError(
@@ -117,7 +134,7 @@ async def set_level(
             {"fields": [{"loc": ["body", "level"], "type": "value_error", "msg": "Unknown level"}]},
         )
     desired = levels[level]
-    allowed = allowed_levels(feature, await effective_permissions(session, actor))
+    allowed = allowed_levels(feature, actor_perms)
     if level not in allowed:
         raise AppError(
             403,

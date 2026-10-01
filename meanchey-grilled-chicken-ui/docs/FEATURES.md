@@ -252,28 +252,31 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
 
 **Path:** `/workstation/inventory`: main tabs **Stock** (ស្តុក, `?tab=stock&section=raw|processed|packed|wasted`) and **History** (ប្រវត្តិ, `?tab=history`). **Who can open it:** `inventory.view` (GM and supervisors by default; staff when given *View only*). Lazy-loaded.
 
+**Production items are read-only.** Every item changes only through production (Finish, reopen, cancel); nobody sets stock by hand, so there is no Set button anywhere. **History** (every movement) needs **Inventory history** (`inventory.history`), which is off by default: without it there is no tab bar and Stock shows directly, item sheets show no recent changes, and batch pages show no Stock changes.
+
 Stock updates **automatically** as production steps are finished; reopening a step or cancelling a batch undoes what it did. Nothing can go below zero.
 
 **Stock tab**: four sub-tabs, each a grid of item cards, like a menu of products.
 
 - **Sub-tabs:** **Raw** (វត្ថុធាតុដើម: Chicken) · **Processed** (ផលិត: Wings, Thighs, Gizzard, Liver, Heart, Head) · **Packed** (វេចខ្ចប់: 4-Piece Packs, 2-Piece Packs, Gizzard, Liver, Heart, Head) · **Wasted** (ខូចខាត: Wings, Thighs, by-products). Which tab an item belongs to comes from the API, so a new by-product appears in the right one on its own.
 - **Pill bar**, lighter than the main tabs (pills on a grey track, no underline): full width with equal pills on phones and in the Mini App (scrolls sideways if a label doesn't fit), compact and left-aligned from tablets. The selected Wasted pill is muted red, so it's never mistaken for stock.
-- **Stock badge** on each pill: how many items in that tab have stock (count or kg above 0); no badge at 0 or while loading. It updates in place after a Set value.
+- **Stock badge** on each pill: how many items in that tab have stock (count or kg above 0); no badge at 0 or while loading. It updates in place when production changes stock.
 - The selected sub-tab is in the URL (`?tab=stock&section=processed`; default **Raw**), so refresh, Back (e.g. after opening a batch from an item's history) and shared links keep it. Switching to History and back keeps it too.
 - A sub-tab without any items (only possible for a future section) shows a short empty state.
 - **Grid:** 2 cards per row on phones and in the Mini App, 3 from tablets, 4 on laptops, 6 on wide screens; every card in a row has the same height.
-- **Card:** a picture; a small **ខូចខាត / Wasted** corner badge in the Wasted tab only (the sub-tab already says processed / packed); the **short name** (*ថ្លើមមាន់*, not *ថ្លើមមាន់ (ផលិត)*: the sub-tab says it), up to 2 lines; the **big number** (the count for Chicken, Wings, Thighs and Packs; the kg with its unit for by-products, e.g. *12.500 គ.ក*); for items with both units the kg under the count (*"210.000 គ.ក"*, **"≈"** with the tooltip *"Estimated from the batch's average weight"* for wasted pieces); the last change (*"Updated 2 h ago"*, *"No changes yet"*); and at the bottom a full-width **Set** (កែតម្លៃ) button, only with `inventory.adjust` (without it the card keeps the same height).
+- **Card:** a picture; a small **ខូចខាត / Wasted** corner badge in the Wasted tab only (the sub-tab already says processed / packed); the **short name** (*ថ្លើមមាន់*, not *ថ្លើមមាន់ (ផលិត)*: the sub-tab says it), up to 2 lines; the **big number** (the count for Chicken, Wings, Thighs and Packs; the kg with its unit for by-products, e.g. *12.500 គ.ក*); for items with both units the kg under the count (*"210.000 គ.ក"*, **"≈"** with the tooltip *"Estimated from the batch's average weight"* for wasted pieces); and the last change (*"Updated 2 h ago"*, *"No changes yet"*). No action button: production items aren't changed by hand.
 - **Zero** balances: the card is dimmed (grey number and picture), still tappable.
 - Wasted cards show the stock picture in grey.
 - **Day one:** a note above the sub-tabs says *"Stock starts at zero. It updates automatically as production steps are finished."* while every balance is 0.
 - While loading: the sub-tabs (without badges) and grey placeholder cards in the grid.
-- **Tap a card** (anywhere but Set) → the **item sheet** (drawer on PC, bottom sheet on phones): big picture, full name (e.g. *Liver (processed)*), its sub-tab as a label (red for Wasted), balance (count and / or kg), last change, **Set value** (with `inventory.adjust`), and the item's **last 20 changes** (time, + green / − red, new balance, source: the batch code linking to the batch · step, *"Adjustment — reason"*, *"Reversed: reopen / cancelled"*, by whom). **See full history** opens the History tab filtered by that item (the sub-tab is kept for coming back).
-- **Set value** (card's Set, or the sheet's button; only with `inventory.adjust`: the superadmin, and a GM it allowed): a sheet with the current value, new count and / or weight (only the units the item has), a **required reason** (e.g. *Opening stock*, *Recount*), and the **difference** (green / red) before saving. Save is disabled without a change or a reason. Used for the opening stock and corrections. After saving, the card (and the open sheet's list) update in place.
+- **Tap a card** → the **item sheet** (drawer on PC, bottom sheet on phones): big picture, full name (e.g. *Liver (processed)*), its sub-tab as a label (red for Wasted), balance (count and / or kg), last change, and:
+  - **From production** (ពីផលិតកម្ម), for everyone with Inventory: one row per batch that currently contributes, oldest first: the batch code (opens the batch at that step) · the last step that still contributes, and its count and / or kg (**"≈"** when estimated); then a **Total** line equal to the balance. Nothing to show: *"No stock from production right now."* Example: after the 50-chicken batch finishes step 2 it leaves Chicken and appears under Wings and Thighs.
+  - With **Inventory history** only: the item's **last 20 changes** (time, + green / − red, new balance, source: the batch code linking to the batch · step, *"Reversed: reopen / cancelled"*, by whom) and **See full history**, which opens the History tab filtered by that item (the sub-tab is kept for coming back).
 - Numbers use the same formatting as the rest of the app: counts with thousands separators, kg always with 3 decimals.
 
 **History tab**
 
-- Movements, newest first, 50 per page (the same rows as in the item sheet). Filters (kept in the URL): item, section (stock / wasted), type (production / adjustment), date range, part of a batch code.
+- Movements, newest first, 50 per page (the same rows as in the item sheet). Filters (kept in the URL): item, section (stock / wasted), type (production), date range, part of a batch code. Only with **Inventory history**.
 - Each row: item (*"Wasted: Wings"* for wasted items), the change (+ green / − red; count and kg, "≈" when estimated), the new balance, the source and who did it:
   - production: the **batch code** (opens the batch at that step) · step name;
   - a reversal: *"Reversed: reopen"* or *"Reversed: cancelled"* · batch code · step;
@@ -282,8 +285,7 @@ Stock updates **automatically** as production steps are finished; reopening a st
 
 **On the production batch page**
 
-- A **Stock changes** card under the step lists what each finished step added (+, green) or removed (−, red), step by step. Reopened steps drop out of it.
-- Batches from before inventory existed show *"Not counted in inventory (before inventory started)."*
+- With **Inventory history** only (the API sends the data only then): a **Stock changes** card under the step lists what each finished step added (+, green) or removed (−, red), step by step. Reopened steps drop out of it. Batches from before inventory existed show *"Not counted in inventory (before inventory started)."*
 - **Finish, Reopen and Cancel** can be refused when stock is short; the message names each item, e.g. *"Not enough Chicken in stock: 10 available, 100 needed."* (in the step's error area, the reopen dialog or the cancel sheet). Nothing changes.
 
 ## 7. Settings
@@ -404,6 +406,7 @@ How general managers decide what supervisors and staff can use (and how the supe
 - **Each click saves** immediately, with a spinner on that row. On error the previous level comes back and a translated message is shown.
 - From *Off*, *View only* has a dashed outline as the suggested next step; it still takes a click.
 - **Custom:** if a user's permissions match no level (only possible through the superadmin's detailed permissions), a neutral *Custom* badge is shown and no level is selected. Picking a level replaces it.
+- **Inventory history** (Off · View only, under Workstation) appears only where the viewer may give it: the superadmin on general managers and supervisors, and a general manager on supervisors **only while that GM has it**. A GM without it never sees the row, with no hint.
 - Rows are disabled only when the user is deactivated; single segments only when above a supervisor's own access. No explanation mentions other roles.
 - Defaults: supervisors start with Suppliers, Customers and Production at **Full access**, **Production plan Off**, **Staff management View only** and **Staff access Full access**; staff with everything **Off**; general managers at **Full access**. Supervisors who had Staff management at Full access before this default changed were moved to View only once (audit log: *"New default for supervisors"*, by System).
 - **General manager as the target** (superadmin only): a hint under the legend says *"Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced)."* Lowering Staff management takes creating / editing users (at *Off*, the Users list) away from the GM.
@@ -520,9 +523,9 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 | Cancel production batches | ✅ | ✅ | ❌ never | ❌ never |
 | Workstation → Production plan (list, plans), production alerts (bell, Telegram) | ✅ | Production plan ≥ View only (default Full) | Production plan ≥ View only (default Off) | ❌ never |
 | Set and confirm packaging plans | ✅ | Production plan = Full (default) | Production plan = Full | ❌ never |
-| Workstation → Inventory (stock, wasted, history) | ✅ | Inventory = View only (default) | Inventory = View only (default) | Inventory = View only (default Off) |
-| Inventory → Set value (adjustments) | ✅ | Set stock values = Full (only if the superadmin allows it; default Off) | ❌ never | ❌ never |
-| Batch page → Stock changes | ✅ | ✅ (with Production) | ✅ (with Production) | ✅ (with Production) |
+| Workstation → Inventory (stock, wasted, item sheet with the per-batch breakdown) | ✅ | Inventory = View only (default) | Inventory = View only (default) | Inventory = View only (default Off) |
+| Inventory → History tab, item's recent changes; batch page → Stock changes | ✅ | Inventory history = View only (default Off; given by the superadmin) | Inventory history = View only (default Off; given by the superadmin or a GM who has it) | ❌ never |
+| Set stock by hand | ❌ never (production items) | ❌ never | ❌ never | ❌ never |
 | Header bell | ✅ | ✅ | ✅ (empty without plan access) | ✅ (always empty) |
 | My profile → Telegram card | ✅ | ❌ | ❌ | ❌ |
 

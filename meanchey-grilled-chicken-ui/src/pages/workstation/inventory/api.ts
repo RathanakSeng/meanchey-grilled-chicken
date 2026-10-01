@@ -6,12 +6,15 @@ import { useTranslation } from 'react-i18next'
 export const inventoryKeys = {
   overview: ['inventory'] as const,
   movements: ['inventory-movements'] as const,
+  /** One item with its per-batch breakdown (`GET /inventory/items/{code}`). */
+  item: (code: string) => ['inventory-item', code] as const,
 }
 
-/** After a Finish, reopen, cancel or adjustment: balances and history are refetched. */
+/** After a Finish, reopen or cancel: balances, breakdowns and history are refetched. */
 export function invalidateInventory(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: inventoryKeys.overview })
   void queryClient.invalidateQueries({ queryKey: inventoryKeys.movements })
+  void queryClient.invalidateQueries({ queryKey: ['inventory-item'] })
 }
 
 /**

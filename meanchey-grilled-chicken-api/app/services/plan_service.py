@@ -55,7 +55,7 @@ def editable(batch: ProductionBatch) -> bool:
 
 
 async def _for_write(
-    session: AsyncSession, batch_id: uuid.UUID, version: int
+    session: AsyncSession, batch_id: uuid.UUID, version: int, actor: User
 ) -> tuple[ProductionBatch, ProductionPlan]:
     batch = await prod._for_write(session, batch_id)  # not found, cancelled
     if batch.status == "completed" or (batch.packaging is not None and batch.packaging.finished):
@@ -70,7 +70,7 @@ async def _for_write(
             ErrorCode.PRODUCTION_STEP_NOT_READY,
             "Step 2 must be finished before the plan can be set",
         )
-    await prod._check_version(session, batch, version)
+    await prod._check_version(session, batch, version, actor)
     return batch, batch.plan
 
 
@@ -115,7 +115,7 @@ def _audit(
 async def update_plan(
     session: AsyncSession, actor: User, batch_id: uuid.UUID, data: PlanUpdate
 ) -> ProductionBatch:
-    batch, plan = await _for_write(session, batch_id, data.version)
+    batch, plan = await _for_write(session, batch_id, data.version, actor)
     fields = data.model_fields_set - {"version"}
     changes: dict[str, list[Any]] = {}
     for attr in PLAN_FIELDS:
@@ -142,7 +142,7 @@ async def update_plan(
 async def confirm_plan(
     session: AsyncSession, actor: User, batch_id: uuid.UUID, version: int
 ) -> ProductionBatch:
-    batch, plan = await _for_write(session, batch_id, version)
+    batch, plan = await _for_write(session, batch_id, version, actor)
     missing = [
         prod._field_error(["plan", attr], "missing", "Required")
         for attr in ("expected_big", "expected_small")

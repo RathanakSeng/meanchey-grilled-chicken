@@ -89,7 +89,7 @@ def test_menus() -> None:
         "production": "workstation",
         "production_plan": "workstation",
         "inventory": "workstation",
-        "inventory_adjust": "workstation",
+        "inventory_history": "workstation",
     }
 
 
