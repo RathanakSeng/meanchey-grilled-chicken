@@ -28,6 +28,7 @@ BODIES: dict[tuple[str, str], dict] = {
     ("PATCH", "/users/{user_id}"): {"full_name": "Target Staff"},
     ("PATCH", "/production-plans/{batch_id}"): {"version": 1, "expected_big": 1},
     ("PUT", "/settings/role-limits/{role}"): {"max_active": 10},
+    ("POST", "/inventory/items/{item_code}/set"): {"count": 1, "reason": "Superset check"},
 }
 
 
@@ -68,7 +69,7 @@ def _fill(path: str, world: dict) -> str:
     url = path.replace("{user_id}", world["user_id"])
     url = url.replace("{batch_id}", world["batch_id"]).replace("{step}", "raw-material")
     url = url.replace("{code}", "suppliers.view").replace("{feature}", "suppliers")
-    url = url.replace("{role}", "staff")
+    url = url.replace("{role}", "staff").replace("{item_code}", "packs_big")
     # Someone else's (or no) notification: 404 for both, never 403.
     url = url.replace("{notification_id}", str(uuid.uuid4()))
     if "{partner_id}" in url:

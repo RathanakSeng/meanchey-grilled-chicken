@@ -21,6 +21,10 @@ Rules enforced here:
   (PRODUCTION_PLAN_COMMENT_REQUIRED).
 - Finishing step 2 or 3 creates the production alerts (services/notification_service.py) in the
   same transaction; the router sends them to Telegram after the commit.
+- Inventory (services/inventory_service.py, tracked batches only): Finish writes the step's stock
+  movements; reopen reverses those of every step sent back to draft; cancel reverses all of them.
+  All in the same transaction: INVENTORY_INSUFFICIENT (a balance would go below zero) refuses
+  the whole action. The batch row is locked before any balance row.
 """
 
 import re
@@ -81,7 +85,7 @@ from app.schemas.production import (
     SupplierOption,
     WaitingStep,
 )
-from app.services import notification_service
+from app.services import inventory_service, notification_service
 from app.services.audit_service import record
 
 ENTITY = "production_batch"
@@ -328,6 +332,7 @@ async def create_batch(
         updated_by=actor.id,
         created_at=now,
         updated_at=now,
+        inventory_tracked=True,
         # Explicit so nothing lazy-loads on a new object.
         output=None,
         packaging=None,
@@ -522,6 +527,8 @@ async def finish_step(
     else:
         _validate_standardize(batch)
         _check_plan_comment(batch)
+    # Stock movements of this step (before any change, from the validated values).
+    await inventory_service.finish_step(session, actor, batch, step)
 
     now = utcnow()
     row.status = "finished"
@@ -618,6 +625,7 @@ async def reopen_step(
         return batch
     await _check_version(session, batch, version)
     reopened = reopens_steps(batch, step)
+    await inventory_service.reverse(session, actor, batch, reopened, "reopen")
     for n in reopened:
         later = _step_row(batch, n)
         assert later is not None
@@ -660,6 +668,7 @@ async def cancel_batch(
     if batch.status == "completed":
         raise AppError(409, ErrorCode.PRODUCTION_COMPLETED, "Completed batches can't be cancelled")
     await _check_version(session, batch, version)
+    await inventory_service.reverse(session, actor, batch, None, "cancel")
     now = utcnow()
     batch.status = "cancelled"
     batch.cancel_reason = reason
@@ -1003,6 +1012,8 @@ async def batch_out(session: AsyncSession, batch: ProductionBatch) -> BatchOut:
         ],
         computed=computed(batch),
         catalog=CATALOG,
+        inventory_tracked=batch.inventory_tracked,
+        stock_changes=await inventory_service.stock_changes(session, batch),
     )
 
 

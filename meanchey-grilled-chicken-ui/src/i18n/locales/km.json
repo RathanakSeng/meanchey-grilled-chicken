@@ -23,7 +23,13 @@
     "previous": "មុន",
     "next": "បន្ទាប់",
     "pageOf": "ទំព័រ {{page}} នៃ {{pages}}",
-    "total": "សរុប {{count}}"
+    "total": "សរុប {{count}}",
+    "relative": {
+      "justNow": "អម្បាញ់មិញ",
+      "minutesAgo": "{{count}} នាទីមុន",
+      "hoursAgo": "{{count}} ម៉ោងមុន",
+      "daysAgo": "{{count}} ថ្ងៃមុន"
+    }
   },
   "nav": {
     "home": "ទំព័រដើម",
@@ -38,7 +44,8 @@
     "menu": "ម៉ឺនុយ",
     "production": "ផលិតកម្ម",
     "productionPlans": "ផែនការវេចខ្ចប់",
-    "userLimits": "ចំនួនអ្នកប្រើប្រាស់"
+    "userLimits": "ចំនួនអ្នកប្រើប្រាស់",
+    "inventory": "ស្តុក"
   },
   "roles": {
     "superadmin": "ប្រព័ន្ធ",
@@ -188,7 +195,9 @@
       "staff_management": "គ្រប់គ្រងបុគ្គលិក",
       "production": "ផលិតកម្ម",
       "production_plan": "ផែនការវេចខ្ចប់",
-      "staff_access": "សិទ្ធិបុគ្គលិក"
+      "staff_access": "សិទ្ធិបុគ្គលិក",
+      "inventory": "ស្តុក",
+      "inventory_adjust": "កំណត់តម្លៃស្តុក"
     },
     "legendRecord": "កត់ត្រា៖ អាចចាប់ផ្តើមបាច់ និងបំពេញជំហាន ប៉ុន្តែមិនអាចបើកជំហានដែលបានបញ្ចប់ឡើងវិញបានទេ។",
     "gmHint": "ការបិទគណនីអ្នកប្រើ ការកំណត់ពាក្យសម្ងាត់ឡើងវិញ ការគ្រប់គ្រងការចូលប្រើ និងការលុបចោលបាច់ ត្រូវកំណត់នៅក្នុង សិទ្ធិ (កម្រិតខ្ពស់)។",
@@ -251,7 +260,8 @@
       "production_plan_confirm": "បានបញ្ជាក់ផែនការវេចខ្ចប់",
       "profile_telegram_link": "បានភ្ជាប់គណនី Telegram",
       "profile_telegram_unlink": "បានផ្តាច់គណនី Telegram",
-      "settings_role_limit_update": "បានកែចំនួនអ្នកប្រើប្រាស់កំណត់"
+      "settings_role_limit_update": "បានកែចំនួនអ្នកប្រើប្រាស់កំណត់",
+      "inventory_adjust": "កំណត់តម្លៃស្តុក"
     },
     "featureChange": "{{feature}}៖ {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
@@ -259,7 +269,8 @@
     "cancelReason": "មូលហេតុ៖ {{reason}}",
     "alsoReopened": "ត្រឡប់ទៅព្រាងដែរ៖ ជំហានទី {{steps}}",
     "roleLimitChange": "{{role}}៖ {{from}} → {{to}}",
-    "defaultChange": "លំនាំដើមថ្មីសម្រាប់អ្នកត្រួតពិនិត្យ"
+    "defaultChange": "លំនាំដើមថ្មីសម្រាប់អ្នកត្រួតពិនិត្យ",
+    "inventoryAdjust": "{{item}}៖ {{from}} → {{to}}"
   },
   "profile": {
     "title": "ប្រវត្តិរូបរបស់ខ្ញុំ",
@@ -428,7 +439,10 @@
     "PRODUCTION_PLAN_EXCEEDS_OUTPUT": "ផែនការប្រើស្លាប ឬភ្លៅលើសចំនួនដែលបានផលិត។",
     "PRODUCTION_PLAN_COMMENT_REQUIRED": "កញ្ចប់ខុសពីផែនការ — សូមបញ្ចូលមតិយោបល់។",
     "NOTIFICATION_NOT_FOUND": "រកមិនឃើញការជូនដំណឹងទេ។",
-    "ROLE_LIMIT_REACHED": "ចំនួន{{roleName}}បានដល់ចំនួនកំណត់ ({{limit}}) ហើយ។"
+    "ROLE_LIMIT_REACHED": "ចំនួន{{roleName}}បានដល់ចំនួនកំណត់ ({{limit}}) ហើយ។",
+    "INVENTORY_INSUFFICIENT": "{{items}}",
+    "INVENTORY_ITEM_NOT_FOUND": "ទំនិញស្តុកនេះមិនមានទេ។",
+    "inventoryShortItem": "{{name}} ក្នុងស្តុកមិនគ្រប់គ្រាន់៖ មាន {{available}} ត្រូវការ {{needed}}។"
   },
   "permissions": {
     "readOnlyNotice": "អ្នកអាចមើលសិទ្ធិទាំងនេះ ប៉ុន្តែមិនអាចផ្លាស់ប្តូរនៅទីនេះបានទេ។",
@@ -716,5 +730,79 @@
     "fullHint": "ដល់ចំនួនកំណត់ហើយ — សូមបិទដំណើរការនរណាម្នាក់ ឬស្នើឱ្យបង្កើនចំនួនកំណត់។",
     "someFull": "តួនាទីដែលសម្គាល់ថាពេញ បានដល់ចំនួនកំណត់ហើយ — សូមបិទដំណើរការនរណាម្នាក់ ឬស្នើឱ្យបង្កើនចំនួនកំណត់។",
     "allFull": "តួនាទីទាំងអស់ដែលអ្នកអាចបន្ថែមបាន ដល់ចំនួនកំណត់ហើយ — សូមបិទដំណើរការនរណាម្នាក់ ឬស្នើឱ្យបង្កើនចំនួនកំណត់។"
+  },
+  "inventory": {
+    "title": "ស្តុក",
+    "subtitle": "ធ្វើបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិ នៅពេលបញ្ចប់ជំហានផលិតកម្ម។",
+    "description": "ស្តុក និងទំនិញខូចខាត ពីផលិតកម្ម។",
+    "tabs": {
+      "stock": "ស្តុក",
+      "history": "ប្រវត្តិ"
+    },
+    "sections": {
+      "stock": "ស្តុក",
+      "wasted": "ខូចខាត"
+    },
+    "groups": {
+      "raw": "វត្ថុធាតុដើម",
+      "processed": "ផលិត",
+      "packed": "វេចខ្ចប់",
+      "wasted": "ខូចខាត"
+    },
+    "kgValue": "{{value}} គ.ក",
+    "estimatedHint": "ប៉ាន់ស្មានពីទម្ងន់មធ្យមរបស់បាច់",
+    "neverChanged": "មិនទាន់មានការកែប្រែ",
+    "empty": "ស្តុកចាប់ផ្តើមពីសូន្យ។ វាធ្វើបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិ នៅពេលបញ្ចប់ជំហានផលិតកម្ម។",
+    "setValue": "កំណត់តម្លៃ",
+    "setValueTitle": "កំណត់តម្លៃ៖ {{item}}",
+    "setValueBody": "បញ្ចូលស្តុកដែលបានរាប់។ ភាពខុសគ្នានឹងត្រូវកត់ត្រាជាការកែតម្រូវ ជាមួយមូលហេតុរបស់អ្នក។",
+    "current": "បច្ចុប្បន្ន",
+    "newCount": "ចំនួនថ្មី",
+    "newKg": "ទម្ងន់ថ្មី (គ.ក)",
+    "difference": "ភាពខុសគ្នា",
+    "noDifference": "គ្មានការផ្លាស់ប្តូរ",
+    "reason": "មូលហេតុ",
+    "reasonHint": "ចាំបាច់ ឧ. «ស្តុកដើម» ឬ «រាប់ឡើងវិញ»។",
+    "filters": {
+      "item": "ទំនិញ",
+      "section": "ផ្នែក",
+      "type": "ប្រភេទ",
+      "from": "ពី",
+      "to": "ដល់",
+      "batch": "លេខកូដបាច់",
+      "all": "ទាំងអស់"
+    },
+    "sources": {
+      "production": "ផលិតកម្ម",
+      "adjustment": "ការកែតម្រូវ"
+    },
+    "reversedReopen": "បានដកវិញ៖ បើកឡើងវិញ",
+    "reversedCancel": "បានដកវិញ៖ លុបចោល",
+    "balanceAfter": "សមតុល្យ៖ {{value}}",
+    "noMovements": "មិនទាន់មានការកែប្រែស្តុក។",
+    "noMovementsFiltered": "គ្មានការកែប្រែស្តុកដែលត្រូវនឹងតម្រងទាំងនេះទេ។",
+    "stockChanges": "ការកែប្រែស្តុក",
+    "untracked": "មិនរាប់បញ្ចូលក្នុងស្តុកទេ (មុនពេលចាប់ផ្តើមប្រើស្តុក)។",
+    "badges": {
+      "wasted": "ខូចខាត"
+    },
+    "shortNames": {
+      "chicken": "មាន់",
+      "wings": "ស្លាបមាន់",
+      "thighs": "ភ្លៅមាន់",
+      "gizzard": "កោះមាន់",
+      "liver": "ថ្លើមមាន់",
+      "heart": "បេះដូងមាន់",
+      "head": "ក្បាលមាន់",
+      "packs_big": "កញ្ចប់ ៤ ដុំ",
+      "packs_small": "កញ្ចប់ ២ ដុំ"
+    },
+    "set": "កែតម្លៃ",
+    "updatedAgo": "កែប្រែ {{time}}",
+    "cardLabel": "{{name}}៖ {{amount}}",
+    "recentMovements": "ការកែប្រែថ្មីៗ",
+    "seeFullHistory": "មើលប្រវត្តិទាំងអស់",
+    "inStockCount": "មានស្តុក {{count}}",
+    "emptySection": "មិនទាន់មានទំនិញនៅទីនេះទេ។"
   }
 }

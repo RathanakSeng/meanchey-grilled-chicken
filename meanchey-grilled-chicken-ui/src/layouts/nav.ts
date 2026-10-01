@@ -69,6 +69,13 @@ export const NAV_ITEMS: NavItem[] = [
         permission: 'production_plan.view',
         badge: 'pendingPlans',
       },
+      {
+        to: paths.inventory,
+        labelKey: 'nav.inventory',
+        descriptionKey: 'inventory.description',
+        icon: 'boxes',
+        permission: 'inventory.view',
+      },
     ],
   },
   {

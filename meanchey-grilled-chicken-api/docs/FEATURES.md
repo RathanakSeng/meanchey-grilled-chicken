@@ -1,6 +1,6 @@
 # API Features — Phase 1
 
-What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The business features, **suppliers and customers** (§11) and **production** (§14), plug into the permission system described here, as will later ones (orders, stock, delivery, …).
+What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The business features, **suppliers and customers** (§11), **production** (§14) and **inventory** (§18), plug into the permission system described here, as will later ones (orders, stock, delivery, …).
 
 - [1. Authentication](#1-authentication)
 - [2. Password policy](#2-password-policy)
@@ -19,6 +19,7 @@ What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័�
 - [15. Packaging plan](#15-packaging-plan)
 - [16. Notifications](#16-notifications)
 - [17. Role limits](#17-role-limits)
+- [18. Inventory](#18-inventory)
 
 ---
 
@@ -261,6 +262,13 @@ General managers can give any of these to supervisors **and staff** through feat
 
 Staff can't hold either. The alerts go to whoever holds `production_plan.view`, so the plan feature is also "who gets told".
 
+**Module `inventory`** (§18)
+
+| Code | Meaning | Assignable to | In feature (level) |
+|---|---|---|---|
+| `inventory.view` | See stock, wasted items and the movement history | GM, supervisor, staff | Inventory (View only) |
+| `inventory.adjust` | Set stock values (adjustments, with a reason) | **GM only** | Set stock values (Full access), on the GM's Access tab |
+
 Cancelling batches is a general-manager decision, like deactivating users: `production.delete` is assignable to the GM only and belongs to no feature level. Supervisors or staff granted it before this change keep the row, but it has no effect (read-time `assignable_to` filter, §5.5), and their Production level still reads as *Full access*.
 
 ### 5.3 Defaults
@@ -268,11 +276,11 @@ Cancelling batches is a general-manager decision, like deactivating users: `prod
 | Role | On creation |
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
-| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions and both `production_plan.*` permissions. |
-| Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
+| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions and `inventory.view` (**not** `inventory.adjust`: the superadmin allows it per GM). |
+| Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Inventory View only**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
 | Staff | Every feature **Off** (no permissions). |
 
-`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing. The `production_plan.*` permissions were backfilled to existing active general managers only (supervisors' default is Off). `users.manage_access` is backfilled to existing **active supervisors** (Staff access Full).
+`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing. The `production_plan.*` permissions were backfilled to existing active general managers only (supervisors' default is Off). `users.manage_access` is backfilled to existing **active supervisors** (Staff access Full). `inventory.view` is backfilled to existing active general managers and supervisors; `inventory.adjust` to nobody.
 
 **Default change for existing supervisors (migration `0009`).** Staff management used to default to Full access. Migration `0009_supervisor_staff_defaults` moved every supervisor whose staff management was **exactly Full** (`users.view/create/update`) to **View only** (removes `users.create` and `users.update`), deactivated supervisors included so that reactivating doesn't bring Full back. Supervisors at a custom or lower level were left alone. Each changed supervisor got one `feature.set` audit entry with no actor (System) and `details.source = "default_change"`. It runs once (Alembic); its downgrade does nothing.
 
@@ -318,6 +326,7 @@ Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `ta
 | Customers | `customer.create`, `customer.update` (field diff), `customer.deactivate`, `customer.reactivate`. `details.name` holds the record's name. |
 | Production | `production.create`, `production.step_finish` (`step`: 1–3), `production.step_reopen` (`step`, `reopened_steps`: e.g. `[1, 2, 3]`), `production.cancel` (`reason`). `details.code` holds the batch code. **Draft saves are not audited.** |
 | Packaging plan | `production_plan.update` (`changes`: field → `[old, new]`, only when something changed), `production_plan.confirm` (`expected_big`, `expected_small`). `entity_type = production_batch`, `details.code` = the batch code. |
+| Inventory | `inventory.adjust` (`item_code`, `name_en`, `name_km`, `from` / `to` = `{count, kg}`, `reason`). Production movements are in the inventory history (§18), not the audit log. |
 | Settings | `settings.role_limit_update` (`role`, `from`, `to`; `null` = unlimited). Superadmin only, so hidden from general managers. |
 | Profile | `profile.update`; `profile.telegram_link` / `profile.telegram_unlink` (the superadmin's Telegram link, §7.5; hidden from the GM like everything the superadmin does) |
 
@@ -421,6 +430,7 @@ Every error has the same shape:
 | Production | `PRODUCTION_NOT_FOUND` (404), `PRODUCTION_STEP_NOT_READY` (409), `PRODUCTION_STEP_FINISHED` (409), `PRODUCTION_STEP_LOCKED` (409; no longer raised, kept for compatibility), `PRODUCTION_BALANCE_MISMATCH` (422, `details.wings` / `details.thighs`), `PRODUCTION_CONFLICT` (409, `details.batch`), `PRODUCTION_CANCELLED` (409), `PRODUCTION_COMPLETED` (409) |
 | Packaging plan | `PRODUCTION_PLAN_REQUIRED` (409: step 3 save / finish while the plan isn't confirmed), `PRODUCTION_PLAN_LOCKED` (409: plan change after step 3 is finished), `PRODUCTION_PLAN_EXCEEDS_OUTPUT` (422, `details.wings` / `details.thighs`: `{available, planned}`), `PRODUCTION_PLAN_COMMENT_REQUIRED` (422, `details.planned` / `details.actual`: `{big, small}`) |
 | Notifications | `NOTIFICATION_NOT_FOUND` (404: unknown, or someone else's) |
+| Inventory | `INVENTORY_INSUFFICIENT` (409: a balance would go below zero; `details.items` = `[{item_code, name_en, name_km, available_count, available_kg, needed_count, needed_kg}]`; raised by Finish, reopen, cancel and adjustments), `INVENTORY_ITEM_NOT_FOUND` (404) |
 | Generic | `VALIDATION_ERROR` (with `details.fields`), `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `HTTP_ERROR` |
 
 Codes are defined in `app/core/errors.py`. **Never rename a code:** the UI depends on them.
@@ -485,6 +495,9 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | GET | `/production-plans/{batch_id}` | `production_plan.view` |
 | PATCH | `/production-plans/{batch_id}` | `production_plan.manage` |
 | POST | `/production-plans/{batch_id}/confirm` | `production_plan.manage` |
+| GET | `/inventory` | `inventory.view` |
+| GET | `/inventory/movements` | `inventory.view` |
+| POST | `/inventory/items/{item_code}/set` | `inventory.adjust` |
 | GET | `/health` (no prefix) | public |
 | GET | `/docs`, `/redoc`, `/openapi.json` (no prefix) | only when API docs are enabled (development by default, §13) |
 
@@ -554,6 +567,8 @@ How general managers (and, for staff, supervisors with Staff access) give access
 | `customers` | workstation | GM, supervisor, staff | `customers.view` | — | `customers.view/create/update/delete` |
 | `production` | workstation | GM, supervisor, staff | `production.view` | `production.view/create` | `production.view/create/update` |
 | `production_plan` | workstation | GM, supervisor | `production_plan.view` | — | `production_plan.view/manage` |
+| `inventory` | workstation | GM, supervisor, staff | `inventory.view` | — | — |
+| `inventory_adjust` | workstation | GM | — | — | `inventory.adjust` |
 | `staff_management` | settings | GM, supervisor | `users.view` | `users.view/create` | `users.view/create/update` |
 | `staff_access` | settings | supervisor | — | — | `users.manage_access` |
 
@@ -695,7 +710,7 @@ All of these (except the comment) are required at Finish. The API field names st
 
 `details` has `{ wings: {expected, assigned, difference}, thighs: {…} }` (`difference` = expected − assigned).
 
-**By-product balance: UI only, NOT enforced by the API.** For each by-product the UI requires `carry_kg + rejected_kg = produced kg` exactly before Finish is enabled. The API only checks that both values are present and ≥ 0, and accepts a batch whose by-products don't add up. This is deliberate (the rule may be relaxed later) and covered by a test.
+**By-product balance: UI only, NOT enforced by the API.** For each by-product the UI requires `carry_kg + rejected_kg = produced kg` exactly before Finish is enabled. The API only checks that both values are present and ≥ 0, and accepts a batch whose by-products don't add up. This is deliberate (the rule may be relaxed later) and covered by a test. Inventory (§18) does limit it indirectly: step 3 takes carry + rejected kg out of the processed stock of all batches, so assigning more than that stock holds → `INVENTORY_INSUFFICIENT`.
 
 **Catalogs** (`app/production/catalog.py`): the by-products (`code`, `name_en`, `name_km`, unit `kg`, display order) and material kinds (`chicken`: 2 wings and 2 thighs per chicken). Every batch response includes them (`catalog`) so the UI renders them. Adding a by-product or kind is a catalog entry, no migration.
 
@@ -705,6 +720,7 @@ All of these (except the comment) are required at Finish. The API field names st
 - Step `status`: `draft` → `finished`. A step's row exists once the previous one has been finished (`produced` / `standardize` are `null` in responses until then). A finished step is read-only: saving or finishing it again → `PRODUCTION_STEP_FINISHED`. Saving or finishing a step whose previous one isn't finished → `PRODUCTION_STEP_NOT_READY`.
 - **Reopen** step N (`production.update`): allowed for any finished step of an in-progress or completed batch, whatever the later steps are. In one transaction (batch row locked), step N **and every later finished step** go back to `draft` (`finished_by` / `finished_at` and **the step's date** cleared; the next Finish records that new day); **all values are kept**; `current_step` becomes N; a completed batch goes back to `in_progress` (`completed_at = null`); `version` + 1. The later steps are then finished again in order (`PRODUCTION_STEP_NOT_READY` otherwise), which recomputes the step 2 counts from step 1 and re-checks the piece balance at step 3. **Reopening step 1 or 2 puts the packaging plan back to `pending`** (values kept, `confirmed_by/at` cleared), so step 3 waits until it's confirmed again; reopening step 3 keeps a confirmed plan (still editable until step 3 is finished again). Each step in a batch response carries `reopens_steps` (the steps editing it would put back to draft; `[]` when it isn't finished or the batch is cancelled) so the UI can warn. Reopening a step that is already a draft changes nothing. `PRODUCTION_STEP_LOCKED` is no longer raised.
 - **Cancel** (`production.delete`, general manager and superadmin only): only `in_progress` batches (`PRODUCTION_COMPLETED` for completed ones), with a required reason (1–500 characters). A cancelled batch is read-only (`PRODUCTION_CANCELLED` for any change) and excluded from the figures.
+- **Inventory side effects** (§18, tracked batches): **Finish** writes the step's stock movements, **reopen** reverses those of every step it sends back to draft (latest first), **cancel** reverses all of the batch's movements, in the same transaction. If a balance would go below zero the action is refused with `409 INVENTORY_INSUFFICIENT` and nothing changes. Batches created before inventory existed (`inventory_tracked = false`) never move stock.
 - **Batch code** `PR-YYYYMMDD-NNN`: from the **creation day** in `BUSINESS_TIMEZONE` (e.g. 17:30 UTC on 30 Sep is already 1 Oct in Phnom Penh), numbered per day by a counter row (`production_batch_counters`, `INSERT … ON CONFLICT … RETURNING`), so concurrent creations get distinct numbers. The code never changes, whenever the steps are finished or reopened.
 
 ### 14.3 Drafts and versions
@@ -720,7 +736,7 @@ All of these (except the comment) are required at Finish. The API field names st
 | `GET /production` | **Cancelled batches are left out** unless `include_cancelled=true` (then added to the chosen status) or `status=cancelled` (only them). Filters: `status` (`in_progress`, `completed`, `cancelled`, `all` = default: in progress + completed), `include_cancelled` (default `false`), `waiting_step` (`2` or `3`: in-progress batches whose previous steps are finished and that step isn't, for `3` only with a **confirmed** plan; `plan`: step 2 finished and the plan still **pending**), `date_from` / `date_to` (inclusive; a batch matches if **any** of its three step dates is in the range, or, while no step is finished, its **creation day**), `q` (batch code or supplier name). `sort`: `-date` (default), `date` — by the batch's **latest recorded step date**, falling back to its creation day, then by code — `code`, `-code`. Paging: 20 by default, at most 100. Items: `code`, `import_date`, `production_date`, `packaging_date` (null until recorded), `created_at`, `status`, `current_step`, `steps` (`pending` / `draft` / `finished` for steps 1–3), `supplier`, `quantity`, `created_by`. |
 | `GET /production/stats` | `in_progress`; `completed_today` (completed since midnight, Cambodia time); `chickens_this_month` (quantity of finished step 1s whose **import date** is this month); `rejected_pieces_this_month` (rejected wings + thighs of finished step 3s whose **packing date** is this month). Months and days follow `BUSINESS_TIMEZONE`; cancelled batches are excluded. |
 | `POST /production` | Creates the batch with a draft step 1; optional initial step 1 fields (no date). `201` with the batch. |
-| `GET /production/{id}` | The batch, all steps, by-products, catalogs, `plan` (read-only: status, expected values, note, `confirmed_by/at`, `updated_by/at`; `null` before step 2 is finished), `plan_legacy` (`true` when step 2 was finished but there's no plan: batches finished before plans existed) and `computed` (`wings_count` / `thighs_count` from the current quantity, `yield_percent` = (wings kg + thighs kg) ÷ raw kg × 100, one decimal, or null). |
+| `GET /production/{id}` | The batch, all steps, by-products, catalogs, `plan` (read-only: status, expected values, note, `confirmed_by/at`, `updated_by/at`; `null` before step 2 is finished), `plan_legacy` (`true` when step 2 was finished but there's no plan: batches finished before plans existed), `inventory_tracked` and `stock_changes` (§18.6) and `computed` (`wings_count` / `thighs_count` from the current quantity, `yield_percent` = (wings kg + thighs kg) ÷ raw kg × 100, one decimal, or null). |
 | `POST /production/{id}/{step}/finish` | `step` ∈ `raw-material`, `produced`, `standardize`; body `{version}`. Records the step's date (today, `BUSINESS_TIMEZONE`). Step 2 also creates the plan (or puts it back to pending); steps 2 and 3 create the alerts (§16). |
 | `POST /production/{id}/{step}/reopen` | Body `{version}`. Reopens a finished step: it and every later finished step go back to draft (§14.2). |
 | `POST /production/{id}/cancel` | Body `{version, reason}`. |
@@ -863,3 +879,88 @@ How many **active** general managers, supervisors and staff there may be. The su
 
 `/auth/me` is unchanged.
 
+---
+
+## 18. Inventory
+
+**Inventory (ស្តុក)** totals what production has made and used, across all batches: a **ledger of movements** (`inventory_movements`, append-only) plus a **balance per item** (`inventory_balances`). Every production Finish writes movements; reopen and cancel write reversing movements; adjustments set a counted value. **A balance can never go below zero.** The production process itself doesn't change: each batch still uses only its own chickens.
+
+### 18.1 Items
+
+Defined in `app/inventory/catalog.py`, in two **sections**: **stock** and **wasted**. Each item has a `code`, `name_en` / `name_km`, a display `group` (stock: `raw` / `processed` / `packed`; wasted: `wasted`), the units it tracks (`count`, `kg` or both) and an order.
+
+| Section · group | Item (`code`) | Units | Comes from |
+|---|---|---|---|
+| stock · raw | Chicken / មាន់ (`chicken`) | count + kg | step 1 |
+| stock · processed | Wings / ស្លាបមាន់ (`wings`), Thighs / ភ្លៅមាន់ (`thighs`) | count + kg | step 2 |
+| stock · processed | By-product (processed), one per catalog by-product: e.g. Liver (processed) / ថ្លើមមាន់ (ផលិត) (`byproduct_processed.liver`) | kg | step 2 |
+| stock · packed | 4-Piece Packs / កញ្ចប់ ៤ ដុំ (`packs_big`), 2-Piece Packs / កញ្ចប់ ២ ដុំ (`packs_small`) | count | step 3 |
+| stock · packed | By-product (packed / carried forward), e.g. Liver (packed) / ថ្លើមមាន់ (វេចខ្ចប់) (`byproduct_packed.liver`) | kg | step 3 |
+| wasted | Wings (`wasted.wings`), Thighs (`wasted.thighs`) | count + kg (**estimated**) | step 3 rejects |
+| wasted | each by-product (`wasted.byproduct.liver`, …) | kg | step 3 rejected kg |
+
+- The by-product items are generated from the production by-product catalog (§14.1), so a new by-product gets its three inventory items automatically; its balance rows are created at startup and on demand (no migration).
+- Marinade is **not** tracked.
+- A unit an item doesn't track is `null` everywhere (balance, movements, responses).
+
+### 18.2 Movements from production
+
+Only for batches with `inventory_tracked = true` (§18.4). All quantities come from the batch's own finished values; units of 0 are skipped.
+
+| Event | Movements |
+|---|---|
+| **Finish step 1** | Chicken +quantity, +weight_kg |
+| **Finish step 2** | Chicken −quantity, −weight_kg · Wings +wings_count, +wings_kg · Thighs +thighs_count, +thighs_kg · each By-product (processed) +produced_kg |
+| **Finish step 3** | Wings −wings_count, −wings_kg · Thighs −thighs_count, −thighs_kg · 4-Piece Packs +big_packages · 2-Piece Packs +small_packages · Wasted Wings +rejected_wings, +estimated kg · Wasted Thighs +rejected_thighs, +estimated kg · each By-product (processed) −(carry_kg + rejected_kg) · By-product (packed) +carry_kg · Wasted by-product +rejected_kg |
+
+- **Estimated waste kg** = rejected count × (step 2 kg ÷ step 2 count), rounded to 3 decimals, with `kg_estimated = true` on the movement (and `kg_estimated` on the wasted Wings / Thighs items).
+- **By-products:** the processed stock loses only what step 3 assigned (carry + rejected). Since the by-product balance is a UI-only rule (§14.1), an unassigned remainder stays in the processed stock, visible; assigning more than the processed stock holds (all batches) is refused (§18.3).
+- **Reopen** step N: the movements of every step sent back to draft are reversed, **latest step first**, each as a new movement with `reversal_of` = the original and `reason = "reopen"`. Finishing again writes fresh movements.
+- **Cancel:** every un-reversed movement of the batch is reversed (`reason = "cancel"`). (A completed batch can't be cancelled, so that's at most steps 1 and 2.)
+- A movement is reversed **at most once** (unique index on `reversal_of`). Draft saves never write movements.
+- All in the same transaction as the action; the batch row is locked first, then the balances (§18.3).
+
+### 18.3 No negative balances
+
+Every change goes through one function (`inventory_service.apply_movements`):
+
+1. lock the affected `inventory_balances` rows `FOR UPDATE`, **in `item_code` order** (a fixed order, so concurrent writers can't deadlock);
+2. add up the deltas per item; if any balance would go below zero → `409 INVENTORY_INSUFFICIENT` with `details = {items: [{item_code, name_en, name_km, available_count, available_kg, needed_count, needed_kg}]}` (needed = the net amount being removed, per unit; names included because whoever records production may not see the inventory). The **whole action** (Finish, reopen, cancel or adjustment) is rolled back;
+3. otherwise update the balances and insert the movements with `balance_count_after` / `balance_kg_after`.
+
+So a Finish of step 2 needs the chickens in stock, a reopen needs the later products still in stock (e.g. packs not yet gone), and a cancel needs the batch's processed products still there. Concurrent Finishes touching the same items take turns on the row locks and both succeed with correct totals.
+
+### 18.4 Batches from before inventory
+
+Migration `0010` added `production_batches.inventory_tracked`: **false for every existing batch**, true for batches created afterwards. Untracked batches never write movements (finish, reopen or cancel), so inventory starts at **zero** and stays consistent: reopening an old batch can't remove stock it never added. Their batch page says they aren't counted.
+
+### 18.5 Adjustments (set a value)
+
+`POST /inventory/items/{item_code}/set` with `{count?, kg?, reason}` sets the balance to the given value(s) by writing **one movement of the difference** (`source = adjustment`, the reason on the movement). This covers the opening stock (everything starts at 0) and corrections. Stock going out (sales, delivery) is a later feature.
+
+- At least one value; only units the item tracks; values ≥ 0 (kg with up to 3 decimals); `reason` required, 1–500 characters (trimmed). Otherwise `422 VALIDATION_ERROR`; an unknown item → `404 INVENTORY_ITEM_NOT_FOUND`.
+- The same value again: nothing is written. A change writes the audit entry `inventory.adjust` with `details = {item_code, name_en, name_km, from: {count, kg}, to: {count, kg}, reason}`.
+- Returns the item with its new balance.
+
+### 18.6 Endpoints
+
+| Endpoint | Guard | Notes |
+|---|---|---|
+| `GET /inventory` | `inventory.view` | `{sections: [{section, items: [{code, section, group, name_en, name_km, tracks_count, tracks_kg, kg_estimated, count, kg, updated_at}]}]}`, stock first. `updated_at` = the latest movement, `null` if it never changed. Every catalog item is listed (0 until it moves). |
+| `GET /inventory/movements` | `inventory.view` | Newest first. Filters: `item_code`, `section`, `source` (`production` / `adjustment`), `batch_id`, `batch_code` (part of the code), `date_from` / `date_to` (business days, `BUSINESS_TIMEZONE`); `page`, `page_size` (default 50, max 100). Each row: item and names, section, `count_delta`, `kg_delta`, `kg_estimated`, `source`, `batch {id, code}`, `step`, `reversal_of`, `reason`, `balance_count_after`, `balance_kg_after`, `created_by` (`UserRef`), `created_at`. |
+| `POST /inventory/items/{item_code}/set` | `inventory.adjust` | §18.5. |
+| `GET /production/{id}` | `production.view` | Adds `inventory_tracked` and `stock_changes`: the batch's un-reversed movements `[{step, item_code, section, name_en, name_km, count_delta, kg_delta, kg_estimated}]`, by step then item order (empty when untracked). |
+
+Weights are strings with 3 decimals (`"4.200"`), like production.
+
+### 18.7 Access
+
+| Feature | Applies to | Levels |
+|---|---|---|
+| `inventory` (Inventory) | GM, supervisor, staff | Off · View only (`inventory.view`: stock, wasted and history) |
+| `inventory_adjust` (Set stock values) | **GM only** (set by the superadmin on the GM's Access tab) | Off · Full access (`inventory.adjust`) |
+
+- Defaults: general managers Inventory **View** and Set stock values **Off**; supervisors View; staff Off. The superadmin holds everything implicitly, so it can always set values.
+- When the permissions were added, the one-time backfill gave `inventory.view` to existing active general managers and supervisors; `inventory.adjust` to nobody.
+- A supervisor with Staff access can give staff Inventory View only while it holds it itself (§12.3).
+- Redaction (§13): movements made by the superadmin (e.g. its adjustments, or steps it finished) show "System" in `created_by`; its `inventory.adjust` entries are hidden from the GM's audit log like everything it does.

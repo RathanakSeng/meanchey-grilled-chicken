@@ -97,7 +97,13 @@ src/
 │   │                      #   StepShell (autosave status, notices, Finish), SupplierPicker, badges,
 │   │                      #   useAutosaveDraft, steps.ts (values / payloads / finish rules / balances),
 │   │                      #   numbers.ts (Decimal-safe parsing), api.ts (query keys, keepalive save),
-│   │                      #   PlanCard (plan card, "waiting for plan", plan vs actual)
+│   │                      #   PlanCard (plan card, "waiting for plan", plan vs actual),
+│   │                      #   StockChangesCard (the batch's stock movements)
+│   │   └── inventory/     # InventoryPage (lazy; Stock tab = 4 sub-tabs of card grids, History tab),
+│   │                      #   ItemSheet (tap a card: balance + last 20 changes), HistoryTab, MovementRow
+│   │                      #   (shared by both), SetValueSheet, itemVisuals.ts (code → picture, badge,
+│   │                      #   short name), useItemDisplay.ts (card / sheet texts),
+│   │                      #   api.ts (inventoryKeys, invalidateInventory, useStockFormat)
 │   │   └── production-plans/ # PlanListPage, PlanPage (lazy), PlanBadge, api.ts (planKeys, pending count:
 │   │                      #   outside the lazy chunk because the nav badge uses it)
 │   └── settings/          # SettingsPage (hub), AuditLogPage, ProfilePage, TelegramLinkCard (superadmin), UserLimitsPage (superadmin), users/* (incl. UserAccessTab, UserPermissionsTab, RoleChangeSheet)
@@ -220,6 +226,7 @@ sequenceDiagram
       production-plans               RequireAccess production_plan.view
         index                        PlanListPage (lazy, ?status=&q=&page=)
         :batchId                     PlanPage (lazy)
+      inventory                      RequireAccess inventory.view → InventoryPage           (lazy, ?tab=stock&section=raw|processed|packed|wasted · ?tab=history&item&area&source&from&to&batch&page; `area` = the stock / wasted filter, `section` stays the Stock sub-tab)
     /settings
       index                          SettingsPage (hub: cards from the nav tree)
       users                          RequireAccess users.view
@@ -236,7 +243,7 @@ sequenceDiagram
     *                                NotFound (e.g. a top-level /production: there is no redirect)
 ```
 
-**Paths.** Every frontend URL comes from `lib/paths.ts` (`paths.users`, `paths.user(id)`, `paths.editUser(id)`, `paths.suppliers`, `paths.customers`, `paths.production`, `paths.productionBatch(id, step?)`, `paths.productionPlans`, `paths.productionPlan(batchId)`, `paths.userLimits`, …). Components never write route literals, so moving a page is a one-file change. API URLs such as `api.get('/users')` are unrelated and stay literal.
+**Paths.** Every frontend URL comes from `lib/paths.ts` (`paths.users`, `paths.user(id)`, `paths.editUser(id)`, `paths.suppliers`, `paths.customers`, `paths.production`, `paths.productionBatch(id, step?)`, `paths.productionPlans`, `paths.productionPlan(batchId)`, `paths.inventory`, `paths.userLimits`, …). Components never write route literals, so moving a page is a one-file change. API URLs such as `api.get('/users')` are unrelated and stay literal.
 
 **Legacy redirects.** `LegacyRedirect` swaps the old prefix (from `LEGACY_PREFIXES`) for the new one and keeps the rest of the path, the query string and the hash, e.g. `/users/<id>/edit?x=1#a` → `/settings/users/<id>/edit?x=1#a`.
 
@@ -249,7 +256,7 @@ sequenceDiagram
 | `PublicOnly` | For `/login`. Sends signed-in users to their original destination (`location.state.from`) or to `/`. |
 | `RequireAccess` | Takes `permission` and/or `roles`. Renders `ForbiddenPage` if denied. Works as a layout route (`<Outlet/>`) or as a wrapper around children. |
 
-**Lazy pages.** The production pages, and the packaging plan pages (another chunk, only for plan holders), are loaded with `React.lazy` inside `RequireAccess` (wrapped in `PageLoading`, a `Suspense` with a spinner), so they are separate chunks, downloaded on first visit and never by users without Production access. Everything else is in the main bundle. Other large, access-limited features can use the same pattern.
+**Lazy pages.** The production pages, the packaging plan pages (another chunk, only for plan holders) and the inventory page (another chunk, only with `inventory.view`), are loaded with `React.lazy` inside `RequireAccess` (wrapped in `PageLoading`, a `Suspense` with a spinner), so they are separate chunks, downloaded on first visit and never by users without Production access. Everything else is in the main bundle. Other large, access-limited features can use the same pattern.
 
 The two `PartnerListPage` routes get distinct React `key`s, so switching between Suppliers and Customers remounts the page instead of carrying state (search text, open panel) across.
 
@@ -345,6 +352,8 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 | `['production-plans', params]` | `GET /production-plans` (`keepPreviousData`) |
 | `['production-plans-pending']` | `GET /production-plans?page_size=1` → `pending_count` (nav badge; refetched every 60 s; only with `production_plan.view`) |
 | `['production-plan', batchId]` | `GET /production-plans/{batchId}`; written with `setQueryData` by Save and Confirm |
+| `['inventory']` | `GET /inventory` (balances by section) |
+| `['inventory-movements', params]` | `GET /inventory/movements`: the History tab (`keepPreviousData`) and the item sheet (`{item_code, page_size: 20}`); a Set value save invalidates every `['inventory-movements', …]` key and `['inventory']`, so the card and the open sheet update in place |
 | `['role-limits']` | `GET /settings/role-limits` (superadmin, User limits page); written with `setQueryData` by each Save |
 | `['role-capacity']` | `GET /users/role-capacity` via `useRoleCapacity()` in `lib/useRoleCapacity.ts` (enabled with `users.view` or `users.create`, staleTime 30 s): create form, role change sheet, users list |
 | `['notifications-unread']` | `GET /notifications?unread_only=true&page_size=1` → `unread_count` (the bell; polled every 60 s **and on window focus**, from the app shell, not per page) |
@@ -352,7 +361,8 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 
 - Mutations use `useMutation`. After a change they either write the response straight into the cache (`setQueryData`, e.g. after editing a user or the profile) or invalidate the affected keys: `users`, `user`, `user-permissions`. Creating or editing a user also invalidates `user-positions`, so a newly typed position shows up in the suggestions and filter. A role change (`RoleChangeSheet`, `POST /users/{id}/role`) writes the returned user into `['user', id]` and invalidates `users`, `user-features`, `user-permissions` and `user-positions`.
 - Supplier / customer mutations (create, edit, deactivate, reactivate) write the returned record into `[entity, id]` and invalidate both the list prefix (`[resource]`) and the stats key, so the table and the KPI cards update together. The keys are built by `partnerKeys(config)`.
-- Production: draft saves only write the returned batch into `['production-batch', id]`. Finish, reopen, cancel and "New production" also invalidate `['production']` and `['production-stats']` (`onBatchChanged` in `production/api.ts`), and the plan keys (finishing or reopening steps creates or resets the plan). The keys are built by `productionKeys`.
+- Production: draft saves only write the returned batch into `['production-batch', id]`. Finish, reopen, cancel and "New production" also invalidate `['production']` and `['production-stats']` (`onBatchChanged` in `production/api.ts`), the plan keys (finishing or reopening steps creates or resets the plan) and the inventory keys (`invalidateInventory`: Finish, reopen and cancel move stock). A **Set value** save invalidates the inventory keys too.
+- Inventory: the batch response carries `stock_changes`, so the Stock changes card needs no inventory query (and works for people without `inventory.view`). `INVENTORY_INSUFFICIENT` is translated per item from `details.items` (names from the API, the unit that is short) in `useErrorMessage`. The keys are built by `productionKeys`.
 - Plans: Save and Confirm write the returned plan into `['production-plan', batchId]` and invalidate the plan list, the pending count, the batch and the production list. On `PRODUCTION_CONFLICT` the plan is refetched and a notice shown (no merge UI: a plan has three fields). Confirm with unsaved edits sends the PATCH first, then confirms with the new version.
 - Role limits: creating a user, reactivating, deactivating and changing a role call `invalidateRoleCapacity()` (`['role-capacity']` and `['role-limits']`); saving a limit writes `['role-limits']` and invalidates `['role-capacity']`. `ROLE_LIMIT_REACHED` is translated with the role name from its `details.role` (`useErrorMessage`).
 - Notifications: opening one marks it read (`POST /notifications/{id}/read`), **Mark all as read** calls `read-all`; both invalidate `['notifications']` and `['notifications-unread']`.
@@ -442,6 +452,10 @@ useErrorMessage()(err) → t(`errors.${code}`, { ...details, time, min })
 - **`components/ActionMenu.tsx`:** a **⋮** button with a small menu of `{label, icon, tone, onSelect}` items. It uses fixed positioning, so it isn't clipped by tables or scroll containers, and it opens upwards near the bottom of the screen. It renders nothing when there are no items, so permission-filtered item lists need no extra check.
 - **Production form parts** (`production/StepShell.tsx`): `NumberField` (`inputMode="decimal"` for kg / g, `"numeric"` for counts; 48 px tall on mobile, unit suffix, inline error), `LockedValue` (computed counts with a lock), `AutosaveStatus`, and `StepShell` (header with status, restore / conflict notices, blockers list, Finish with confirmation; on mobile Finish sits in a fixed bar above the bottom nav, with a spacer so it never covers the last field).
 - **Icons:** inline SVG paths in `components/icons.tsx`, with no icon dependency.
+- **`components/InventoryItemCard.tsx`:** the product-style card of the Inventory page, presentational only (the page passes the picture URL, badge, texts and handlers): picture (72 px phones, 88 px from `sm`), optional corner badge (the Wasted tab only), name (2 lines), big number, second line, last change, and an optional full-width action. The card body is a `<button>` (`aria-label` = name and amount) that opens the item; the action is a sibling button (no nested buttons); without an action a spacer keeps the height. `h-full` + flex column make the cards in a grid row equal height. Also exports `ItemPicture` (image or the `boxes` icon, `muted` = greyscale) and `InventoryCardSkeleton`.
+- **Inventory sub-tabs** (`InventoryPage`): the Stock tab's section is the `section` URL parameter (`raw` default, `processed`, `packed`, `wasted`; anything else → `raw`), written with `setSearchParams(…, { replace: true })` like the main tab, and kept when switching to History and back, so refresh and Back return to it. Items are split by the API's `group` field, and each pill's badge counts the items in that group with stock (count or kg > 0), from the same `['inventory']` data, so a Set value updates it in place. The pills are a `role="tablist"` (`aria-selected`) on a grid with `auto-cols-[minmax(max-content,1fr)]`: equal on phones, never narrower than the Khmer label, scrolling sideways (`scrollbar-none`) when they don't fit; `inline-grid` from `sm`.
+- **Inventory pictures** live in `src/assets/inventory/` (`chicken`, `wing`, `thigh`, `gizzard`, `liver`, `heart`, `head`, `pack4`, `pack2` `.svg`: flat, transparent, under 1 kB each) and are imported as files (Vite URLs). **To replace a picture**, overwrite the file with the same name (any square SVG or PNG; for PNG, change the import extension in `itemVisuals.ts`). `pages/workstation/inventory/itemVisuals.ts` is the only place that maps item codes to pictures: processed / packed by-products share the by-product's picture, wasted items reuse the base picture (drawn greyscale), and an unknown code (a future by-product) falls back to the box icon. It also gives the badge (wasted only: the Stock sub-tab names processed / packed) and the short-name key (`inventory.shortNames.<base>`; unknown items use the API's full name).
+- **`useRelativeTime()`** (`lib/format.ts`): *"2 h ago"* / *"២ ម៉ោងមុន"* from `common.relative.*` translations (browsers often lack Khmer data for `Intl.RelativeTimeFormat`); a week or older shows the date.
 - **`components/KpiGrid.tsx`:** the figures above the Suppliers, Customers and Production lists. A grid on every screen, never a sideways scroller: 3 figures → 3 columns, 4 → 2 × 2 (4 columns from `lg`). On phones each card is compact (icon and a label of up to two lines above the number); from `sm` the icon sits beside the text. Cards with `onClick` become buttons (`aria-pressed`, outlined when selected); the current pages use figures only.
 - **`components/CheckboxFilter.tsx`:** a labelled checkbox sized like the other filter controls. Lists leave removed records out by default and show them only when it's ticked: *Show deactivated* (suppliers, customers: `?deactivated=1` → `status=all`) and *Show cancelled* (production: `?cancelled=1` → `include_cancelled=true`). A new Workstation list with soft-deleted records should do the same. On phones the label wraps inside the box (the Khmer *Show deactivated* shares a row with the sort dropdown and would otherwise run off the screen); from `sm` up it stays on one line.
 - **`scrollbar-none`** (in `index.css`): horizontal scrollers (e.g. the production filter chips) swipe without a visible scrollbar.
@@ -535,4 +549,5 @@ The page brings the KPI cards (`KpiGrid`), URL-driven filters (`?q&deactivated=1
 | Bell polled from the app shell | One 60-second poll (plus window focus) for the unread count serves every page; the list itself loads only when the bell opens. Telegram delivers the same alerts in real time, so no websocket is needed. |
 | Plan-vs-actual comment rule mirrored in the UI | The API refuses Finish without a comment when packs differ; the form shows the difference as it's typed and lists the missing comment among the Finish blockers, so the refusal never surprises anyone. |
 | Capacity shown before submitting | The API is the authority on role limits (row lock, `ROLE_LIMIT_REACHED`), but a manager shouldn't fill in a whole form to learn the role is full: the form, the role sheet and the list show *active / limit* up front, and the server error remains the fallback for races. |
+| Inventory amounts straight from the API | Balances and movements are computed and locked server-side (the ledger); the page only formats them (count, kg with up to 3 decimals, "≈" when estimated) and never adds anything up, so it can't disagree with the server. |
 | Back = parent route, not history | Mini App sessions often start from a deep link with no history. The route structure always gives a meaningful "up". |

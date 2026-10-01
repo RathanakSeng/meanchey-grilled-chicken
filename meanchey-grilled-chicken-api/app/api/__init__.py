@@ -4,6 +4,7 @@ from app.api import (
     audit,
     auth,
     features,
+    inventory,
     me,
     notifications,
     permissions,
@@ -25,5 +26,6 @@ api_router.include_router(suppliers_router)
 api_router.include_router(customers_router)
 api_router.include_router(production.router)
 api_router.include_router(production_plans.router)
+api_router.include_router(inventory.router)
 api_router.include_router(notifications.router)
 api_router.include_router(settings.router)

@@ -20,6 +20,7 @@ from app.models.production import (
     PLAN_NOTE_MAX_LENGTH,
 )
 from app.schemas.common import UserRef
+from app.schemas.inventory import StockChangeOut
 
 MAX_COUNT = 1_000_000
 
@@ -251,6 +252,10 @@ class BatchOut(BaseModel):
     byproducts: list[ByproductOut]
     computed: ComputedOut
     catalog: CatalogOut
+    # False for batches created before inventory existed: they never move stock.
+    inventory_tracked: bool
+    # Net stock changes of the finished steps (reversed ones left out); empty when untracked.
+    stock_changes: list[StockChangeOut]
 
 
 class BatchListItem(BaseModel):

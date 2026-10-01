@@ -46,6 +46,7 @@ MODULES: list[ModuleDef] = [
     ModuleDef("partners", "Partners", "ដៃគូ"),
     ModuleDef("production", "Production", "ផលិតកម្ម"),
     ModuleDef("production_plan", "Packaging plan", "ផែនការវេចខ្ចប់"),
+    ModuleDef("inventory", "Inventory", "ស្តុក"),
 ]
 
 _MANAGERS = (Role.GENERAL_MANAGER, Role.SUPERVISOR)
@@ -262,6 +263,31 @@ PERMISSIONS += [
 
 _PLAN_CODES = frozenset(p.code for p in PERMISSIONS if p.module == "production_plan")
 
+PERMISSIONS += [
+    PermissionDef(
+        code="inventory.view",
+        module="inventory",
+        name_en="View inventory",
+        name_km="មើលស្តុក",
+        description_en="See stock, wasted items and the history of stock movements.",
+        description_km="មើលស្តុក ទំនិញខូចខាត និងប្រវត្តិនៃការកែប្រែស្តុក។",
+        assignable_to=_EVERYONE,
+    ),
+    PermissionDef(
+        code="inventory.adjust",
+        module="inventory",
+        name_en="Set stock values",
+        name_km="កំណត់តម្លៃស្តុក",
+        description_en=(
+            "Set the stock of an item to a counted value, with a reason (opening stock and "
+            "corrections)."
+        ),
+        description_km="កំណត់ស្តុករបស់ទំនិញមួយទៅតាមចំនួនដែលបានរាប់ ដោយបញ្ជាក់មូលហេតុ (ស្តុកដើម និងការកែតម្រូវ)។",
+        # Only the GM (when the superadmin allows it) and the superadmin set stock values.
+        assignable_to=_GM_ONLY,
+    ),
+]
+
 # --- Feature access levels -------------------------------------------------------------------
 
 Level = Literal["off", "view", "record", "full"]
@@ -379,6 +405,29 @@ FEATURES: list[FeatureDef] = [
         ),
     ),
     FeatureDef(
+        code="inventory",
+        menu="workstation",
+        name_en="Inventory",
+        name_km="ស្តុក",
+        description_en=(
+            "Stock and wasted items, updated automatically by production, and their history."
+        ),
+        description_km="ស្តុក និងទំនិញខូចខាត ដែលធ្វើបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិពីផលិតកម្ម ព្រមទាំងប្រវត្តិ។",
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF),
+        levels=(("off", ()), ("view", ("inventory.view",))),
+    ),
+    FeatureDef(
+        code="inventory_adjust",
+        menu="workstation",
+        name_en="Set stock values",
+        name_km="កំណត់តម្លៃស្តុក",
+        description_en="Set an item's stock to a counted value, with a reason.",
+        description_km="កំណត់ស្តុករបស់ទំនិញទៅតាមចំនួនដែលបានរាប់ ដោយបញ្ជាក់មូលហេតុ។",
+        # General manager only: set by the superadmin on the GM's Access tab.
+        applies_to=(Role.GENERAL_MANAGER,),
+        levels=(("off", ()), ("full", ("inventory.adjust",))),
+    ),
+    FeatureDef(
         code="staff_management",
         menu="settings",
         name_en="Staff management",
@@ -431,7 +480,9 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
     )
     | _PARTNER_CODES
     | _PRODUCTION_CODES
-    | _PLAN_CODES,
+    | _PLAN_CODES
+    # Inventory View; setting stock values is Off until the superadmin allows it.
+    | {"inventory.view"},
     # Workstation features at full access, except the production plan (off: the GM decides who
     # plans). Staff: view them and set their access; adding or editing staff is the GM's call.
     Role.SUPERVISOR: _feature_defaults(
@@ -441,6 +492,7 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
             "customers": "full",
             "production": "full",
             "production_plan": "off",
+            "inventory": "view",
             "staff_management": "view",
             "staff_access": "full",
         },

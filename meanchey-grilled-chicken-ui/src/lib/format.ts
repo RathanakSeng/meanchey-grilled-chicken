@@ -27,6 +27,26 @@ export function useFormatDay() {
   )
 }
 
+/**
+ * "2 h ago" / "២ ម៉ោងមុន" for a past ISO time, from our own translations (`common.relative.*`):
+ * browsers often lack Khmer data for `Intl.RelativeTimeFormat`. Older than a week: the date.
+ */
+export function useRelativeTime() {
+  const { t } = useTranslation()
+  const formatDate = useFormatDate()
+  return useCallback(
+    (iso: string, now: number = Date.now()): string => {
+      const seconds = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000))
+      if (seconds < 60) return t('common.relative.justNow')
+      if (seconds < 3600) return t('common.relative.minutesAgo', { count: Math.round(seconds / 60) })
+      if (seconds < 86400) return t('common.relative.hoursAgo', { count: Math.round(seconds / 3600) })
+      if (seconds < 7 * 86400) return t('common.relative.daysAgo', { count: Math.round(seconds / 86400) })
+      return formatDate(iso, { dateStyle: 'medium' })
+    },
+    [t, formatDate],
+  )
+}
+
 /** Pick `name_km` / `name_en` (or any `<field>_km` / `<field>_en`) for the current language. */
 export function useLocalized() {
   const { i18n } = useTranslation()

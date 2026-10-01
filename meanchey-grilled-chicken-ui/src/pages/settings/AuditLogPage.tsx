@@ -7,7 +7,7 @@ import { Icon } from '@/components/icons'
 import { api } from '@/lib/api'
 import { paths } from '@/lib/paths'
 import { useErrorMessage } from '@/lib/errors'
-import { useFormatDate } from '@/lib/format'
+import { useFormatDate, useLocalized } from '@/lib/format'
 import { useAuth } from '@/auth/AuthProvider'
 import { isSuperadmin } from '@/lib/roles'
 import type { AuditEntityRef, AuditLog, Page, UserRef as UserRefData } from '@/lib/types'
@@ -40,6 +40,7 @@ const ACTIONS = [
   'production.cancel',
   'production_plan.update',
   'production_plan.confirm',
+  'inventory.adjust',
 ]
 // Superadmin settings (hidden from the GM by the API like everything the superadmin does).
 const SUPERADMIN_ACTIONS = ['settings.role_limit_update']
@@ -121,6 +122,32 @@ function FeatureChange({ details }: { details: Record<string, unknown> }) {
   )
 }
 
+/** "Chicken: 120 · 300 kg → 100 · 300 kg" and the reason, for an inventory.adjust entry. */
+function InventoryAdjust({ details }: { details: Record<string, unknown> }) {
+  const { t } = useTranslation()
+  const localized = useLocalized()
+  const value = (v: unknown) => {
+    const { count, kg } = (v ?? {}) as { count?: number | null; kg?: string | null }
+    return (
+      [
+        count !== null && count !== undefined && String(count),
+        kg !== null && kg !== undefined && t('inventory.kgValue', { value: Number(kg) }),
+      ]
+        .filter(Boolean)
+        .join(' · ') || '—'
+    )
+  }
+  const named = { name_en: String(details.name_en ?? details.item_code), name_km: String(details.name_km ?? '') }
+  return (
+    <span className="block text-sm text-stone-700">
+      {t('audit.inventoryAdjust', { item: localized(named), from: value(details.from), to: value(details.to) })}
+      {typeof details.reason === 'string' && (
+        <span className="block text-xs text-stone-500">{t('audit.cancelReason', { reason: details.reason })}</span>
+      )}
+    </span>
+  )
+}
+
 function Details({ log }: { log: AuditLog }) {
   const { t } = useTranslation()
   const d = log.details
@@ -152,6 +179,9 @@ function Details({ log }: { log: AuditLog }) {
         })}
       </span>
     )
+  }
+  if (log.action === 'inventory.adjust') {
+    return <InventoryAdjust details={d} />
   }
   if (log.action === 'production_plan.confirm') {
     return (

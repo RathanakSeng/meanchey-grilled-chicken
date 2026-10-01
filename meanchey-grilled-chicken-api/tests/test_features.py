@@ -88,6 +88,8 @@ def test_menus() -> None:
         "customers": "workstation",
         "production": "workstation",
         "production_plan": "workstation",
+        "inventory": "workstation",
+        "inventory_adjust": "workstation",
     }
 
 
@@ -161,7 +163,7 @@ async def test_gm_sees_staff_features_off_by_default(client, make_user) -> None:
     body = r.json()
     assert [m["menu"] for m in body["menus"]] == ["workstation"]
     features = body["menus"][0]["features"]
-    assert [f["code"] for f in features] == ["suppliers", "customers", "production"]
+    assert [f["code"] for f in features] == ["suppliers", "customers", "production", "inventory"]
     assert all(f["current_level"] == "off" and f["can_edit"] for f in features)
     assert features[0]["levels"] == [
         {"level": level, "allowed": True} for level in ("off", "view", "full")
@@ -176,7 +178,7 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
     menus = [(m["menu"], [f["code"] for f in m["features"]]) for m in r.json()["menus"]]
     # Workstation first, then settings.
     assert menus == [
-        ("workstation", ["suppliers", "customers", "production", "production_plan"]),
+        ("workstation", ["suppliers", "customers", "production", "production_plan", "inventory"]),
         ("settings", ["staff_management", "staff_access"]),
     ]
     levels = {code: f["current_level"] for code, f in (await _features(client, gm, sup)).items()}
@@ -184,6 +186,7 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
     # management View only; Staff access Full.
     assert levels.pop("production_plan") == "off"
     assert levels.pop("staff_management") == "view"
+    assert levels.pop("inventory") == "view"
     assert set(levels.values()) == {"full"}
 
 

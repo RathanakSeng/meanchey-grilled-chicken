@@ -19,6 +19,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -106,6 +107,11 @@ class ProductionBatch(Base):
     # The step being worked on (1–3); 3 once the batch is completed.
     current_step: Mapped[int] = mapped_column(SmallInteger, default=1, server_default=text("1"))
     cancel_reason: Mapped[str | None] = mapped_column(String(CANCEL_REASON_MAX_LENGTH))
+    # Inventory movements are written for this batch (finish / reopen / cancel). False for every
+    # batch created before inventory existed (migration 0010): inventory starts at zero.
+    inventory_tracked: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true")
+    )
     # Optimistic concurrency: every change increments it; writers send the version they saw.
     version: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
     created_by: Mapped[uuid.UUID | None] = _user_fk()

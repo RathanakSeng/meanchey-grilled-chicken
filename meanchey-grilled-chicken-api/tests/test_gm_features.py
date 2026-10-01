@@ -40,10 +40,24 @@ async def test_superadmin_sees_the_gm_at_full_access(client, superadmin, make_us
     r = await client.get(f"/users/{gm.id}/features", headers=auth(superadmin))
     menus = [(m["menu"], [f["code"] for f in m["features"]]) for m in r.json()["menus"]]
     assert menus == [
-        ("workstation", ["suppliers", "customers", "production", "production_plan"]),
+        (
+            "workstation",
+            [
+                "suppliers",
+                "customers",
+                "production",
+                "production_plan",
+                "inventory",
+                "inventory_adjust",
+            ],
+        ),
         ("settings", ["staff_management"]),  # Staff access is for supervisors only
     ]
     features = await _features(client, superadmin, gm)
+    # Full access everywhere, except Inventory (View only: it has no other level) and setting
+    # stock values (Off until the superadmin allows it).
+    assert features.pop("inventory")["current_level"] == "view"
+    assert features.pop("inventory_adjust")["current_level"] == "off"
     assert {f["current_level"] for f in features.values()} == {"full"}
     assert all(f["can_edit"] for f in features.values())
     assert [lv["level"] for lv in features["production"]["levels"]] == [
@@ -121,5 +135,6 @@ async def test_gm_still_manages_supervisors_and_staff(client, make_user) -> None
         "production_plan",
         "staff_management",
         "staff_access",
+        "inventory",
     }
     assert (await _set(client, gm, sup, "production", "record")).status_code == 200

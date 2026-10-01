@@ -43,6 +43,10 @@ const ProductionBatchPage = lazy(() =>
   })),
 )
 
+// Inventory: a lazy chunk for holders of inventory.view.
+const InventoryPage = lazy(() =>
+  import('@/pages/workstation/inventory/InventoryPage').then((m) => ({ default: m.InventoryPage })),
+)
 // Packaging plans: another lazy chunk, only for plan holders.
 const PlanListPage = lazy(() =>
   import('@/pages/workstation/production-plans/PlanListPage').then((m) => ({ default: m.PlanListPage })),
@@ -128,6 +132,16 @@ export const router = createBrowserRouter([
                     ),
                   },
                 ],
+              },
+              {
+                path: 'inventory',
+                element: (
+                  <RequireAccess permission="inventory.view">
+                    <PageLoading>
+                      <InventoryPage />
+                    </PageLoading>
+                  </RequireAccess>
+                ),
               },
               {
                 path: 'production-plans',

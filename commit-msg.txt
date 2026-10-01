@@ -1,13 +1,26 @@
-<ADD, UPDATE><BOTH><STAFF-ACCESS>: supervisors set staff access (capped by their own), staff management View / Record / Full, supervisors default to View only
+<ADD, UPDATE, FIX><BOTH><INVENTORY>: inventory ledger under Workstation, stock moved automatically by production finish / reopen / cancel, adjustments, card grid with sub-tabs
 
-- API: users.manage_access + staff_access feature (supervisor only); staff_management record level;
-  supervisor defaults Staff management View, Staff access Full; features endpoints accept
-  permissions.grant or users.manage_access, supervisor cap (PERMISSION_NOT_HELD {feature, level}),
-  levels as {level, allowed}; can_manage_features covers both; GM defaults exclude manage_access;
-  creators with permissions.grant give manage_access; migration 0009 moves supervisors at Full
-  staff management to View only (feature.set, source default_change, System)
-- UI: Access tab disables levels above the supervisor's own ("Higher than your own access"),
-  Staff access row, Staff management / Staff access legend lines, per-segment disabled state in
-  SegmentedControl, "New default for supervisors" in the audit log, km/en texts
-- Tests: test_staff_access, test_migration_staff_defaults; existing tests updated for new defaults
-- Docs: API FEATURES §4/§5/§6/§9/§10/§12, ARCHITECTURE §6/§12/§15; UI FEATURES §8–§10/§15, ARCHITECTURE §8/§13/§16
+- API: inventory.view / inventory.adjust (GM only) + features inventory / inventory_adjust (defaults:
+  GM and supervisor View, adjust Off; backfill view to active GMs and supervisors); item catalog
+  (stock / wasted, by-product items generated from the production catalog); migration 0010
+  (inventory_balances, append-only inventory_movements with unique reversal_of,
+  production_batches.inventory_tracked false for existing batches)
+- API: apply_movements locks balances FOR UPDATE in item_code order, no negative balances
+  (409 INVENTORY_INSUFFICIENT with item names); Finish writes step movements (estimated waste kg),
+  reopen reverses later steps latest first, cancel reverses all; set-value adjustments with reason
+  and inventory.adjust audit; GET /inventory, GET /inventory/movements (filters, paging),
+  POST /inventory/items/{item_code}/set; batch detail adds inventory_tracked + stock_changes
+- UI: Workstation → Inventory (lazy): Stock tab with Raw / Processed / Packed / Wasted pill sub-tabs
+  (stock badges, ?section= in the URL), product-style item cards (original SVG pictures, short
+  names, big number + kg, ≈ estimated, dimmed zeros, Set only with inventory.adjust), item sheet
+  with the last 20 movements; History tab with filters (item, area, type, dates, batch code);
+  Set value sheet with difference and required reason
+- UI: batch page Stock changes card, INVENTORY_INSUFFICIENT per item, audit label, relative
+  "Updated …" from translations, kg always 3 decimals, km/en texts
+- Fix: History section filter uses its own URL param (area) so it no longer clashes with the
+  Stock sub-tab
+- Tests: test_inventory, test_migration_inventory; sweeps, defaults, features and by-product
+  balance tests updated
+- Docs: API FEATURES §18 Inventory + §5/§6/§9/§10/§12/§14, ARCHITECTURE data model and design
+  rows; UI FEATURES §6.5 + access matrix, ARCHITECTURE (routes, query keys, card, pictures,
+  sub-tab URL param)

@@ -19,6 +19,7 @@ from app.models import Role, RoleLimit, User
 from app.models.role_limit import DEFAULT_ROLE_LIMITS
 from app.permissions.registry import validate_features
 from app.permissions.sync import backfill_defaults, sync_registry
+from app.services.inventory_service import ensure_balances
 
 if TYPE_CHECKING:
     from app.bot.runtime import TelegramRuntime
@@ -79,6 +80,8 @@ async def bootstrap(session: AsyncSession, telegram: "TelegramRuntime | None" = 
     await backfill_defaults(session, new_codes)
     await seed_superadmin(session)
     await seed_role_limits(session)
+    # A zero balance for every inventory item (a new by-product gets its rows here).
+    await ensure_balances(session)
     if settings.webhook_enabled and settings.telegram_webhook_auto_set:
         await register_webhook(session, telegram)
     await session.commit()

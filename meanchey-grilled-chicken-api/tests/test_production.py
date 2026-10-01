@@ -602,12 +602,27 @@ async def test_piece_balance_is_enforced(api, supplier, overrides, wings, thighs
 
 
 async def test_byproduct_balance_is_not_enforced_by_the_api(api, supplier) -> None:
-    """carry + rejected ≠ produced is a UI-only rule (documented); the API accepts it."""
+    """carry + rejected ≠ produced is a UI-only rule (documented); the API accepts it, as long
+    as the processed stock (inventory, all batches) covers what step 3 assigns."""
+    # Less than produced: the remainder stays in the processed stock.
     body = standardize_body()
-    body["byproducts"]["liver"] = {"carry_kg": "9", "rejected_kg": "0"}  # produced 0.5
+    body["byproducts"]["liver"] = {"carry_kg": "0.1", "rejected_kg": "0"}  # produced 0.5
     batch = await api.step2(supplier)
     batch = ok(await api.patch(batch, "standardize", **body))
     assert ok(await api.finish(batch, "standardize"))["status"] == "completed"
+
+    # More than this batch produced, covered by the 0.4 kg left over: still accepted.
+    body["byproducts"]["liver"] = {"carry_kg": "0.9", "rejected_kg": "0"}
+    batch = await api.step2(supplier)
+    batch = ok(await api.patch(batch, "standardize", **body))
+    assert ok(await api.finish(batch, "standardize"))["status"] == "completed"
+
+    # More than the whole processed stock: refused by inventory, nothing changed.
+    body["byproducts"]["liver"] = {"carry_kg": "9", "rejected_kg": "0"}
+    batch = await api.step2(supplier)
+    batch = ok(await api.patch(batch, "standardize", **body))
+    assert_error(await api.finish(batch, "standardize"), 409, "INVENTORY_INSUFFICIENT")
+    assert (await api.get(batch))["status"] == "in_progress"
 
 
 async def test_finish_step_3_requires_every_field(api, supplier) -> None:

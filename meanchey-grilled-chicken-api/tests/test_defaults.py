@@ -40,7 +40,7 @@ async def _perms_of(client, superadmin, user_id) -> set[str]:
 async def test_gm_gets_all_phase1_partner_and_production_permissions(client, superadmin) -> None:
     gm = await _create(client, superadmin, "general_manager", "default_gm")
     assert await _perms_of(client, superadmin, gm["id"]) == (
-        ALL_PHASE1 | PARTNERS | PRODUCTION | PLAN
+        ALL_PHASE1 | PARTNERS | PRODUCTION | PLAN | {"inventory.view"}  # not inventory.adjust
     )
 
 
@@ -56,6 +56,7 @@ async def test_supervisor_defaults(client, superadmin, make_user) -> None:
         *PARTNERS,
         *(PRODUCTION - {"production.delete"}),  # cancelling batches is GM-only
         # No production plan: Off by default, the GM decides who plans and gets the alerts.
+        "inventory.view",
     }
 
 

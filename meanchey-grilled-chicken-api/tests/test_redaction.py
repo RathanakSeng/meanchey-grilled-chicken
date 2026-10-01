@@ -95,6 +95,14 @@ async def world(client, session, superadmin, make_user) -> dict:
         "/settings/role-limits/staff", json={"max_active": 12}, headers=auth(superadmin)
     )
     assert r.status_code == 200, r.text
+    # A stock value the superadmin set (inventory.adjust; its step 1 finish above also wrote
+    # production movements with created_by = the superadmin).
+    r = await client.post(
+        "/inventory/items/packs_big/set",
+        json={"count": 4, "reason": "Opening stock"},
+        headers=auth(superadmin),
+    )
+    assert r.status_code == 200, r.text
     # Superadmin-targeted audit entries (its own sign-in, a failed one).
     await client.post("/auth/login", json={"username": "superadmin", "password": "wrong"})
     await client.post("/auth/login", json={"username": "superadmin", "password": "superadmin"})
@@ -164,6 +172,9 @@ EXTRA_QUERIES = [
     "/production-plans?status=all",
     "/production?waiting_step=3",
     "/notifications?unread_only=true",
+    "/inventory/movements?source=adjustment",
+    "/inventory/movements?batch_code=PR",
+    "/audit-logs?action=inventory.adjust",
 ]
 
 

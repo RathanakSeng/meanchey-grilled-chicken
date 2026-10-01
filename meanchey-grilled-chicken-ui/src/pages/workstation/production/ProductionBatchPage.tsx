@@ -24,6 +24,7 @@ import {
 } from './api'
 import { BatchStatusBadge } from './badges'
 import { PlanCard, WaitingForPlan } from './PlanCard'
+import { StockChangesCard } from './StockChangesCard'
 import { ProducedForm, RawMaterialForm, StandardizeForm } from './StepForms'
 import { StepSummary } from './StepSummaries'
 
@@ -316,6 +317,7 @@ export function ProductionBatchPage() {
       ) : (
         <StepSummary batch={batch} step={selected} />
       )}
+      <StockChangesCard batch={batch} />
 
       <ConfirmDialog
         open={reopenStep !== null}

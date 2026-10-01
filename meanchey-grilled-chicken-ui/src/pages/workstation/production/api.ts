@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { API_BASE_URL } from '@/lib/api'
 import { tokenStore } from '@/lib/storage'
 import type { ProductionBatch, StepNumber, StepSlug } from '@/lib/types'
+import { invalidateInventory } from '@/pages/workstation/inventory/api'
 import { invalidatePlans } from '@/pages/workstation/production-plans/api'
 
 /** Query keys (see docs/ARCHITECTURE.md). */
@@ -69,6 +70,8 @@ export function onBatchChanged(queryClient: QueryClient, batch: ProductionBatch)
   void queryClient.invalidateQueries({ queryKey: productionKeys.stats })
   // Finishing / reopening steps creates or resets the packaging plan.
   invalidatePlans(queryClient, batch.id)
+  // Finish, reopen and cancel move stock.
+  invalidateInventory(queryClient)
 }
 
 /** Step 3 can be saved and finished only once the packaging plan is confirmed. */

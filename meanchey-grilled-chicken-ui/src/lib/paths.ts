@@ -9,6 +9,7 @@ export const paths = {
     `/workstation/production/${id}${step ? `?step=${step}` : ''}`,
   productionPlans: '/workstation/production-plans',
   productionPlan: (batchId: string) => `/workstation/production-plans/${batchId}`,
+  inventory: '/workstation/inventory',
   settings: '/settings',
   users: '/settings/users',
   newUser: '/settings/users/new',

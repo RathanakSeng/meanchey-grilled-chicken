@@ -287,6 +287,10 @@ export interface ProductionBatch {
   byproducts: BatchByproduct[]
   computed: { wings_count: number; thighs_count: number; yield_percent: string | null }
   catalog: { byproducts: ByproductCatalogItem[]; material_kinds: MaterialKind[] }
+  /** False for batches created before inventory existed: they never move stock. */
+  inventory_tracked: boolean
+  /** Net stock changes of the finished steps (reversed ones left out). */
+  stock_changes: StockChange[]
 }
 
 export interface ProductionBatchListItem {
@@ -424,3 +428,59 @@ export interface RoleCapacity {
 
 /** Same range as the API. */
 export const ROLE_LIMIT_MAX = 999
+
+// --- Inventory --------------------------------------------------------------------------------
+
+export type InventorySection = 'stock' | 'wasted'
+export type InventoryGroup = 'raw' | 'processed' | 'packed' | 'wasted'
+export type MovementSource = 'production' | 'adjustment'
+
+/** An item and its balance. `count` / `kg` are null for a unit the item doesn't track. */
+export interface InventoryItem extends Localized {
+  code: string
+  section: InventorySection
+  group: InventoryGroup
+  tracks_count: boolean
+  tracks_kg: boolean
+  /** Its kg is estimated from the batch's average piece weight (wasted pieces). */
+  kg_estimated: boolean
+  count: number | null
+  kg: string | null
+  /** Time of the latest movement; null if it never changed. */
+  updated_at: string | null
+}
+
+export interface InventoryOverview {
+  sections: { section: InventorySection; items: InventoryItem[] }[]
+}
+
+export interface InventoryMovement extends Localized {
+  id: number
+  item_code: string
+  section: InventorySection | null
+  count_delta: number | null
+  kg_delta: string | null
+  kg_estimated: boolean
+  source: MovementSource
+  batch: { id: string; code: string } | null
+  step: StepNumber | null
+  /** Set on a reversal: the movement it undoes (`reason` is then "reopen" or "cancel"). */
+  reversal_of: number | null
+  reason: string | null
+  balance_count_after: number | null
+  balance_kg_after: string | null
+  created_by: UserRef | null
+  created_at: string
+}
+
+export interface StockChange extends Localized {
+  step: StepNumber
+  item_code: string
+  section: InventorySection | null
+  count_delta: number | null
+  kg_delta: string | null
+  kg_estimated: boolean
+}
+
+/** Same limit as the API. */
+export const INVENTORY_REASON_MAX_LENGTH = 500

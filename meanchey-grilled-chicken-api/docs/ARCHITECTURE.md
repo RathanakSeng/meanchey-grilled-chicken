@@ -82,10 +82,12 @@ app/
 │   └── phones.py        # phone normalization (storage) + formatting (phone_display)
 ├── models/              # SQLAlchemy ORM (User, Permission, UserPermission, RefreshToken, AuditLog, BotPref, AppSetting,
 │                        #   Supplier + Customer via PartnerMixin, production batches + steps + plan,
-│                        #   Notification, TelegramLinkToken)
+│                        #   Notification, TelegramLinkToken, InventoryBalance, InventoryMovement)
 ├── schemas/             # Pydantic request/response models; common.UserRef = the only user-reference shape
 ├── production/
 │   └── catalog.py       # by-products and raw material kinds (code catalogs, no migration to extend)
+├── inventory/
+│   └── catalog.py       # inventory items (stock / wasted), by-product items generated from production
 ├── permissions/
 │   ├── registry.py      # PERMISSIONS, MODULES, FEATURES, DEFAULT_PERMISSIONS  ← feature authors edit this
 │   ├── features.py      # feature access levels: current level, matrix, set_level (diff + feature.set audit)
@@ -101,11 +103,12 @@ app/
 │   ├── notification_service.py # alert recipients, rows in the Finish transaction, the bell
 │   ├── telegram_link_service.py # superadmin one-time Telegram link (create, consume, unlink)
 │   ├── role_limit_service.py # role limits: ensure_slot (row lock + count), settings, capacity
+│   ├── inventory_service.py # ledger: apply_movements (locks, no-negative), production hooks, adjustments
 │   ├── audit_service.py # record() + listing (viewer-aware filters)
 │   └── redaction.py     # hides the superadmin from other viewers: viewer context, hides(), middleware
 ├── api/                 # thin routers: auth, me, users, permissions (superadmin), features, audit,
 │                        #   partners (build_router(kind) → /suppliers, /customers), production,
-│                        #   production_plans, notifications, settings (role limits)
+│                        #   production_plans, notifications, settings (role limits), inventory
 └── bot/
     ├── setup.py         # create_bot(), create_dispatcher(): the one place handlers are registered
     ├── handlers.py      # /start (incl. /start link_<token>), /lang (create_router())
@@ -199,6 +202,10 @@ erDiagram
     production_batches ||..o{ notifications : "entity (no FK)"
     users ||--o{ telegram_link_tokens : "one-time link"
     users ||--o{ role_limits : "updated_by"
+    production_batches ||--o{ inventory_movements : "batch_id (SET NULL)"
+    inventory_movements ||--o| inventory_movements : "reversal_of (unique)"
+    users ||--o{ inventory_movements : "created_by"
+    inventory_balances ||..o{ inventory_movements : "item_code (no FK)"
 
     users {
         uuid id PK
@@ -289,6 +296,7 @@ erDiagram
         smallint current_step "1-3"
         varchar500 cancel_reason
         int version "optimistic concurrency"
+        bool inventory_tracked "false for batches before migration 0010"
         uuid created_by FK
         uuid updated_by FK
         uuid cancelled_by FK
@@ -365,6 +373,28 @@ erDiagram
         text telegram_error
         timestamptz sent_at
     }
+    inventory_balances {
+        varchar64 item_code PK "inventory/catalog.py"
+        int count "null if not tracked, >= 0"
+        numeric12_3 kg "null if not tracked, >= 0"
+        timestamptz updated_at
+    }
+    inventory_movements {
+        bigint id PK
+        varchar64 item_code
+        int count_delta
+        numeric12_3 kg_delta
+        bool kg_estimated
+        varchar source "production | adjustment"
+        uuid batch_id FK
+        smallint step "1-3"
+        bigint reversal_of FK "unique"
+        text reason "adjustment reason | reopen | cancel"
+        int balance_count_after
+        numeric12_3 balance_kg_after
+        uuid created_by FK
+        timestamptz created_at
+    }
     role_limits {
         varchar32 role PK "general_manager | supervisor | staff"
         int max_active "null = unlimited (not for GM), 1-999"
@@ -391,6 +421,7 @@ erDiagram
   - `GET /users/positions` returns the distinct values for suggestions (case-insensitive grouping, most used spelling).
 - **Partial unique indexes** enforce the business invariants. See FEATURES §3.
 - **Role limits** (`role_limits`, migration `0008`): one row per limited role, seeded 2 / 3 / 10 (bootstrap inserts any missing row, never overwrites). CHECKs keep `max_active` null or 1–999 and never null for the general manager. The migration dropped `uq_users_single_active_gm`; `services/role_limit_service.ensure_slot` locks the role's row (`FOR UPDATE`) and counts active users inside the create / reactivate / role-change transaction, so concurrent requests for the last slot are serialized.
+- **Inventory** (migration `0010`): `inventory_balances` (one row per catalog item, created at startup and on demand; CHECK `count >= 0`, `kg >= 0`) and `inventory_movements` (append-only ledger; indexes on (`item_code`, `created_at`) and `batch_id`; unique partial index on `reversal_of`, so a movement is reversed at most once). `production_batches.inventory_tracked` was added as false for every existing batch, then defaults to true. Item codes have no FK: the catalog lives in code (`app/inventory/catalog.py`), like permissions and by-products.
 - **Uniqueness only counts active users,** so a deactivated user's username can be reused.
 - **`permissions` rows are never deleted.** Removing a permission from the registry flips `is_active`.
 - **`suppliers` / `customers`** share their columns and indexes through `PartnerMixin` (`models/partner.py`), migration `0004`:
@@ -705,7 +736,7 @@ Settings are read at import time by `app.db` to build the engine. Tests therefor
 | Engine | `DB_NULL_POOL=true` avoids connection reuse across pytest-asyncio event loops. |
 | HTTP | `httpx.AsyncClient` over `ASGITransport(app)`: in-process, no server. |
 | Auth in tests | `auth(user)` mints an access token directly. Login flows have their own tests. |
-| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation; default backfill, `grantable_by` and `reason`; suppliers/customers CRUD, validation, phone rules, duplicates, search/sort/paging, stats month boundary, audit entities (parametrized over both lists); feature levels (mapping, diffs, check order, defaults, startup validation); detailed permissions superadmin-only; **superadmin invisibility sweep** over every GET route from the OpenAPI schema plus key mutations, as GM / supervisor / staff; **superadmin ⊇ GM sweep** (`test_superadmin_superset.py`): every route and method in the schema is called as the GM and, wherever the GM isn't refused with 403, as the superadmin, which must not get 403 either (placeholders filled with targets both manage; empty bodies unless a valid one is needed to reach a service-level check; both accounts reset between calls); production steps, drafts, versions, reopen (cascading), cancel (GM only), codes under concurrency, stats; GM feature levels set by the superadmin; packaging plan (feature and backfill, lifecycle through reopen sequences, pieces rule, confirm, lock, versions, cancelled, legacy batches, audit, list and detail) and the step 3 gate and comment rule; notifications (recipients by permission, rows only with a successful Finish, Telegram per language with the web_app button, `not_linked` / `bot_off` / `failed`, polling-mode bot, repeat after reopen, resend, own-only bell, "System" actor); superadmin Telegram link (hashed single-use token, expiry, id taken, unlink, role guard); role limits (defaults, create / reactivate / role change at the limit per role and actor, freed slots, unlimited, range, lowering below the count, superadmin-only settings and hidden audit, capacity per viewer, two GMs out of each other's scope and both alerted) including **concurrent creates for the last slot** (several requests at once, each with its own session: exactly one succeeds; the test fails without the row lock); supervisors setting staff access (scope, cap, `allowed`, no cascade, Staff access Off) and View / Record / Full staff management; migrations `0006`, `0007`, `0008` and `0009` (idempotent). |
+| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation; default backfill, `grantable_by` and `reason`; suppliers/customers CRUD, validation, phone rules, duplicates, search/sort/paging, stats month boundary, audit entities (parametrized over both lists); feature levels (mapping, diffs, check order, defaults, startup validation); detailed permissions superadmin-only; **superadmin invisibility sweep** over every GET route from the OpenAPI schema plus key mutations, as GM / supervisor / staff; **superadmin ⊇ GM sweep** (`test_superadmin_superset.py`): every route and method in the schema is called as the GM and, wherever the GM isn't refused with 403, as the superadmin, which must not get 403 either (placeholders filled with targets both manage; empty bodies unless a valid one is needed to reach a service-level check; both accounts reset between calls); production steps, drafts, versions, reopen (cascading), cancel (GM only), codes under concurrency, stats; GM feature levels set by the superadmin; packaging plan (feature and backfill, lifecycle through reopen sequences, pieces rule, confirm, lock, versions, cancelled, legacy batches, audit, list and detail) and the step 3 gate and comment rule; notifications (recipients by permission, rows only with a successful Finish, Telegram per language with the web_app button, `not_linked` / `bot_off` / `failed`, polling-mode bot, repeat after reopen, resend, own-only bell, "System" actor); superadmin Telegram link (hashed single-use token, expiry, id taken, unlink, role guard); role limits (defaults, create / reactivate / role change at the limit per role and actor, freed slots, unlimited, range, lowering below the count, superadmin-only settings and hidden audit, capacity per viewer, two GMs out of each other's scope and both alerted) including **concurrent creates for the last slot** (several requests at once, each with its own session: exactly one succeeds; the test fails without the row lock); supervisors setting staff access (scope, cap, `allowed`, no cascade, Staff access Off) and View / Record / Full staff management; migrations `0006`, `0007`, `0008`, `0009` (idempotent) and `0010`; inventory (movements per Finish incl. estimated waste kg and the by-product split, two batches, reopen cascades latest first, re-finish, cancel, no double reversal, negative guard on Finish / reopen / cancel with nothing changed, untracked batches, adjustments and validation, access and backfill, history filters, concurrent Finishes on the same items). |
 | Telegram | Never contacted. Alert tests put a runtime with a `RecordingSession` bot on `app.state` (webhook mode) or replace `notify.bot_factory` (polling); background tasks finish before the in-process request returns, so assertions see the final `telegram_status`. `tests/telegram_fakes.RecordingSession` is an aiogram `BaseSession` that records Bot API calls (`SendMessage`, `SetWebhook`, …) and returns canned responses, or simulates an outage. `BOT_MODE=off` by default; webhook tests put their own `TelegramRuntime` on `app.state`. |
 
 Run:
@@ -760,6 +791,8 @@ To add a business feature, for example `orders`:
 A third list with the same fields needs a model class, a `PartnerKind`, a router mount, the registry entries, a migration and translations.
 5. **UI:** route guard, menu entry, `<Can>`, translations. See the UI's ARCHITECTURE.md.
 
+**Inventory items** follow the production catalog: a new by-product gets its processed / packed / wasted items in `app/inventory/catalog.py` automatically (balance rows are created at the next start or on demand). Another kind of stock item is an `ItemDef` there, plus movements in `inventory_service.step_deltas`.
+
 **Adding a by-product or a raw material kind** (production): add a `ByproductDef` (code, names, unit, order) or a `MaterialKindDef` (code, names, wings / thighs per unit) to `app/production/catalog.py`. No migration: by-product rows are keyed by `item_code` and created on demand, and every batch response carries the catalog, so the UI shows the new row automatically (add a `production.materialKinds.<code>` label in the UI locales if you want a translated kind name). Existing finished batches simply have no row for the new item; the new item becomes required at the next Finish of step 2 / step 3.
 
 **Adding a feature level:** levels are the fixed ordered list `LEVELS` in `registry.py`; a feature lists the ones it uses (e.g. production uses `record`). A new level name needs an entry in `LEVELS`, in the UI's `FeatureLevel` type and `access.levels.<name>` translations.
@@ -801,6 +834,9 @@ A third list with the same fields needs a model class, a `PartnerKind`, a router
 | Production as a batch with one row per step | The three steps have different fields, owners and lifecycles (draft / finished, reopen). One table per step keeps each typed and constrained, a missing row means "not started", and a batch loads with all steps at once. |
 | Server-side drafts with a batch `version` | Autosave needs the half-filled form on the server (the Mini App may be closed any time, work continues on another device). Optimistic versioning (`409 PRODUCTION_CONFLICT` with the current batch) is simpler than locking a batch to one user and still prevents silent overwrites; the row lock (`FOR UPDATE`) serializes concurrent writes. |
 | Piece counts computed by the server | `wings_count` / `thighs_count` follow from the chicken count; accepting them from clients would let the balance check be bypassed. |
+| Inventory as a ledger with balances | An append-only movement per change (with the balance after it) gives a full history and lets reopen / cancel undo exactly what a step did, as new reversing movements instead of edits. A balance row per item makes reads cheap and is the lock point: `apply_movements` locks the rows in `item_code` order (the batch row is always locked first), checks nothing goes below zero and writes in the caller's transaction, so a refused change rolls back the whole action. |
+| Old batches not tracked | Batches finished before inventory existed never added stock, so reversing them on reopen or cancel would remove stock that isn't there (or go negative). `inventory_tracked = false` for them (migration) keeps inventory starting at zero and consistent; the opening stock is set with adjustments. |
+| Estimated waste kg | Rejected wings and thighs are counted, not weighed. Their kg is estimated as rejected count × the batch's average piece weight (step 2 kg ÷ count), marked `kg_estimated` so the UI shows "≈"; an adjustment can still set a weighed value. |
 | By-product kg balance enforced by the UI only (for now) | Weights are measured on a scale and may legitimately not add up exactly; the business may relax the rule. Keeping it out of the API means that change is UI-only; a test documents that the API accepts it. |
 | Batch code from a per-day counter row | Readable, gap-free per day and race-safe (`ON CONFLICT … RETURNING`), without a sequence per day. |
 | Always `200` once the secret is valid | Telegram retries non-2xx responses, so a failing handler would otherwise replay the same update in a loop. Failures are logged instead. |
