@@ -197,7 +197,7 @@
       "production_plan": "Production plan",
       "staff_access": "Staff access",
       "inventory": "Inventory",
-      "inventory_adjust": "Set stock values"
+      "inventory_history": "Inventory history"
     },
     "legendRecord": "Record: can start batches and fill in steps, but can't reopen finished steps.",
     "gmHint": "Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced).",
@@ -442,7 +442,8 @@
     "ROLE_LIMIT_REACHED": "The {{roleName}} limit ({{limit}}) is reached.",
     "INVENTORY_INSUFFICIENT": "{{items}}",
     "INVENTORY_ITEM_NOT_FOUND": "This inventory item doesn't exist.",
-    "inventoryShortItem": "Not enough {{name}} in stock: {{available}} available, {{needed}} needed."
+    "inventoryShortItem": "Not enough {{name}} in stock: {{available}} available, {{needed}} needed.",
+    "INVENTORY_ITEM_PRODUCTION_ONLY": "This item changes only through production."
   },
   "permissions": {
     "readOnlyNotice": "You can view these permissions, but you can't change them here.",
@@ -753,16 +754,6 @@
     "estimatedHint": "Estimated from the batch's average weight",
     "neverChanged": "No changes yet",
     "empty": "Stock starts at zero. It updates automatically as production steps are finished.",
-    "setValue": "Set value",
-    "setValueTitle": "Set value: {{item}}",
-    "setValueBody": "Enter the counted stock. The difference is recorded as an adjustment with your reason.",
-    "current": "Current",
-    "newCount": "New count",
-    "newKg": "New weight (kg)",
-    "difference": "Difference",
-    "noDifference": "no change",
-    "reason": "Reason",
-    "reasonHint": "Required, e.g. \"Opening stock\" or \"Recount\".",
     "filters": {
       "item": "Item",
       "section": "Section",
@@ -797,12 +788,14 @@
       "packs_big": "4-Piece Packs",
       "packs_small": "2-Piece Packs"
     },
-    "set": "Set",
     "updatedAgo": "Updated {{time}}",
     "cardLabel": "{{name}}: {{amount}}",
     "recentMovements": "Recent changes",
     "seeFullHistory": "See full history",
     "inStockCount": "{{count}} in stock",
-    "emptySection": "No items here yet."
+    "emptySection": "No items here yet.",
+    "fromProduction": "From production",
+    "total": "Total",
+    "noProductionStock": "No stock from production right now."
   }
 }

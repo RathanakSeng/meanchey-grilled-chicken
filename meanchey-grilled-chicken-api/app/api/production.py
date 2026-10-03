@@ -95,12 +95,12 @@ async def supplier_options(
 @router.post("", response_model=BatchOut, status_code=status.HTTP_201_CREATED)
 async def create_batch(body: ProductionCreate, actor: CanRecord, session: SessionDep) -> BatchOut:
     batch = await svc.create_batch(session, actor, body)
-    return await svc.batch_out(session, batch)
+    return await svc.batch_out(session, batch, actor)
 
 
 @router.get("/{batch_id}", response_model=BatchOut)
-async def get_batch(batch_id: uuid.UUID, _: CanView, session: SessionDep) -> BatchOut:
-    return await svc.batch_out(session, await svc.get_batch(session, batch_id))
+async def get_batch(batch_id: uuid.UUID, actor: CanView, session: SessionDep) -> BatchOut:
+    return await svc.batch_out(session, await svc.get_batch(session, batch_id), actor)
 
 
 @router.patch("/{batch_id}/raw-material", response_model=BatchOut)
@@ -109,7 +109,7 @@ async def save_raw_material(
 ) -> BatchOut:
     """Draft save of step 1. Partial body; `version` is required."""
     batch = await svc.save_raw_material(session, actor, batch_id, body, body.version)
-    return await svc.batch_out(session, batch)
+    return await svc.batch_out(session, batch, actor)
 
 
 @router.patch("/{batch_id}/produced", response_model=BatchOut)
@@ -117,7 +117,9 @@ async def save_produced(
     batch_id: uuid.UUID, body: ProducedDraft, actor: CanRecord, session: SessionDep
 ) -> BatchOut:
     """Draft save of step 2 (step 1 must be finished). Piece counts are computed, not sent."""
-    return await svc.batch_out(session, await svc.save_produced(session, actor, batch_id, body))
+    return await svc.batch_out(
+        session, await svc.save_produced(session, actor, batch_id, body), actor
+    )
 
 
 @router.patch("/{batch_id}/standardize", response_model=BatchOut)
@@ -125,7 +127,9 @@ async def save_standardize(
     batch_id: uuid.UUID, body: StandardizeDraft, actor: CanRecord, session: SessionDep
 ) -> BatchOut:
     """Draft save of step 3 (step 2 must be finished)."""
-    return await svc.batch_out(session, await svc.save_standardize(session, actor, batch_id, body))
+    return await svc.batch_out(
+        session, await svc.save_standardize(session, actor, batch_id, body), actor
+    )
 
 
 @router.post("/{batch_id}/{step}/finish", response_model=BatchOut)
@@ -151,7 +155,7 @@ async def finish_step(
     ids = notification_service.take_queued(session)
     if ids:
         background.add_task(deliver, ids, request.app.state.telegram)
-    return await svc.batch_out(session, batch)
+    return await svc.batch_out(session, batch, actor)
 
 
 @router.post("/{batch_id}/{step}/reopen", response_model=BatchOut)
@@ -161,7 +165,7 @@ async def reopen_step(
     """Reopen a finished step: it and every later finished step go back to draft (values kept),
     `current_step` becomes this step and a completed batch is in progress again."""
     batch = await svc.reopen_step(session, actor, batch_id, svc.STEP_NUMBERS[step], body.version)
-    return await svc.batch_out(session, batch)
+    return await svc.batch_out(session, batch, actor)
 
 
 @router.post("/{batch_id}/cancel", response_model=BatchOut)
@@ -169,4 +173,4 @@ async def cancel_batch(
     batch_id: uuid.UUID, body: CancelIn, actor: CanCancel, session: SessionDep
 ) -> BatchOut:
     batch = await svc.cancel_batch(session, actor, batch_id, body.reason, body.version)
-    return await svc.batch_out(session, batch)
+    return await svc.batch_out(session, batch, actor)

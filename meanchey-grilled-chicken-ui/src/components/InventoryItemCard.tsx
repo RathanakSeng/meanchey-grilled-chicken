@@ -43,7 +43,7 @@ const BADGE_TONES: Record<ItemCardBadgeTone, string> = {
  * One inventory item as a product-style card: picture, optional corner badge, name (2 lines),
  * a big number, an optional second line (e.g. the kg of a counted item), the last change and an
  * optional full-width action. The whole card (except the action) is a button that opens the
- * item; without an action a spacer keeps every card in a row the same height.
+ * item. Cards in a grid row share one height (`h-full`).
  */
 export function InventoryItemCard({
   picture,
@@ -115,7 +115,7 @@ export function InventoryItemCard({
         </span>
         <span className="mt-auto pt-1 text-[11px] text-stone-400">{updated}</span>
       </button>
-      <div className="px-3 pb-3">{action ?? <span className="block h-9" aria-hidden />}</div>
+      {action && <div className="px-3 pb-3">{action}</div>}
     </div>
   )
 }
@@ -128,7 +128,6 @@ export function InventoryCardSkeleton() {
       <span className="mt-3 h-4 w-20 rounded bg-stone-100" />
       <span className="mt-2 h-7 w-12 rounded bg-stone-200" />
       <span className="mt-2 h-3 w-16 rounded bg-stone-100" />
-      <span className="mt-3 h-9 w-full rounded-lg bg-stone-100" />
     </div>
   )
 }

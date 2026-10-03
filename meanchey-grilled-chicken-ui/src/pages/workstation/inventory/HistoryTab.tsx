@@ -17,7 +17,8 @@ const FILTERS = ['item', 'area', 'source', 'from', 'to', 'batch'] as const
 
 /**
  * Movements, newest first. Filters (kept in the URL with `tab=history`): item, section (`area`), type
- * (production / adjustment), date range (business days) and part of a batch code.
+ * (production; manual items would add adjustments), date range (business days) and part of a
+ * batch code.
  */
 export function HistoryTab({ items }: { items: InventoryItem[] }) {
   const { t } = useTranslation()
@@ -95,7 +96,6 @@ export function HistoryTab({ items }: { items: InventoryItem[] }) {
             <Select id={id} value={get('source')} onChange={(e) => update({ source: e.target.value })}>
               <option value="">{t('inventory.filters.all')}</option>
               <option value="production">{t('inventory.sources.production')}</option>
-              <option value="adjustment">{t('inventory.sources.adjustment')}</option>
             </Select>
           )}
         </Field>

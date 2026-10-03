@@ -83,6 +83,20 @@ async def list_audit_logs(
             or_(AuditLog.target_user_id.is_(None), AuditLog.target_user_id.not_in(hidden_ids)),
             AuditLog.action.not_in(PERMISSION_ACTIONS),
         ]
+        # Features the viewer doesn't hold and may not grant (`grantor_must_hold`): their level
+        # changes would reveal them.
+        # Imported here: permissions.features records its own audit entries through this module.
+        from app.permissions.features import hidden_features
+        from app.permissions.service import effective_permissions
+
+        hidden = hidden_features(await effective_permissions(session, viewer))
+        if hidden:
+            conditions.append(
+                or_(
+                    AuditLog.action != "feature.set",
+                    AuditLog.details["feature"].astext.not_in(hidden),
+                )
+            )
 
     total = await session.scalar(select(func.count(AuditLog.id)).where(*conditions)) or 0
     rows = (

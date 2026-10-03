@@ -1,4 +1,5 @@
-"""Inventory: balances, the movement history and adjustments (services/inventory_service.py)."""
+"""Inventory: balances, per-batch breakdown, the movement history (inventory.history) and
+adjustments (manual items only; services/inventory_service.py)."""
 
 import uuid
 from datetime import date
@@ -10,6 +11,7 @@ from app.deps import SessionDep, require_permission
 from app.inventory.catalog import Section
 from app.models import User
 from app.schemas.inventory import (
+    InventoryItemDetailOut,
     InventoryItemOut,
     InventoryOut,
     MovementPage,
@@ -21,7 +23,7 @@ from app.services import inventory_service as svc
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 CanView = Annotated[User, Depends(require_permission("inventory.view"))]
-CanAdjust = Annotated[User, Depends(require_permission("inventory.adjust"))]
+CanSeeHistory = Annotated[User, Depends(require_permission("inventory.history"))]
 
 
 @router.get("", response_model=InventoryOut)
@@ -30,9 +32,16 @@ async def overview(_: CanView, session: SessionDep) -> InventoryOut:
     return await svc.overview(session)
 
 
+@router.get("/items/{item_code}", response_model=InventoryItemDetailOut)
+async def item_detail(item_code: str, _: CanView, session: SessionDep) -> InventoryItemDetailOut:
+    """The item, its balance and `sources`: what each batch currently contributes (net, non-zero,
+    oldest batch first; adds up to the balance). No movement details (inventory.history)."""
+    return await svc.item_detail(session, item_code)
+
+
 @router.get("/movements", response_model=MovementPage)
 async def movements(
-    _: CanView,
+    _: CanSeeHistory,
     session: SessionDep,
     item_code: Annotated[str | None, Query(max_length=64)] = None,
     section: Section | None = None,
@@ -62,10 +71,12 @@ async def movements(
 
 @router.post("/items/{item_code}/set", response_model=InventoryItemOut)
 async def set_value(
-    item_code: str, body: SetValueIn, actor: CanAdjust, session: SessionDep
+    item_code: str, body: SetValueIn, actor: CanView, session: SessionDep
 ) -> InventoryItemOut:
     """Set the item's stock to the given count / kg (one adjustment movement of the difference,
-    audited). Only units the item tracks; values >= 0; a reason is required."""
+    audited). Production items (every item today) → 409 INVENTORY_ITEM_PRODUCTION_ONLY, for
+    everyone; manual items need inventory.adjust. Only units the item tracks; values >= 0; a
+    reason is required."""
     await svc.set_value(session, actor, item_code, body)
     await session.commit()
     overview = await svc.overview(session)

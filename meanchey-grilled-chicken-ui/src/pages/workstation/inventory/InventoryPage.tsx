@@ -5,7 +5,7 @@ import { useSearchParams } from 'react-router-dom'
 import { usePermission } from '@/auth/usePermission'
 import { Icon } from '@/components/icons'
 import { InventoryCardSkeleton, InventoryItemCard } from '@/components/InventoryItemCard'
-import { Alert, Button, PageHeader, cx } from '@/components/ui'
+import { Alert, PageHeader, cx } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useErrorMessage } from '@/lib/errors'
 import { useRelativeTime } from '@/lib/format'
@@ -14,7 +14,6 @@ import type { InventoryGroup, InventoryItem, InventoryOverview } from '@/lib/typ
 import { inventoryKeys } from './api'
 import { HistoryTab } from './HistoryTab'
 import { ItemSheet } from './ItemSheet'
-import { SetValueSheet } from './SetValueSheet'
 import { useItemDisplay } from './useItemDisplay'
 
 type Tab = 'stock' | 'history'
@@ -23,21 +22,22 @@ const SECTIONS: InventoryGroup[] = ['raw', 'processed', 'packed', 'wasted']
 const GRID = 'grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-6'
 
 /**
- * Inventory (Workstation): balances updated automatically by production, plus adjustments.
+ * Inventory (Workstation): balances updated automatically by production (no manual changes).
  * Tabs: Stock (`?tab=stock&section=raw|processed|packed|wasted`: sub-tabs of item cards; tap a
- * card for its sheet) and History (`?tab=history`, with its filters). The section is kept when
- * switching tabs, so Back and refresh return to the same sub-tab.
+ * card for its sheet) and History (`?tab=history`, with its filters; only with inventory.history:
+ * without it there is no tab bar and Stock shows directly). The section is kept when switching
+ * tabs, so Back and refresh return to the same sub-tab.
  */
 export function InventoryPage() {
   const { t } = useTranslation()
   const errorMessage = useErrorMessage()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tab: Tab = searchParams.get('tab') === 'history' ? 'history' : 'stock'
+  const canSeeHistory = usePermission('inventory.history')
+  const tab: Tab = canSeeHistory && searchParams.get('tab') === 'history' ? 'history' : 'stock'
   const sectionParam = searchParams.get('section') as InventoryGroup | null
   const section: InventoryGroup =
     sectionParam && SECTIONS.includes(sectionParam) ? sectionParam : 'raw'
   const [opened, setOpened] = useState<string | null>(null)
-  const [editing, setEditing] = useState<InventoryItem | null>(null)
 
   const overview = useQuery({
     queryKey: inventoryKeys.overview,
@@ -47,32 +47,29 @@ export function InventoryPage() {
   // By code, so the open sheet shows fresh numbers after a Set value.
   const openedItem = items.find((i) => i.code === opened) ?? null
 
-  const setValue = (item: InventoryItem) => {
-    setOpened(null)
-    setEditing(item)
-  }
-
   return (
     <>
       <PageHeader back={paths.workstation} title={t('inventory.title')} subtitle={t('inventory.subtitle')} />
 
-      <div className="mb-4 flex gap-1 border-b border-stone-200">
-        {(['stock', 'history'] as const).map((key) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setSearchParams({ tab: key, section }, { replace: true })}
-            className={cx(
-              '-mb-px border-b-2 px-4 py-2 text-sm font-medium',
-              tab === key
-                ? 'border-brand-600 text-brand-700'
-                : 'border-transparent text-stone-500 hover:text-stone-800',
-            )}
-          >
-            {t(`inventory.tabs.${key}`)}
-          </button>
-        ))}
-      </div>
+      {canSeeHistory && (
+        <div className="mb-4 flex gap-1 border-b border-stone-200">
+          {(['stock', 'history'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setSearchParams({ tab: key, section }, { replace: true })}
+              className={cx(
+                '-mb-px border-b-2 px-4 py-2 text-sm font-medium',
+                tab === key
+                  ? 'border-brand-600 text-brand-700'
+                  : 'border-transparent text-stone-500 hover:text-stone-800',
+              )}
+            >
+              {t(`inventory.tabs.${key}`)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {overview.isError && <Alert tone="error">{errorMessage(overview.error)}</Alert>}
 
@@ -85,12 +82,10 @@ export function InventoryPage() {
           section={section}
           onSection={(next) => setSearchParams({ tab: 'stock', section: next }, { replace: true })}
           onOpen={(item) => setOpened(item.code)}
-          onSet={setValue}
         />
       )}
 
-      <ItemSheet item={openedItem} onClose={() => setOpened(null)} onSet={setValue} />
-      <SetValueSheet item={editing} onClose={() => setEditing(null)} />
+      <ItemSheet item={openedItem} onClose={() => setOpened(null)} />
     </>
   )
 }
@@ -106,14 +101,12 @@ function StockTab({
   section,
   onSection,
   onOpen,
-  onSet,
 }: {
   items: InventoryItem[]
   loading: boolean
   section: InventoryGroup
   onSection(section: InventoryGroup): void
   onOpen(item: InventoryItem): void
-  onSet(item: InventoryItem): void
 }) {
   const { t } = useTranslation()
   const allZero = !loading && items.every((i) => !hasStock(i))
@@ -195,7 +188,7 @@ function StockTab({
           <ul className={GRID}>
             {shown.map((item) => (
               <li key={item.code}>
-                <ItemCard item={item} onOpen={onOpen} onSet={onSet} />
+                <ItemCard item={item} onOpen={onOpen} />
               </li>
             ))}
           </ul>
@@ -205,19 +198,10 @@ function StockTab({
   )
 }
 
-function ItemCard({
-  item,
-  onOpen,
-  onSet,
-}: {
-  item: InventoryItem
-  onOpen(item: InventoryItem): void
-  onSet(item: InventoryItem): void
-}) {
+function ItemCard({ item, onOpen }: { item: InventoryItem; onOpen(item: InventoryItem): void }) {
   const { t } = useTranslation()
   const relative = useRelativeTime()
   const display = useItemDisplay()
-  const canAdjust = usePermission('inventory.adjust')
   const d = display(item)
 
   return (
@@ -242,14 +226,6 @@ function ItemCard({
         amount: d.secondary ? `${d.amount} · ${d.secondary}` : d.amount,
       })}
       onOpen={() => onOpen(item)}
-      // Without inventory.adjust: no button (the card keeps its height with a spacer).
-      action={
-        canAdjust ? (
-          <Button variant="secondary" className="w-full" onClick={() => onSet(item)}>
-            {t('inventory.set')}
-          </Button>
-        ) : undefined
-      }
     />
   )
 }

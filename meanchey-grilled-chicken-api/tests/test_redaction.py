@@ -95,14 +95,7 @@ async def world(client, session, superadmin, make_user) -> dict:
         "/settings/role-limits/staff", json={"max_active": 12}, headers=auth(superadmin)
     )
     assert r.status_code == 200, r.text
-    # A stock value the superadmin set (inventory.adjust; its step 1 finish above also wrote
-    # production movements with created_by = the superadmin).
-    r = await client.post(
-        "/inventory/items/packs_big/set",
-        json={"count": 4, "reason": "Opening stock"},
-        headers=auth(superadmin),
-    )
-    assert r.status_code == 200, r.text
+    # Its step 1 finish above also wrote inventory movements with created_by = the superadmin.
     # Superadmin-targeted audit entries (its own sign-in, a failed one).
     await client.post("/auth/login", json={"username": "superadmin", "password": "wrong"})
     await client.post("/auth/login", json={"username": "superadmin", "password": "superadmin"})
@@ -156,6 +149,8 @@ def _fill(path: str, world: dict) -> list[str]:
         return [path.replace("{partner_id}", pid)]
     if path.startswith("/production-plans/"):
         return [path.replace("{batch_id}", world["planned"])]
+    if "{item_code}" in path:
+        return [path.replace("{item_code}", "chicken")]
     if "{batch_id}" in path:
         return [path.replace("{batch_id}", world[k]) for k in ("batch", "planned")]
     assert not re.search(r"\{\w+\}", path), f"sweep doesn't know how to fill {path}"
@@ -172,7 +167,7 @@ EXTRA_QUERIES = [
     "/production-plans?status=all",
     "/production?waiting_step=3",
     "/notifications?unread_only=true",
-    "/inventory/movements?source=adjustment",
+    "/inventory/movements?source=production",
     "/inventory/movements?batch_code=PR",
     "/audit-logs?action=inventory.adjust",
 ]

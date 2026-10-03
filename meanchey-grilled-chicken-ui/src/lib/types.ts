@@ -287,10 +287,11 @@ export interface ProductionBatch {
   byproducts: BatchByproduct[]
   computed: { wings_count: number; thighs_count: number; yield_percent: string | null }
   catalog: { byproducts: ByproductCatalogItem[]; material_kinds: MaterialKind[] }
-  /** False for batches created before inventory existed: they never move stock. */
-  inventory_tracked: boolean
-  /** Net stock changes of the finished steps (reversed ones left out). */
-  stock_changes: StockChange[]
+  /** Only with inventory.history (otherwise absent). False for batches created before inventory
+   *  existed: they never move stock. */
+  inventory_tracked?: boolean
+  /** Only with inventory.history: net stock changes of the finished steps (reversed left out). */
+  stock_changes?: StockChange[]
 }
 
 export interface ProductionBatchListItem {
@@ -444,10 +445,29 @@ export interface InventoryItem extends Localized {
   tracks_kg: boolean
   /** Its kg is estimated from the batch's average piece weight (wasted pieces). */
   kg_estimated: boolean
+  /** `production`: changes only through production (every item today). */
+  origin: 'production' | 'manual'
   count: number | null
   kg: string | null
   /** Time of the latest movement; null if it never changed. */
   updated_at: string | null
+}
+
+/** What one batch currently contributes to an item's balance (net of its reversals). */
+export interface ItemSource {
+  batch_id: string
+  code: string
+  count: number | null
+  kg: string | null
+  kg_estimated: boolean
+  /** The latest step of this batch that still contributes. */
+  last_step: StepNumber
+}
+
+/** `GET /inventory/items/{code}`: the item and, per batch, where its current stock came from. */
+export interface InventoryItemDetail extends InventoryItem {
+  /** Oldest batch first; adds up to the balance. */
+  sources: ItemSource[]
 }
 
 export interface InventoryOverview {
@@ -482,5 +502,3 @@ export interface StockChange extends Localized {
   kg_estimated: boolean
 }
 
-/** Same limit as the API. */
-export const INVENTORY_REASON_MAX_LENGTH = 500

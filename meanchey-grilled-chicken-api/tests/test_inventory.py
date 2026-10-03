@@ -1,5 +1,6 @@
 """Inventory: movements from production (finish / reopen / cancel), the no-negative rule,
-untracked batches, adjustments, access, history and concurrency."""
+untracked batches, production-only items, the per-batch breakdown, access, history and
+concurrency."""
 
 import asyncio
 from decimal import Decimal
@@ -9,7 +10,7 @@ from sqlalchemy import delete, func, select, update
 
 from app.bootstrap import bootstrap
 from app.models import (
-    AuditLog,
+    InventoryBalance,
     InventoryMovement,
     Permission,
     ProductionBatch,
@@ -25,7 +26,11 @@ BYPRODUCTS = ["gizzard", "liver", "heart", "head"]
 
 @pytest.fixture
 async def gm(make_user):
-    return await make_user(Role.GENERAL_MANAGER)
+    # With Inventory history (Off by default), so these tests can read the movements.
+    return await make_user(
+        Role.GENERAL_MANAGER,
+        perms=sorted(registry.DEFAULT_PERMISSIONS[Role.GENERAL_MANAGER] | {"inventory.history"}),
+    )
 
 
 @pytest.fixture
@@ -259,12 +264,19 @@ async def test_drafts_write_no_movements(api, supplier, session) -> None:
 # --- No negative balances ------------------------------------------------------------------------
 
 
+async def lower_balance(session, code: str, count: int) -> None:
+    """Simulate stock that left by other means (no manual changes exist): a safeguard test."""
+    await session.execute(
+        update(InventoryBalance).where(InventoryBalance.item_code == code).values(count=count)
+    )
+    await session.commit()
+
+
 async def test_negative_guard_refuses_finish_reopen_and_cancel(
     client, api, supplier, superadmin, session
 ) -> None:
     batch = await api.step1(supplier, 10)
-    # Someone counted only 5 chickens.
-    ok(await set_value(client, superadmin, "chicken", count=5, reason="Recount"))
+    await lower_balance(session, "chicken", 5)
     before = await movement_count(session)
 
     batch = ok(await api.patch(batch, "produced", **PRODUCED))
@@ -291,8 +303,7 @@ async def test_negative_guard_refuses_finish_reopen_and_cancel(
     assert current["produced"]["status"] == "draft" and current["status"] == "in_progress"
     assert current["raw_material"]["status"] == "finished"
 
-    # Back to 10: everything works again.
-    ok(await set_value(client, superadmin, "chicken", count=10, reason="Found them"))
+    await lower_balance(session, "chicken", 10)
     ok(await api.finish(current, "produced"))
 
 
@@ -308,6 +319,7 @@ async def test_untracked_batches_never_move_stock(client, api, supplier, gm, ses
     )
     await session.commit()
     batch = ok(await api.finish(await api.get(batch), "raw-material"))
+    assert ok(await item(client, gm, "chicken"))["sources"] == []
     batch = ok(await api.patch(batch, "produced", **PRODUCED))
     batch = ok(await api.finish(batch, "produced"))
     batch = ok(await api.reopen(batch, "raw-material"))
@@ -316,90 +328,108 @@ async def test_untracked_batches_never_move_stock(client, api, supplier, gm, ses
     assert batch["inventory_tracked"] is False and batch["stock_changes"] == []
 
 
-# --- Adjustments ---------------------------------------------------------------------------------
+# --- Production items only (no manual changes) ---------------------------------------------------
 
 
-async def test_superadmin_sets_values_with_audit(client, superadmin, gm, session) -> None:
-    r = await set_value(client, superadmin, "chicken", count=120, kg="300.25", reason=" Opening ")
-    item = ok(r)
-    assert (item["count"], item["kg"]) == (120, "300.250")
-    ok(await set_value(client, superadmin, "chicken", count=100, reason="Recount"))
-    ok(await set_value(client, superadmin, "packs_big", count=8, reason="Opening"))
-    ok(await set_value(client, superadmin, "byproduct_packed.liver", kg="1.5", reason="Opening"))
-
-    items = await stock(client, gm)
-    assert amounts(items, "chicken") == (100, "300.250")
-    rows = await history(client, gm, source="adjustment", item_code="chicken")
-    assert [(m["count_delta"], m["kg_delta"]) for m in rows] == [(-20, None), (120, "300.250")]
-    assert rows[1]["reason"] == "Opening" and rows[1]["batch"] is None
-
-    logs = list(
-        await session.scalars(
-            select(AuditLog).where(AuditLog.action == "inventory.adjust").order_by(AuditLog.id)
-        )
+@pytest.mark.parametrize("code", ["chicken", "packs_big", "byproduct_packed.liver", "wasted.wings"])
+async def test_production_items_are_never_set_by_hand(
+    client, superadmin, gm, session, code
+) -> None:
+    for user in (superadmin, gm):
+        r = await set_value(client, user, code, count=1, kg="1", reason="Opening stock")
+        assert_error(r, 409, "INVENTORY_ITEM_PRODUCTION_ONLY")
+        assert r.json()["error"]["details"] == {"item_code": code}
+    assert await movement_count(session) == 0
+    assert_error(
+        await set_value(client, superadmin, "nope", count=1, reason="x"),
+        404,
+        "INVENTORY_ITEM_NOT_FOUND",
     )
-    assert logs[0].details == {
-        "item_code": "chicken",
-        "name_en": "Chicken",
-        "name_km": "មាន់",
-        "from": {"count": 0, "kg": "0.000"},
-        "to": {"count": 120, "kg": "300.250"},
-        "reason": "Opening",
+
+
+async def test_every_item_comes_from_production(client, gm) -> None:
+    assert {i["origin"] for i in (await stock(client, gm)).values()} == {"production"}
+
+
+async def test_adjust_permission_and_feature_are_gone(client, superadmin, gm, session) -> None:
+    assert "inventory_adjust" not in registry.FEATURES_BY_CODE
+    assert "inventory.adjust" not in {p.code for p in registry.PERMISSIONS}
+    perm = await session.get(Permission, "inventory.adjust")
+    assert perm is None or perm.is_active is False
+    codes = {
+        f["code"]
+        for m in ok(await client.get(f"/users/{gm.id}/features", headers=auth(superadmin)))["menus"]
+        for f in m["features"]
     }
-    # The same value again: no movement, no audit entry.
-    ok(await set_value(client, superadmin, "packs_big", count=8, reason="Same"))
-    assert len(await history(client, gm, item_code="packs_big")) == 1
+    assert "inventory_adjust" not in codes
 
 
-@pytest.mark.parametrize(
-    ("code", "body", "status", "error"),
-    [
-        ("chicken", {"count": 1}, 422, "VALIDATION_ERROR"),  # reason missing
-        ("chicken", {"count": 1, "reason": "  "}, 422, "VALIDATION_ERROR"),
-        ("chicken", {"count": 1, "reason": "x" * 501}, 422, "VALIDATION_ERROR"),
-        ("chicken", {"reason": "Nothing"}, 422, "VALIDATION_ERROR"),
-        ("chicken", {"count": -1, "reason": "x"}, 422, "VALIDATION_ERROR"),
-        ("chicken", {"kg": "-0.5", "reason": "x"}, 422, "VALIDATION_ERROR"),
-        ("packs_big", {"kg": "1", "reason": "x"}, 422, "VALIDATION_ERROR"),  # count only
-        ("byproduct_packed.liver", {"count": 1, "reason": "x"}, 422, "VALIDATION_ERROR"),
-        ("nope", {"count": 1, "reason": "x"}, 404, "INVENTORY_ITEM_NOT_FOUND"),
-    ],
-)
-async def test_set_value_validation(client, superadmin, code, body, status, error) -> None:
-    assert_error(await set_value(client, superadmin, code, **body), status, error)
+# --- Per-batch breakdown -------------------------------------------------------------------------
 
 
-async def test_adjusting_needs_inventory_adjust(client, superadmin, make_user) -> None:
-    gm = await make_user(Role.GENERAL_MANAGER)
-    sup = await make_user(Role.SUPERVISOR)
-    for user in (gm, sup):
-        assert_error(
-            await set_value(client, user, "chicken", count=1, reason="x"), 403, "MISSING_PERMISSION"
-        )
-    # The superadmin allows it for the GM (Access tab: Set stock values).
-    r = await client.put(
-        f"/users/{gm.id}/features/inventory_adjust",
-        json={"level": "full"},
-        headers=auth(superadmin),
-    )
-    assert ok(r)["current_level"] == "full"
-    ok(await set_value(client, gm, "chicken", count=3, reason="Counted"))
+def item(client, user, code: str):
+    return client.get(f"/inventory/items/{code}", headers=auth(user))
 
 
-async def test_superadmin_adjustments_read_as_system(client, superadmin, gm) -> None:
-    ok(await set_value(client, superadmin, "chicken", count=3, reason="Opening"))
-    row = (await history(client, gm))[0]
-    assert row["created_by"]["is_system"] is True and row["created_by"]["id"] is None
-    assert "superadmin" not in str(row).lower()
+def sources(body: dict) -> list[tuple]:
+    return [(s["code"], s["count"], s["kg"], s["last_step"]) for s in body["sources"]]
+
+
+async def test_breakdown_adds_up_and_follows_production(client, api, supplier, gm, make_user):
+    viewer = await make_user(Role.STAFF, perms=["inventory.view"])  # no history needed
+    old = await api.step1(supplier, 100)
+    new = await api.step1(supplier, 50)
+
+    body = ok(await item(client, viewer, "chicken"))
+    assert (body["count"], body["kg"]) == (150, "51.000")
+    assert sources(body) == [
+        (old["code"], 100, "25.500", 1),
+        (new["code"], 50, "25.500", 1),
+    ]  # oldest batch first
+    assert sum(s["count"] for s in body["sources"]) == body["count"]
+    assert "movements" not in body and body["origin"] == "production"
+
+    # Step 2 of the newer batch: its chickens leave, its wings appear.
+    new = ok(await api.patch(new, "produced", **PRODUCED))
+    new = ok(await api.finish(new, "produced"))
+    assert sources(ok(await item(client, viewer, "chicken"))) == [(old["code"], 100, "25.500", 1)]
+    assert sources(ok(await item(client, viewer, "wings"))) == [(new["code"], 100, "4.200", 2)]
+
+    # Step 3: wings move into packs and wasted (estimated kg).
+    new = await api.confirm_plan(new, 40, 19)
+    new = await finish3(api, new, big=40, small=19)
+    wings = ok(await item(client, viewer, "wings"))
+    assert wings["sources"] == [] and wings["count"] == 0
+    assert sources(ok(await item(client, viewer, "packs_big"))) == [(new["code"], 40, None, 3)]
+    wasted = ok(await item(client, viewer, "wasted.wings"))
+    assert sources(wasted) == [(new["code"], 1, "0.042", 3)]
+    assert wasted["sources"][0]["kg_estimated"] is True
+
+    # Reopen step 3: the wings are back with this batch, the packs gone.
+    new = ok(await api.reopen(new, "standardize"))
+    assert sources(ok(await item(client, viewer, "wings"))) == [(new["code"], 100, "4.200", 2)]
+    assert ok(await item(client, viewer, "packs_big"))["sources"] == []
+
+    # Cancel the older batch (still at step 2): it drops out of the chickens.
+    ok(await api.cancel(await api.get(old)))
+    chicken = ok(await item(client, viewer, "chicken"))
+    assert chicken["sources"] == [] and chicken["count"] == 0
+
+
+async def test_item_detail_access(client, make_user) -> None:
+    staff = await make_user(Role.STAFF)
+    assert_error(await item(client, staff, "chicken"), 403, "MISSING_PERMISSION")
+    viewer = await make_user(Role.STAFF, perms=["inventory.view"])
+    assert_error(await item(client, viewer, "nope"), 404, "INVENTORY_ITEM_NOT_FOUND")
 
 
 # --- History filters -----------------------------------------------------------------------------
 
 
-async def test_history_filters(client, api, supplier, gm, superadmin) -> None:
+async def test_history_filters(client, api, supplier, gm) -> None:
     batch = await api.step2(supplier)
-    ok(await set_value(client, superadmin, "packs_small", count=2, reason="Opening"))
     assert {m["source"] for m in await history(client, gm, source="production")} == {"production"}
+    assert await history(client, gm, source="adjustment") == []
     wasted = await history(client, gm, section="wasted")
     assert wasted == []
     assert {m["item_code"] for m in await history(client, gm, section="stock")} >= {"chicken"}
@@ -411,6 +441,13 @@ async def test_history_filters(client, api, supplier, gm, superadmin) -> None:
     assert len(await history(client, gm, date_from="2000-01-01", date_to="2000-01-02")) == 0
     page = ok(await client.get("/inventory/movements?page_size=2", headers=auth(gm)))
     assert page["page_size"] == 2 and len(page["items"]) == 2 and page["total"] > 2
+
+
+async def test_steps_by_the_superadmin_read_as_system(client, superadmin, gm, supplier) -> None:
+    await Api(client, superadmin).step1(supplier, 3)
+    row = (await history(client, gm))[0]
+    assert row["created_by"]["is_system"] is True and row["created_by"]["id"] is None
+    assert "superadmin" not in str(row).lower()
 
 
 # --- Concurrency ---------------------------------------------------------------------------------
@@ -436,15 +473,16 @@ async def test_concurrent_finishes_keep_correct_totals(client, api, supplier, gm
 def test_registry() -> None:
     registry.validate_features()
     inv = registry.FEATURES_BY_CODE["inventory"]
-    adjust = registry.FEATURES_BY_CODE["inventory_adjust"]
-    assert inv.menu == adjust.menu == "workstation"
+    hist = registry.FEATURES_BY_CODE["inventory_history"]
+    assert inv.menu == hist.menu == "workstation"
     assert inv.level_map == {"off": frozenset(), "view": {"inventory.view"}}
-    assert adjust.applies_to == (Role.GENERAL_MANAGER,)
-    assert adjust.level_map == {"off": frozenset(), "full": {"inventory.adjust"}}
+    assert hist.applies_to == (Role.GENERAL_MANAGER, Role.SUPERVISOR)
+    assert hist.level_map == {"off": frozenset(), "view": {"inventory.history"}}
+    assert hist.grantor_must_hold is True
     d = registry.DEFAULT_PERMISSIONS
     assert "inventory.view" in d[Role.GENERAL_MANAGER]
-    assert "inventory.adjust" not in d[Role.GENERAL_MANAGER]
-    assert d[Role.SUPERVISOR] & {"inventory.view", "inventory.adjust"} == {"inventory.view"}
+    assert "inventory.history" not in d[Role.GENERAL_MANAGER]  # Off by default
+    assert d[Role.SUPERVISOR] & {"inventory.view", "inventory.history"} == {"inventory.view"}
     assert not d[Role.STAFF]
 
 
@@ -461,20 +499,15 @@ async def test_access_levels(client, superadmin, make_user) -> None:
         for f in m["features"]
     }
     assert features["inventory"]["current_level"] == "view"
-    assert features["inventory_adjust"]["current_level"] == "off"
+    assert features["inventory_history"]["current_level"] == "off"
 
     # A supervisor (Staff access) gives staff Inventory View, within its own access.
     r = await client.put(
         f"/users/{staff.id}/features/inventory", json={"level": "view"}, headers=auth(sup)
     )
     assert ok(r)["current_level"] == "view"
-    ok(await client.get("/inventory/movements", headers=auth(staff)))
-    staff_features = {
-        f["code"]
-        for m in ok(await client.get(f"/users/{staff.id}/features", headers=auth(sup)))["menus"]
-        for f in m["features"]
-    }
-    assert "inventory_adjust" not in staff_features
+    ok(await client.get("/inventory", headers=auth(staff)))
+    ok(await item(client, staff, "chicken"))
 
     # Without Inventory itself, the supervisor can still switch it off, but not give it.
     await client.put(f"/users/{sup.id}/features/inventory", json={"level": "off"}, headers=auth(gm))
@@ -495,7 +528,7 @@ async def test_backfill_gives_view_to_existing_managers_only(session, make_user)
     gm = await make_user(Role.GENERAL_MANAGER)
     sup = await make_user(Role.SUPERVISOR)
     staff = await make_user(Role.STAFF)
-    codes = ["inventory.view", "inventory.adjust"]
+    codes = ["inventory.view", "inventory.history"]
     await session.execute(delete(UserPermission).where(UserPermission.permission_code.in_(codes)))
     await session.execute(delete(Permission).where(Permission.code.in_(codes)))
     await session.commit()
@@ -511,6 +544,7 @@ async def test_backfill_gives_view_to_existing_managers_only(session, make_user)
             )
         )
 
+    # inventory.history is in nobody's defaults: nothing to backfill.
     assert await held(gm) == {"inventory.view"}
     assert await held(sup) == {"inventory.view"}
     assert await held(staff) == set()

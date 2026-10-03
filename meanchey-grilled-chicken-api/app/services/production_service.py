@@ -52,6 +52,7 @@ from app.models import (
     User,
     utcnow,
 )
+from app.permissions.service import effective_permissions
 from app.production.catalog import (
     BYPRODUCT_CODES,
     BYPRODUCTS,
@@ -189,9 +190,11 @@ async def _for_write(session: AsyncSession, batch_id: uuid.UUID) -> ProductionBa
     return batch
 
 
-async def _check_version(session: AsyncSession, batch: ProductionBatch, version: int) -> None:
+async def _check_version(
+    session: AsyncSession, batch: ProductionBatch, version: int, actor: User
+) -> None:
     if batch.version != version:
-        current = await batch_out(session, batch)
+        current = await batch_out(session, batch, actor)
         raise AppError(
             409,
             ErrorCode.PRODUCTION_CONFLICT,
@@ -356,7 +359,7 @@ async def save_raw_material(
     batch = await _for_write(session, batch_id)
     if batch.raw_material.finished:
         raise _step_finished()
-    await _check_version(session, batch, version)
+    await _check_version(session, batch, version, actor)
     await _apply_raw(session, batch, data, set(data.model_fields_set) - {"version"})
     _touch(batch, batch.raw_material, actor)
     await session.commit()
@@ -383,7 +386,7 @@ async def save_produced(
         raise _not_ready()
     if output.finished:
         raise _step_finished()
-    await _check_version(session, batch, data.version)
+    await _check_version(session, batch, data.version, actor)
     fields = data.model_fields_set
     if data.byproducts:
         _unknown_byproducts(set(data.byproducts))
@@ -411,7 +414,7 @@ async def save_standardize(
         raise _step_finished()
     if batch.plan is None or not batch.plan.confirmed:
         raise _plan_required()
-    await _check_version(session, batch, data.version)
+    await _check_version(session, batch, data.version, actor)
     fields = data.model_fields_set
     if data.byproducts:
         _unknown_byproducts(set(data.byproducts))
@@ -517,7 +520,7 @@ async def finish_step(
         raise _step_finished()
     if step == 3 and (batch.plan is None or not batch.plan.confirmed):
         raise _plan_required()
-    await _check_version(session, batch, version)
+    await _check_version(session, batch, version, actor)
 
     if step == 1:
         await _validate_raw(session, batch)
@@ -623,7 +626,7 @@ async def reopen_step(
     if row is None or not row.finished:
         # Nothing to reopen: already editable (or not started).
         return batch
-    await _check_version(session, batch, version)
+    await _check_version(session, batch, version, actor)
     reopened = reopens_steps(batch, step)
     await inventory_service.reverse(session, actor, batch, reopened, "reopen")
     for n in reopened:
@@ -667,7 +670,7 @@ async def cancel_batch(
     batch = await _for_write(session, batch_id)
     if batch.status == "completed":
         raise AppError(409, ErrorCode.PRODUCTION_COMPLETED, "Completed batches can't be cancelled")
-    await _check_version(session, batch, version)
+    await _check_version(session, batch, version, actor)
     await inventory_service.reverse(session, actor, batch, None, "cancel")
     now = utcnow()
     batch.status = "cancelled"
@@ -946,7 +949,10 @@ CATALOG = CatalogOut(
 )
 
 
-async def batch_out(session: AsyncSession, batch: ProductionBatch) -> BatchOut:
+async def batch_out(session: AsyncSession, batch: ProductionBatch, viewer: User) -> BatchOut:
+    """The batch for `viewer`. Its inventory fields (`inventory_tracked`, `stock_changes`) are
+    included only when the viewer holds inventory.history; otherwise they're left out."""
+    history = "inventory.history" in await effective_permissions(session, viewer)
     users = await _users(session, _user_ids(batch))
     raw, output, packaging = batch.raw_material, batch.output, batch.packaging
     supplier = await session.get(Supplier, raw.supplier_id) if raw.supplier_id else None
@@ -1012,8 +1018,8 @@ async def batch_out(session: AsyncSession, batch: ProductionBatch) -> BatchOut:
         ],
         computed=computed(batch),
         catalog=CATALOG,
-        inventory_tracked=batch.inventory_tracked,
-        stock_changes=await inventory_service.stock_changes(session, batch),
+        inventory_tracked=batch.inventory_tracked if history else None,
+        stock_changes=await inventory_service.stock_changes(session, batch) if history else None,
     )
 
 

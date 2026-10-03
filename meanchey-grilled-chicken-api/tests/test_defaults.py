@@ -40,7 +40,11 @@ async def _perms_of(client, superadmin, user_id) -> set[str]:
 async def test_gm_gets_all_phase1_partner_and_production_permissions(client, superadmin) -> None:
     gm = await _create(client, superadmin, "general_manager", "default_gm")
     assert await _perms_of(client, superadmin, gm["id"]) == (
-        ALL_PHASE1 | PARTNERS | PRODUCTION | PLAN | {"inventory.view"}  # not inventory.adjust
+        ALL_PHASE1
+        | PARTNERS
+        | PRODUCTION
+        | PLAN
+        | {"inventory.view"}  # not inventory.history (Off)
     )
 
 

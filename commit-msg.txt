@@ -1,26 +1,18 @@
-<ADD, UPDATE, FIX><BOTH><INVENTORY>: inventory ledger under Workstation, stock moved automatically by production finish / reopen / cancel, adjustments, card grid with sub-tabs
+<ADD, UPDATE, REMOVE><BOTH><INVENTORY-ACCESS>: production items read-only, inventory history behind its own permission (grantor must hold it), per-batch stock breakdown
 
-- API: inventory.view / inventory.adjust (GM only) + features inventory / inventory_adjust (defaults:
-  GM and supervisor View, adjust Off; backfill view to active GMs and supervisors); item catalog
-  (stock / wasted, by-product items generated from the production catalog); migration 0010
-  (inventory_balances, append-only inventory_movements with unique reversal_of,
-  production_batches.inventory_tracked false for existing batches)
-- API: apply_movements locks balances FOR UPDATE in item_code order, no negative balances
-  (409 INVENTORY_INSUFFICIENT with item names); Finish writes step movements (estimated waste kg),
-  reopen reverses later steps latest first, cancel reverses all; set-value adjustments with reason
-  and inventory.adjust audit; GET /inventory, GET /inventory/movements (filters, paging),
-  POST /inventory/items/{item_code}/set; batch detail adds inventory_tracked + stock_changes
-- UI: Workstation → Inventory (lazy): Stock tab with Raw / Processed / Packed / Wasted pill sub-tabs
-  (stock badges, ?section= in the URL), product-style item cards (original SVG pictures, short
-  names, big number + kg, ≈ estimated, dimmed zeros, Set only with inventory.adjust), item sheet
-  with the last 20 movements; History tab with filters (item, area, type, dates, batch code);
-  Set value sheet with difference and required reason
-- UI: batch page Stock changes card, INVENTORY_INSUFFICIENT per item, audit label, relative
-  "Updated …" from translations, kg always 3 decimals, km/en texts
-- Fix: History section filter uses its own URL param (area) so it no longer clashes with the
-  Stock sub-tab
-- Tests: test_inventory, test_migration_inventory; sweeps, defaults, features and by-product
-  balance tests updated
-- Docs: API FEATURES §18 Inventory + §5/§6/§9/§10/§12/§14, ARCHITECTURE data model and design
-  rows; UI FEATURES §6.5 + access matrix, ARCHITECTURE (routes, query keys, card, pictures,
-  sub-tab URL param)
+- API: ItemDef.origin (all production); set → 409 INVENTORY_ITEM_PRODUCTION_ONLY for everyone;
+  inventory.adjust + inventory_adjust removed; migration 0011 deletes adjustments and recomputes
+  balances / balance_*_after from production (idempotent, refuses negatives)
+- API: inventory.history + feature inventory_history (GM, supervisor; Off by default; no backfill);
+  FeatureDef.grantor_must_hold: hidden from grantors who don't hold it (omitted in GET, 404 on PUT,
+  feature.set audit entries hidden), no cascade; GET /inventory/movements needs it; batch
+  inventory_tracked / stock_changes only with it (batch_out takes the viewer)
+- API: GET /inventory/items/{item_code}: balance + per-batch net sources (oldest first, totals =
+  balance)
+- UI: Set button and Set value sheet removed; History tab only with inventory.history; item sheet
+  "From production" breakdown with total, recent changes only with history; batch Stock changes
+  only with history; ['inventory-item', code]; km/en texts
+- Tests: test_inventory_history, test_migration_inventory_reset; inventory, defaults, features,
+  grants, redaction and superset updated
+- Docs: API FEATURES §5/§6/§9/§10/§12/§13/§14/§18, ARCHITECTURE feature layer + decision rows;
+  UI FEATURES §6.5 / Access tab / matrix, ARCHITECTURE query keys, item sheet, gating

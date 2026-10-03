@@ -7,18 +7,21 @@ import { STEPS } from './api'
 
 /**
  * What each finished step of this batch added to / removed from the inventory (reversed steps
- * left out). Batches from before inventory existed say they aren't counted.
+ * left out). Batches from before inventory existed say they aren't counted. Only with
+ * inventory.history: the API sends the fields only then.
  */
 export function StockChangesCard({ batch }: { batch: ProductionBatch }) {
   const { t } = useTranslation()
   const localized = useLocalized()
   const fmt = useStockFormat()
 
+  const changes = batch.stock_changes
+  if (changes === undefined) return null
   if (!batch.inventory_tracked) {
     return <p className="mt-4 text-sm text-stone-500">{t('inventory.untracked')}</p>
   }
-  if (batch.stock_changes.length === 0) return null
-  const steps = STEPS.filter(({ n }) => batch.stock_changes.some((c) => c.step === n))
+  if (changes.length === 0) return null
+  const steps = STEPS.filter(({ n }) => changes.some((c) => c.step === n))
 
   return (
     <Card title={t('inventory.stockChanges')} className="mt-4">
@@ -29,7 +32,7 @@ export function StockChangesCard({ batch }: { batch: ProductionBatch }) {
               {t('audit.productionStep', { step: n, name: t(labelKey) })}
             </h3>
             <ul className="divide-y divide-stone-100 text-sm">
-              {batch.stock_changes
+              {changes
                 .filter((c) => c.step === n)
                 .map((c) => (
                   <li key={c.item_code} className="flex items-baseline justify-between gap-3 py-1.5">
