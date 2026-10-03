@@ -47,6 +47,7 @@ MODULES: list[ModuleDef] = [
     ModuleDef("production", "Production", "ផលិតកម្ម"),
     ModuleDef("production_plan", "Packaging plan", "ផែនការវេចខ្ចប់"),
     ModuleDef("inventory", "Inventory", "ស្តុក"),
+    ModuleDef("orders", "Orders", "ការបញ្ជាទិញ"),
 ]
 
 _MANAGERS = (Role.GENERAL_MANAGER, Role.SUPERVISOR)
@@ -289,6 +290,64 @@ PERMISSIONS += [
     # changes only through it. The sync marks it inactive; it can return with manual items.
 ]
 
+PERMISSIONS += [
+    PermissionDef(
+        code="orders.view",
+        module="orders",
+        name_en="View orders",
+        name_km="មើលការបញ្ជាទិញ",
+        description_en="See orders, their boxes, delivery status and returns.",
+        description_km="មើលការបញ្ជាទិញ ប្រអប់ ស្ថានភាពដឹកជញ្ជូន និងទំនិញដែលបានប្រគល់មកវិញ។",
+        assignable_to=_EVERYONE,
+    ),
+    PermissionDef(
+        code="orders.create",
+        module="orders",
+        name_en="Record orders",
+        name_km="កត់ត្រាការបញ្ជាទិញ",
+        description_en=(
+            "Create orders, start their delivery, mark them delivered and record what the "
+            "customer returned."
+        ),
+        description_km=("បង្កើតការបញ្ជាទិញ ចាប់ផ្តើមដឹកជញ្ជូន កំណត់ថាបានដឹកដល់ និងកត់ត្រាទំនិញដែលអតិថិជនប្រគល់មកវិញ។"),
+        assignable_to=_EVERYONE,
+    ),
+    PermissionDef(
+        code="orders.update",
+        module="orders",
+        name_en="Edit orders",
+        name_km="កែប្រែការបញ្ជាទិញ",
+        description_en="Edit orders that haven't left for delivery yet.",
+        description_km="កែប្រែការបញ្ជាទិញដែលមិនទាន់ចេញដឹកជញ្ជូន។",
+        assignable_to=_MANAGERS,
+    ),
+    PermissionDef(
+        code="orders.cancel",
+        module="orders",
+        name_en="Cancel orders",
+        name_km="លុបចោលការបញ្ជាទិញ",
+        description_en="Cancel an order the customer cancelled before delivery, with a reason.",
+        description_km="លុបចោលការបញ្ជាទិញដែលអតិថិជនបានលុបចោលមុនពេលដឹកជញ្ជូន ដោយបញ្ជាក់មូលហេតុ។",
+        assignable_to=_MANAGERS,
+    ),
+    PermissionDef(
+        code="orders.review_returns",
+        module="orders",
+        name_en="Review returns",
+        name_km="ពិនិត្យទំនិញប្រគល់មកវិញ",
+        description_en=(
+            "Put returned items back into stock or into wasted, and receive the order alerts "
+            "(out for delivery, delivered, returned)."
+        ),
+        description_km=(
+            "ដាក់ទំនិញដែលប្រគល់មកវិញចូលស្តុក ឬទំនិញខូចខាត ព្រមទាំងទទួលការជូនដំណឹងការបញ្ជាទិញ (ចេញដឹក បានដឹកដល់ ប្រគល់មកវិញ)។"
+        ),
+        assignable_to=_MANAGERS,
+    ),
+]
+
+_ORDER_CODES = frozenset(p.code for p in PERMISSIONS if p.module == "orders")
+
 # --- Feature access levels -------------------------------------------------------------------
 
 Level = Literal["off", "view", "record", "full"]
@@ -436,6 +495,48 @@ FEATURES: list[FeatureDef] = [
         grantor_must_hold=True,
     ),
     FeatureDef(
+        code="orders",
+        menu="workstation",
+        name_en="Orders",
+        name_km="ការបញ្ជាទិញ",
+        description_en=(
+            "Customer orders packed in boxes, their delivery and returns. Record lets someone "
+            "create orders, start delivery and mark them delivered."
+        ),
+        description_km=(
+            "ការបញ្ជាទិញរបស់អតិថិជនដែលវេចក្នុងប្រអប់ ការដឹកជញ្ជូន និងការប្រគល់មកវិញ។ កម្រិតកត់ត្រាអាចបង្កើត"
+            "ការបញ្ជាទិញ ចាប់ផ្តើមដឹកជញ្ជូន និងកំណត់ថាបានដឹកដល់។"
+        ),
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF),
+        levels=(
+            ("off", ()),
+            ("view", ("orders.view",)),
+            ("record", ("orders.view", "orders.create")),
+        ),
+    ),
+    FeatureDef(
+        code="order_management",
+        menu="workstation",
+        name_en="Order management",
+        name_km="គ្រប់គ្រងការបញ្ជាទិញ",
+        description_en="Edit and cancel orders that haven't left for delivery yet.",
+        description_km="កែប្រែ និងលុបចោលការបញ្ជាទិញដែលមិនទាន់ចេញដឹកជញ្ជូន។",
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
+        levels=(("off", ()), ("full", ("orders.update", "orders.cancel"))),
+    ),
+    FeatureDef(
+        code="order_returns",
+        menu="workstation",
+        name_en="Order returns",
+        name_km="ទំនិញប្រគល់មកវិញ",
+        description_en=(
+            "Review returned items (back to stock or wasted) and receive the order alerts."
+        ),
+        description_km="ពិនិត្យទំនិញដែលប្រគល់មកវិញ (ចូលស្តុក ឬខូចខាត) និងទទួលការជូនដំណឹងការបញ្ជាទិញ។",
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
+        levels=(("off", ()), ("full", ("orders.review_returns",))),
+    ),
+    FeatureDef(
         code="staff_management",
         menu="settings",
         name_en="Staff management",
@@ -490,7 +591,9 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
     | _PRODUCTION_CODES
     | _PLAN_CODES
     # Inventory View; Inventory history is Off until the superadmin allows it.
-    | {"inventory.view"},
+    | {"inventory.view"}
+    # Orders Record, management Full, returns Full.
+    | _ORDER_CODES,
     # Workstation features at full access, except the production plan (off: the GM decides who
     # plans). Staff: view them and set their access; adding or editing staff is the GM's call.
     Role.SUPERVISOR: _feature_defaults(
@@ -502,6 +605,10 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
             "production_plan": "off",
             "inventory": "view",
             "inventory_history": "off",
+            # Orders Record; editing, cancelling and reviewing returns are the GM's to allow.
+            "orders": "record",
+            "order_management": "off",
+            "order_returns": "off",
             "staff_management": "view",
             "staff_access": "full",
         },

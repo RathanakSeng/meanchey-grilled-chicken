@@ -373,7 +373,13 @@ export interface PlanDetail {
 
 // --- Notifications ----------------------------------------------------------------------------
 
-export type NotificationType = 'production.processing_finished' | 'production.completed'
+export type NotificationType =
+  | 'production.processing_finished'
+  | 'production.completed'
+  | 'order.delivering'
+  | 'order.delivered'
+  | 'order.return_pending'
+  | 'order.returns_reviewed'
 
 export interface AppNotification {
   id: string
@@ -381,7 +387,9 @@ export interface AppNotification {
   entity_type: string
   entity_id: string
   /** processing_finished: {code, quantity, wings, thighs, repeat};
-   * completed: {code, matches, planned_big, planned_small, actual_big, actual_small, comment, repeat}. */
+   * completed: {code, matches, planned_big, planned_small, actual_big, actual_small, comment, repeat};
+   * order.*: {code, customer, white, black (delivering), returned + reason (return_pending),
+   * outcome + to_stock + to_wasted (returns_reviewed)}; items are OrderAlertItem[]. */
   payload: Record<string, unknown>
   actor: UserRef | null
   created_at: string
@@ -434,7 +442,8 @@ export const ROLE_LIMIT_MAX = 999
 
 export type InventorySection = 'stock' | 'wasted'
 export type InventoryGroup = 'raw' | 'processed' | 'packed' | 'wasted'
-export type MovementSource = 'production' | 'adjustment'
+/** order: stock out at Delivering; order_return: returned items at the review. */
+export type MovementSource = 'production' | 'adjustment' | 'order' | 'order_return'
 
 /** An item and its balance. `count` / `kg` are null for a unit the item doesn't track. */
 export interface InventoryItem extends Localized {
@@ -482,7 +491,10 @@ export interface InventoryMovement extends Localized {
   kg_delta: string | null
   kg_estimated: boolean
   source: MovementSource
+  /** Production: the batch. Orders: the batch the quantity is attributed to (oldest first). */
   batch: { id: string; code: string } | null
+  /** Order and return movements: the order. */
+  order?: { id: string; code: string } | null
   step: StepNumber | null
   /** Set on a reversal: the movement it undoes (`reason` is then "reopen" or "cancel"). */
   reversal_of: number | null
@@ -502,3 +514,147 @@ export interface StockChange extends Localized {
   kg_estimated: boolean
 }
 
+
+// --- Orders -----------------------------------------------------------------------------------
+
+export type OrderStatus =
+  | 'created'
+  | 'delivering'
+  | 'return_pending'
+  | 'success'
+  | 'partly_returned'
+  | 'fully_returned'
+  | 'cancelled'
+export type BoxColor = 'white' | 'black'
+/** Packs are counted (whole numbers), packed by-products weighed (kg, 3 decimals). */
+export type OrderUnit = 'count' | 'kg'
+
+/** Same limits as the API. */
+export const ORDER_NOTE_MAX_LENGTH = 1000
+export const ORDER_REASON_MAX_LENGTH = 500
+
+export interface OrderItemRef extends Localized {
+  item_code: string
+  unit: OrderUnit
+}
+
+/** A quantity of one item: `count` for packs, `kg` for by-products (the other is null). */
+export interface OrderQuantity extends OrderItemRef {
+  count: number | null
+  kg: string | null
+}
+
+export interface OrderBox {
+  id: string
+  color: BoxColor
+  position: number
+  lines: OrderQuantity[]
+}
+
+export interface OrderSummary {
+  /** White, then black (colours without boxes left out). */
+  colors: { color: BoxColor; boxes: number; items: OrderQuantity[] }[]
+  total: { boxes: number; items: OrderQuantity[] }
+}
+
+export interface OrderReturnItem extends OrderItemRef {
+  delivered_count: number | null
+  delivered_kg: string | null
+  returned_count: number | null
+  returned_kg: string | null
+  /** null until reviewed */
+  to_stock_count: number | null
+  to_stock_kg: string | null
+  to_wasted_count: number | null
+  to_wasted_kg: string | null
+  reviewed_by: UserRef | null
+  reviewed_at: string | null
+}
+
+export interface StockWarning extends OrderItemRef {
+  available_count: number | null
+  available_kg: string | null
+  needed_count: number | null
+  needed_kg: string | null
+}
+
+export interface CustomerBrief {
+  id: string
+  name: string
+  phone_display: string | null
+  location: string | null
+  is_active: boolean
+}
+
+export interface Order {
+  id: string
+  code: string
+  status: OrderStatus
+  customer: CustomerBrief
+  /** A calendar day ("2026-10-03"). */
+  delivery_date: string
+  driver: UserRef | null
+  note: string | null
+  return_reason: string | null
+  cancel_reason: string | null
+  version: number
+  created_by: UserRef | null
+  created_at: string
+  updated_by: UserRef | null
+  updated_at: string
+  delivering_by: UserRef | null
+  delivering_at: string | null
+  delivered_by: UserRef | null
+  delivered_at: string | null
+  returns_reviewed_by: UserRef | null
+  returns_reviewed_at: string | null
+  cancelled_by: UserRef | null
+  cancelled_at: string | null
+  boxes: OrderBox[]
+  summary: OrderSummary
+  returns: OrderReturnItem[]
+  /** Only while Created: items whose stock is below the order's totals right now. */
+  stock_warnings: StockWarning[]
+}
+
+export interface OrderListItem {
+  id: string
+  code: string
+  status: OrderStatus
+  customer: CustomerBrief
+  delivery_date: string
+  driver: UserRef | null
+  white_boxes: number
+  black_boxes: number
+  created_at: string
+  updated_at: string
+}
+
+export interface OrderStats {
+  created: number
+  delivering: number
+  return_pending: number
+  delivered_this_month: number
+}
+
+export interface CustomerOption {
+  id: string
+  name: string
+  phone_display: string | null
+}
+
+export interface DriverOption {
+  id: string
+  full_name: string
+  role: 'supervisor' | 'staff'
+}
+
+/** `GET /orders/available-stock`: current stock of the orderable items. */
+export type AvailableItem = OrderQuantity
+
+/** An item in an order alert's payload (names kept with it). */
+export interface OrderAlertItem extends Localized {
+  item_code: string
+  count: number | null
+  kg: string | null
+}

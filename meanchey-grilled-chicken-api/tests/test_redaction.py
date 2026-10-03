@@ -95,6 +95,15 @@ async def world(client, session, superadmin, make_user) -> dict:
         "/settings/role-limits/staff", json={"max_active": 12}, headers=auth(superadmin)
     )
     assert r.status_code == 200, r.text
+    # Orders the superadmin created (one cancelled by it), with the staff member as driver.
+    order_body = {
+        "customer_id": customer["id"],
+        "driver_id": staff_id,
+        "boxes": [{"color": "white", "lines": [{"item_code": "packs_big", "count": 1}]}],
+    }
+    order = await post("/orders", order_body)
+    cancelled = await post("/orders", order_body)
+    await post(f"/orders/{cancelled['id']}/cancel", {"version": 1, "reason": "Customer cancelled"})
     # Its step 1 finish above also wrote inventory movements with created_by = the superadmin.
     # Superadmin-targeted audit entries (its own sign-in, a failed one).
     await client.post("/auth/login", json={"username": "superadmin", "password": "wrong"})
@@ -117,6 +126,7 @@ async def world(client, session, superadmin, make_user) -> dict:
         "batch_version": batch["version"],
         "planned": planned["id"],
         "planned_version": plan["version"],
+        "orders": [order["id"], cancelled["id"]],
     }
 
 
@@ -149,6 +159,8 @@ def _fill(path: str, world: dict) -> list[str]:
         return [path.replace("{partner_id}", pid)]
     if path.startswith("/production-plans/"):
         return [path.replace("{batch_id}", world["planned"])]
+    if "{order_id}" in path:
+        return [path.replace("{order_id}", o) for o in world["orders"]]
     if "{item_code}" in path:
         return [path.replace("{item_code}", "chicken")]
     if "{batch_id}" in path:
@@ -170,6 +182,9 @@ EXTRA_QUERIES = [
     "/inventory/movements?source=production",
     "/inventory/movements?batch_code=PR",
     "/audit-logs?action=inventory.adjust",
+    "/orders?status=cancelled",
+    "/orders?q=OR-",
+    "/audit-logs?action=order.cancel",
 ]
 
 

@@ -26,7 +26,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, utcnow
 
-MOVEMENT_SOURCES = ("production", "adjustment")
+# order: stock out at Delivering; order_return: returned items back (stock or wasted).
+MOVEMENT_SOURCES = ("production", "adjustment", "order", "order_return")
 ADJUST_REASON_MAX_LENGTH = 500
 INVENTORY_KG = Numeric(12, 3)
 
@@ -51,13 +52,18 @@ class InventoryBalance(Base):
 class InventoryMovement(Base):
     """One change of one item's stock, with the balance after it. Never updated or deleted.
 
+    Sources: production (finish / reopen / cancel), order (Delivering), order_return (return
+    review), adjustment (manual items only; none today).
+
     A reversal (reopen / cancel) is a new movement with `reversal_of` pointing at the original;
     the unique index makes sure a movement is reversed at most once.
     """
 
     __tablename__ = "inventory_movements"
     __table_args__ = (
-        CheckConstraint("source IN ('production', 'adjustment')", name="source"),
+        CheckConstraint(
+            "source IN ('production', 'adjustment', 'order', 'order_return')", name="source"
+        ),
         CheckConstraint("step IS NULL OR step BETWEEN 1 AND 3", name="step"),
         CheckConstraint("count_delta IS NOT NULL OR kg_delta IS NOT NULL", name="has_delta"),
         Index("ix_inventory_movements_item_created", "item_code", "created_at"),
@@ -78,6 +84,11 @@ class InventoryMovement(Base):
     source: Mapped[str] = mapped_column(String(16))
     batch_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("production_batches.id", ondelete="SET NULL"), index=True
+    )
+    # Order movements: the order they belong to (their `batch_id` is the batch the stock is
+    # attributed to, oldest first at Delivering).
+    order_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("orders.id", ondelete="SET NULL"), index=True
     )
     step: Mapped[int | None] = mapped_column(SmallInteger)
     reversal_of: Mapped[int | None] = mapped_column(

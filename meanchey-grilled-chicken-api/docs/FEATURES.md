@@ -1,6 +1,6 @@
 # API Features — Phase 1
 
-What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The business features, **suppliers and customers** (§11), **production** (§14) and **inventory** (§18), plug into the permission system described here, as will later ones (orders, stock, delivery, …).
+What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The business features, **suppliers and customers** (§11), **production** (§14), **inventory** (§18) and **orders** (§19), plug into the permission system described here, as will later ones.
 
 - [1. Authentication](#1-authentication)
 - [2. Password policy](#2-password-policy)
@@ -20,6 +20,7 @@ What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័�
 - [16. Notifications](#16-notifications)
 - [17. Role limits](#17-role-limits)
 - [18. Inventory](#18-inventory)
+- [19. Orders](#19-orders)
 
 ---
 
@@ -269,6 +270,16 @@ Staff can't hold either. The alerts go to whoever holds `production_plan.view`, 
 | `inventory.view` | See stock, wasted items and, per item, which batches its current stock came from | GM, supervisor, staff | Inventory (View only) |
 | `inventory.history` | See every stock movement: the History tab, an item's recent changes, a batch's stock changes | GM, supervisor | Inventory history (View only; **grantor must hold it**, §12.3) |
 
+**Module `orders`** (§19)
+
+| Code | Meaning | Assignable to | In feature (level) |
+|---|---|---|---|
+| `orders.view` | See orders, their boxes, delivery status and returns | GM, supervisor, staff | Orders (View only and up) |
+| `orders.create` | Create orders; move them to Delivering and Delivered; record returns | GM, supervisor, staff | Orders (Record) |
+| `orders.update` | Edit Created orders | GM, supervisor | Order management (Full access) |
+| `orders.cancel` | Cancel a Created order (the customer cancelled) | GM, supervisor | Order management (Full access) |
+| `orders.review_returns` | Put returned items back into stock or wasted; **receive the order alerts** (§16) | GM, supervisor | Order returns (Full access) |
+
 `inventory.adjust` (set stock values) was **removed**: every inventory item comes from production and changes only through it (§18.5). The sync marked it inactive; its rows are kept, so it can come back with manual items.
 
 Cancelling batches is a general-manager decision, like deactivating users: `production.delete` is assignable to the GM only and belongs to no feature level. Supervisors or staff granted it before this change keep the row, but it has no effect (read-time `assignable_to` filter, §5.5), and their Production level still reads as *Full access*.
@@ -278,11 +289,11 @@ Cancelling batches is a general-manager decision, like deactivating users: `prod
 | Role | On creation |
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
-| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions and `inventory.view` (**not** `inventory.history`: the superadmin allows it per GM). |
-| Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Inventory View only**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
+| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions, `inventory.view` (**not** `inventory.history`: the superadmin allows it per GM) and all five `orders.*` permissions (Orders Record, Order management Full, Order returns Full). |
+| Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Inventory View only**; **Orders Record**, Order management and Order returns **Off**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
 | Staff | Every feature **Off** (no permissions). |
 
-`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing. The `production_plan.*` permissions were backfilled to existing active general managers only (supervisors' default is Off). `users.manage_access` is backfilled to existing **active supervisors** (Staff access Full). `inventory.view` is backfilled to existing active general managers and supervisors. `inventory.history` is in nobody's defaults, so it isn't backfilled: only the superadmin sees inventory history until it grants it.
+`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing. The `production_plan.*` permissions were backfilled to existing active general managers only (supervisors' default is Off). `users.manage_access` is backfilled to existing **active supervisors** (Staff access Full). `inventory.view` is backfilled to existing active general managers and supervisors. `inventory.history` is in nobody's defaults, so it isn't backfilled: only the superadmin sees inventory history until it grants it. The `orders.*` permissions are backfilled per the defaults: all five to existing active general managers, `orders.view` and `orders.create` to existing active supervisors, nothing to staff.
 
 **Default change for existing supervisors (migration `0009`).** Staff management used to default to Full access. Migration `0009_supervisor_staff_defaults` moved every supervisor whose staff management was **exactly Full** (`users.view/create/update`) to **View only** (removes `users.create` and `users.update`), deactivated supervisors included so that reactivating doesn't bring Full back. Supervisors at a custom or lower level were left alone. Each changed supervisor got one `feature.set` audit entry with no actor (System) and `details.source = "default_change"`. It runs once (Alembic); its downgrade does nothing.
 
@@ -316,7 +327,7 @@ Grant and revoke are idempotent.
 
 ## 6. Audit log
 
-Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `target_user_id`, `entity_type`, `entity_id`, `details` JSONB, `created_at`). `entity_type` / `entity_id` reference a non-user record (`supplier`, `customer`, `production_batch`); they're null for user and auth actions.
+Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `target_user_id`, `entity_type`, `entity_id`, `details` JSONB, `created_at`). `entity_type` / `entity_id` reference a non-user record (`supplier`, `customer`, `production_batch`, `order`); they're null for user and auth actions.
 
 | Area | Actions |
 |---|---|
@@ -329,10 +340,11 @@ Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `ta
 | Production | `production.create`, `production.step_finish` (`step`: 1–3), `production.step_reopen` (`step`, `reopened_steps`: e.g. `[1, 2, 3]`), `production.cancel` (`reason`). `details.code` holds the batch code. **Draft saves are not audited.** |
 | Packaging plan | `production_plan.update` (`changes`: field → `[old, new]`, only when something changed), `production_plan.confirm` (`expected_big`, `expected_small`). `entity_type = production_batch`, `details.code` = the batch code. |
 | Inventory | `inventory.adjust` (`item_code`, `name_en`, `name_km`, `from` / `to` = `{count, kg}`, `reason`): only entries from before production items became read-only (§18.5), kept as the record. Production movements are in the inventory history (§18), not the audit log. |
+| Orders | `order.create` (`customer`, `delivery_date`, `white_boxes`, `black_boxes`, `items`), `order.update` (`changes`: field → `{from, to}` for `customer`, `delivery_date`, `driver`, `note`, `boxes` = `{white, black, items}`; only when something changed), `order.cancel` (`reason`), `order.delivering` (`items`: the totals that left stock), `order.delivered` (`outcome`: `accepted` / `returned`, with `reason` and `returned` items), `order.returns_reviewed` (`outcome`: `partly_returned` / `fully_returned`, `to_stock`, `to_wasted`). Items are `[{item_code, name_en, name_km, count, kg}]`. `entity_type = order`, `details.code` = the order code. |
 | Settings | `settings.role_limit_update` (`role`, `from`, `to`; `null` = unlimited). Superadmin only, so hidden from general managers. |
 | Profile | `profile.update`; `profile.telegram_link` / `profile.telegram_unlink` (the superadmin's Telegram link, §7.5; hidden from the GM like everything the superadmin does) |
 
-`GET /audit-logs` is available to the **superadmin and general manager only** (§13 for what general managers don't see). This is a role check, not a permission. It supports filters (`action`, `actor_id`, `target_user_id`, `entity_type`, `entity_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references, and `entity: {type, id, name}` for supplier / customer / production batch entries (the record's current name, or the batch code, falling back to the logged one).
+`GET /audit-logs` is available to the **superadmin and general manager only** (§13 for what general managers don't see). This is a role check, not a permission. It supports filters (`action`, `actor_id`, `target_user_id`, `entity_type`, `entity_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references, and `entity: {type, id, name}` for supplier / customer / production batch / order entries (the record's current name, or the batch / order code, falling back to the logged one).
 
 ---
 
@@ -432,7 +444,9 @@ Every error has the same shape:
 | Production | `PRODUCTION_NOT_FOUND` (404), `PRODUCTION_STEP_NOT_READY` (409), `PRODUCTION_STEP_FINISHED` (409), `PRODUCTION_STEP_LOCKED` (409; no longer raised, kept for compatibility), `PRODUCTION_BALANCE_MISMATCH` (422, `details.wings` / `details.thighs`), `PRODUCTION_CONFLICT` (409, `details.batch`), `PRODUCTION_CANCELLED` (409), `PRODUCTION_COMPLETED` (409) |
 | Packaging plan | `PRODUCTION_PLAN_REQUIRED` (409: step 3 save / finish while the plan isn't confirmed), `PRODUCTION_PLAN_LOCKED` (409: plan change after step 3 is finished), `PRODUCTION_PLAN_EXCEEDS_OUTPUT` (422, `details.wings` / `details.thighs`: `{available, planned}`), `PRODUCTION_PLAN_COMMENT_REQUIRED` (422, `details.planned` / `details.actual`: `{big, small}`) |
 | Notifications | `NOTIFICATION_NOT_FOUND` (404: unknown, or someone else's) |
-| Inventory | `INVENTORY_INSUFFICIENT` (409: a balance would go below zero; `details.items` = `[{item_code, name_en, name_km, available_count, available_kg, needed_count, needed_kg}]`; raised by Finish, reopen and cancel; a safeguard, practically unreachable now that stock only changes through production), `INVENTORY_ITEM_NOT_FOUND` (404), `INVENTORY_ITEM_PRODUCTION_ONLY` (409: setting a production item by hand, for everyone, `details.item_code`) |
+| Orders | `ORDER_NOT_FOUND` (404), `ORDER_CONFLICT` (409, `details.order`: the current order), `ORDER_INVALID_STATUS` (409, `details.status`: the action isn't allowed in the order's status), `CUSTOMER_INACTIVE` (422: the chosen customer is deactivated), `CUSTOMER_NOT_FOUND` (422 on orders), `DRIVER_NOT_ALLOWED` (422: the driver isn't an active staff member or supervisor) |
+| Production guard | `PRODUCTION_STOCK_ALREADY_USED` (409: a reopen / cancel would take back stock that already left in orders; `details = {items: [{item_code, name_en, name_km, remaining_count, remaining_kg, needed_count, needed_kg, orders}], orders}`, §18.10) |
+| Inventory | `INVENTORY_INSUFFICIENT` (409: a balance would go below zero; `details.items` = `[{item_code, name_en, name_km, available_count, available_kg, needed_count, needed_kg}]`; raised by Finish, reopen and cancel as a safeguard, and by **Delivering** an order when its totals are above the stock, §19), `INVENTORY_ITEM_NOT_FOUND` (404), `INVENTORY_ITEM_PRODUCTION_ONLY` (409: setting a production item by hand, for everyone, `details.item_code`) |
 | Generic | `VALIDATION_ERROR` (with `details.fields`), `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `HTTP_ERROR` |
 
 Codes are defined in `app/core/errors.py`. **Never rename a code:** the UI depends on them.
@@ -499,8 +513,17 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | POST | `/production-plans/{batch_id}/confirm` | `production_plan.manage` |
 | GET | `/inventory` | `inventory.view` |
 | GET | `/inventory/items/{item_code}` | `inventory.view` |
-| GET | `/inventory/movements` | `inventory.history` |
+| GET | `/inventory/movements` | `inventory.history` (filters incl. `order_id`) |
 | POST | `/inventory/items/{item_code}/set` | `inventory.view`; production items → `409 INVENTORY_ITEM_PRODUCTION_ONLY` (every item today); manual items need `inventory.adjust` |
+| GET | `/orders` | `orders.view` |
+| GET | `/orders/stats` | `orders.view` |
+| GET | `/orders/customer-options` · `/orders/driver-options` · `/orders/available-stock` | `orders.create` or `orders.update` |
+| POST | `/orders` | `orders.create` |
+| GET | `/orders/{id}` | `orders.view` |
+| PATCH | `/orders/{id}` | `orders.update` (Created only) |
+| POST | `/orders/{id}/cancel` | `orders.cancel` (Created only) |
+| POST | `/orders/{id}/delivering` · `/orders/{id}/delivered` | `orders.create` |
+| POST | `/orders/{id}/returns/review` | `orders.review_returns` |
 | GET | `/health` (no prefix) | public |
 | GET | `/docs`, `/redoc`, `/openapi.json` (no prefix) | only when API docs are enabled (development by default, §13) |
 
@@ -572,6 +595,9 @@ How general managers (and, for staff, supervisors with Staff access) give access
 | `production_plan` | workstation | GM, supervisor | `production_plan.view` | — | `production_plan.view/manage` |
 | `inventory` | workstation | GM, supervisor, staff | `inventory.view` | — | — |
 | `inventory_history` | workstation | GM, supervisor | `inventory.history` | — | — |
+| `orders` | workstation | GM, supervisor, staff | `orders.view` | `orders.view/create` | — |
+| `order_management` | workstation | GM, supervisor | — | — | `orders.update/cancel` |
+| `order_returns` | workstation | GM, supervisor | — | — | `orders.review_returns` |
 | `staff_management` | settings | GM, supervisor | `users.view` | `users.view/create` | `users.view/create/update` |
 | `staff_access` | settings | supervisor | — | — | `users.manage_access` |
 
@@ -585,6 +611,7 @@ How general managers (and, for staff, supervisors with Staff access) give access
 
 - `users.delete`, `users.reset_password` and `permissions.grant` belong to **no** feature: they stay general-manager-only and are managed as detailed permissions by the superadmin.
 - **Startup validation** (`validate_features`, at import and in bootstrap): every code a feature uses exists, is assignable to every role in `applies_to`, and has no `grantable_by`; the first level is `off` with no codes; levels are unique and follow the order `off` → `view` → `record` → `full` (`LEVELS`), where any after `off` may be omitted (production and staff management use `record`; staff access has only `off` and `full`). A mismatch stops the API from starting.
+- **Orders:** *View only* = see orders; *Record* = also create them, start delivery, mark them delivered and record returns (Orders has no Full access level). **Order management** *Full access* = edit and cancel Created orders. **Order returns** *Full access* = review returns and **receive the order alerts**. A GM with default permissions reads as Orders *Record*, management and returns *Full access*. A supervisor with Staff access can give staff Orders only up to its own Orders level.
 - **Production plan:** *View only* = see plans and receive the production alerts; *Full access* = also set and confirm plans. Supervisors start at *Off*; the GM starts at *Full access*.
 
 ### 12.2 Current level
@@ -631,6 +658,7 @@ The superadmin can use these endpoints too. Adding and editing staff info stay s
 - **API docs** (`/docs`, `/redoc`, `/openapi.json`) describe every role, so they are served only when `API_DOCS_ENABLED=true`, or when it is unset and `ENVIRONMENT=development` (the default). Set `ENVIRONMENT=production` in production.
 - **UI:** one build for everyone. The superadmin's role label is "System" / "ប្រព័ន្ធ", like the API's redacted references; its extra screens are runtime checks. Their code is in the bundle (visible in browser dev tools), but they never receive superadmin data because the API redacts it.
 - **Notifications and plans:** a notification stores the actor's id and serializes it as a `UserRef` for the recipient reading it, so a step finished by the superadmin reads as "System" to everyone else; the Telegram texts never name the actor. Plan `confirmed_by` / `updated_by` are `UserRef`s too.
+- **Orders:** every user reference on an order (`created_by`, `driver`, `delivering_by`, `delivered_by`, `returns_reviewed_by`, `cancelled_by`, `updated_by`, each return's `reviewed_by`) is a `UserRef`; the order routes are in the redaction and superset sweeps, with orders the superadmin created and cancelled. Driver options list only active staff and supervisors.
 - **Linked Telegram id:** the superadmin's (like everyone's) `telegram_user_id` is never serialized; responses only carry `telegram_linked`.
 - **Tests:** `tests/test_redaction.py` calls every GET route (from the OpenAPI schema) plus key mutations as a GM, a supervisor and staff, over data the superadmin created, and fails if a body contains the superadmin's id, name or the word "superadmin". Its data includes a batch whose step 2 the superadmin finished and whose plan it confirmed (alerts for the GM and a supervisor with plan access).
 - **Not covered (known):** five wrong passwords for the login name `superadmin` on the login page return "account locked", which reveals that the account exists.
@@ -725,7 +753,7 @@ All of these (except the comment) are required at Finish. The API field names st
 - Step `status`: `draft` → `finished`. A step's row exists once the previous one has been finished (`produced` / `standardize` are `null` in responses until then). A finished step is read-only: saving or finishing it again → `PRODUCTION_STEP_FINISHED`. Saving or finishing a step whose previous one isn't finished → `PRODUCTION_STEP_NOT_READY`.
 - **Reopen** step N (`production.update`): allowed for any finished step of an in-progress or completed batch, whatever the later steps are. In one transaction (batch row locked), step N **and every later finished step** go back to `draft` (`finished_by` / `finished_at` and **the step's date** cleared; the next Finish records that new day); **all values are kept**; `current_step` becomes N; a completed batch goes back to `in_progress` (`completed_at = null`); `version` + 1. The later steps are then finished again in order (`PRODUCTION_STEP_NOT_READY` otherwise), which recomputes the step 2 counts from step 1 and re-checks the piece balance at step 3. **Reopening step 1 or 2 puts the packaging plan back to `pending`** (values kept, `confirmed_by/at` cleared), so step 3 waits until it's confirmed again; reopening step 3 keeps a confirmed plan (still editable until step 3 is finished again). Each step in a batch response carries `reopens_steps` (the steps editing it would put back to draft; `[]` when it isn't finished or the batch is cancelled) so the UI can warn. Reopening a step that is already a draft changes nothing. `PRODUCTION_STEP_LOCKED` is no longer raised.
 - **Cancel** (`production.delete`, general manager and superadmin only): only `in_progress` batches (`PRODUCTION_COMPLETED` for completed ones), with a required reason (1–500 characters). A cancelled batch is read-only (`PRODUCTION_CANCELLED` for any change) and excluded from the figures.
-- **Inventory side effects** (§18, tracked batches): **Finish** writes the step's stock movements, **reopen** reverses those of every step it sends back to draft (latest first), **cancel** reverses all of the batch's movements, in the same transaction. If a balance would go below zero the action is refused with `409 INVENTORY_INSUFFICIENT` and nothing changes. Batches created before inventory existed (`inventory_tracked = false`) never move stock.
+- **Inventory side effects** (§18, tracked batches): **Finish** writes the step's stock movements, **reopen** reverses those of every step it sends back to draft (latest first), **cancel** reverses all of the batch's movements, in the same transaction. If a balance would go below zero the action is refused with `409 INVENTORY_INSUFFICIENT` and nothing changes. **Production guard:** a reopen or cancel needs the batch's **own** remaining stock to cover what it takes back; if its packs or packed by-products already left in orders → `409 PRODUCTION_STOCK_ALREADY_USED` with the items and the order codes (§18.10), and nothing changes. Batches created before inventory existed (`inventory_tracked = false`) never move stock.
 - **Batch code** `PR-YYYYMMDD-NNN`: from the **creation day** in `BUSINESS_TIMEZONE` (e.g. 17:30 UTC on 30 Sep is already 1 Oct in Phnom Penh), numbered per day by a counter row (`production_batch_counters`, `INSERT … ON CONFLICT … RETURNING`), so concurrent creations get distinct numbers. The code never changes, whenever the steps are finished or reopened.
 
 ### 14.3 Drafts and versions
@@ -808,7 +836,7 @@ Audit: `production_plan.update` (field diff, only when something changed) and `p
 
 ## 16. Notifications
 
-Production alerts, stored in the app (the bell) and sent on Telegram.
+Production and order alerts, stored in the app (the bell) and sent on Telegram.
 
 ### 16.1 When and to whom
 
@@ -816,8 +844,12 @@ Production alerts, stored in the app (the bell) and sent on Telegram.
 |---|---|---|
 | Step 2 finished | `production.processing_finished` | `code`, `quantity`, `wings`, `thighs`, `actor_id`, `repeat` |
 | Step 3 finished | `production.completed` | `code`, `matches`, `planned_big`, `planned_small`, `actual_big`, `actual_small`, `comment`, `actor_id`, `repeat` |
+| Order out for delivery | `order.delivering` | `code`, `customer`, `white`, `black` (box counts), `actor_id`, `repeat` |
+| Order delivered, everything accepted | `order.delivered` | `code`, `customer`, `actor_id`, `repeat` |
+| Order delivered with returns | `order.return_pending` | `code`, `customer`, `returned` (items), `reason`, `actor_id`, `repeat` |
+| Return reviewed | `order.returns_reviewed` | `code`, `customer`, `outcome` (`partly_returned` / `fully_returned`), `to_stock`, `to_wasted` (items), `actor_id`, `repeat` |
 
-- **Recipients:** every **active** user holding `production_plan.view` (effective permissions: granted, active permission, still assignable to the role): the GM, the superadmin (implicitly) and the supervisors given plan access. Staff never. The person who finished the step is included when they qualify.
+- **Recipients:** every **active** user holding the alert's permission (effective permissions: granted, active permission, still assignable to the role), the superadmin implicitly. Production alerts: `production_plan.view` (the GM and the supervisors given plan access). Order alerts: `orders.review_returns` (the GM and the supervisors given Order returns). Staff hold neither. The person who acted is included when they qualify. Order items in the payload are `[{item_code, name_en, name_km, count, kg}]` (names kept with the alert).
 - `repeat` is `true` when the batch already had an alert of that type (e.g. step 2 finished again after a reopen); the text says "again".
 - One `notifications` row per recipient is inserted **in the same transaction** as the Finish: an alert exists exactly when the step was finished.
 
@@ -843,7 +875,14 @@ Production alerts, stored in the app (the bell) and sent on Telegram.
 - 🎉 *"{code}: production completed as planned — {big} × 4-Piece Packs, {small} × 2-Piece Packs."* Button **Open batch / បើកផលិតកម្ម**.
 - ⚠️ *"{code}: production completed, different from the plan. Planned {pb} / {ps}, actual {ab} / {as}. Comment: “{comment}”."* Button **Open batch**.
 
-Buttons are inline `web_app` buttons to `MINI_APP_URL` + `/workstation/production-plans/<batch id>` or `/workstation/production/<batch id>?step=3`; without an HTTPS `MINI_APP_URL` the message is text only. The texts never name who finished the step.
+- 🚚 *"{code} for {customer} is out for delivery — {white} white / {black} black boxes."*
+- ✅ *"{code}: delivered to {customer}, everything accepted."*
+- ↩️ *"{code}: {customer} returned items — {3 × 4-Piece Packs, 0.250 kg Liver (packed)}. Reason: “{reason}”. Review the return."*
+- 📦 *"{code}: return reviewed — partly / fully returned ({…} to stock, {…} wasted)."* (*nothing* when a side is empty)
+
+Order alerts have the button **Open order / បើកការបញ្ជាទិញ** → `/workstation/orders/<order id>`. The customer name, item names and the reason are escaped.
+
+Buttons are inline `web_app` buttons to `MINI_APP_URL` + `/workstation/production-plans/<batch id>`, `/workstation/production/<batch id>?step=3` or `/workstation/orders/<order id>`; without an HTTPS `MINI_APP_URL` the message is text only. The texts never name who acted.
 
 ### 16.3 The bell
 
@@ -888,7 +927,7 @@ How many **active** general managers, supervisors and staff there may be. The su
 
 ## 18. Inventory
 
-**Inventory (ស្តុក)** totals what production has made and used, across all batches: a **ledger of movements** (`inventory_movements`, append-only) plus a **balance per item** (`inventory_balances`). Every production Finish writes movements; reopen and cancel write reversing movements. **Every item comes from production and changes only through it**: nobody, not even the superadmin, changes it by hand. **A balance can never go below zero.** The production process itself doesn't change: each batch still uses only its own chickens.
+**Inventory (ស្តុក)** totals what production has made and used and what orders took, across all batches: a **ledger of movements** (`inventory_movements`, append-only) plus a **balance per item** (`inventory_balances`). Every production Finish writes movements; reopen and cancel write reversing movements; an order leaving for delivery takes its packs and packed by-products out, and its return review puts them back (stock or wasted). **Every item changes only through production and orders**: nobody, not even the superadmin, changes it by hand. **A balance can never go below zero.** The production process itself doesn't change: each batch still uses only its own chickens.
 
 ### 18.1 Items
 
@@ -902,7 +941,8 @@ Defined in `app/inventory/catalog.py`, in two **sections**: **stock** and **wast
 | stock · packed | 4-Piece Packs / កញ្ចប់ ៤ ដុំ (`packs_big`), 2-Piece Packs / កញ្ចប់ ២ ដុំ (`packs_small`) | count | step 3 |
 | stock · packed | By-product (packed / carried forward), e.g. Liver (packed) / ថ្លើមមាន់ (វេចខ្ចប់) (`byproduct_packed.liver`) | kg | step 3 |
 | wasted | Wings (`wasted.wings`), Thighs (`wasted.thighs`) | count + kg (**estimated**) | step 3 rejects |
-| wasted | each by-product (`wasted.byproduct.liver`, …) | kg | step 3 rejected kg |
+| wasted | each by-product (`wasted.byproduct.liver`, …) | kg | step 3 rejected kg; packed by-products returned damaged (§19) |
+| wasted | 4-Piece Packs (`wasted.packs_big`), 2-Piece Packs (`wasted.packs_small`) | count | packs returned damaged (§19) |
 
 - The by-product items are generated from the production by-product catalog (§14.1), so a new by-product gets its three inventory items automatically; its balance rows are created at startup and on demand (no migration).
 - Marinade is **not** tracked.
@@ -941,18 +981,18 @@ Migration `0010` added `production_batches.inventory_tracked`: **false for every
 
 ### 18.5 Production items are read-only
 
-Each catalog item has an **`origin`**: `production` (changes only through production: Finish, reopen, cancel) or `manual` (set by hand). **Every item today is `production`.**
+Each catalog item has an **`origin`**: `production` (changes only through production — Finish, reopen, cancel — and orders — Delivering, return review) or `manual` (set by hand). **Every item today is `production`.**
 
 - `POST /inventory/items/{item_code}/set` (guard `inventory.view`) answers `409 INVENTORY_ITEM_PRODUCTION_ONLY` (`details.item_code`) for a production item, **for everyone, the superadmin included**; an unknown item → `404`. The endpoint stays for future `manual` items, which will need `inventory.adjust` (`MISSING_PERMISSION` otherwise), `{count?, kg?, reason}` (only units the item tracks, ≥ 0, reason 1–500 characters) and write one adjustment movement of the difference plus an `inventory.adjust` audit entry. The body is validated before the item is looked at, so an invalid body is `422` first.
 - **One-time reset (migration `0011`):** every `source = adjustment` movement was deleted; each remaining movement's `balance_count_after` / `balance_kg_after` was recomputed as a running total per item (by `created_at`, `id`), and `inventory_balances` set to the per-item totals. Inventory therefore reflects production only. The `inventory.adjust` audit entries stay as the record. Running it again changes nothing; it stops with an error instead of writing a negative balance (only possible if an adjustment had covered more by-product than the batches produced).
 
 ### 18.6 Where the stock came from (per batch)
 
-`GET /inventory/items/{item_code}` (`inventory.view`, so everyone with Inventory) returns the item (`code`, names, `section`, `group`, units, `kg_estimated`, `origin`), its balance and `updated_at`, and **`sources`**: for each batch, the **net** quantity it currently contributes, the sum of all that batch's movements for the item, reversals included, `[{batch_id, code, count, kg, kg_estimated, last_step}]`, only where the net isn't zero, **oldest batch first**. `last_step` is the latest of that batch's steps still contributing; `kg_estimated` is set when its contribution includes estimated kg. **The totals equal the balance.** No movement details (those need `inventory.history`). Untracked batches never appear.
+`GET /inventory/items/{item_code}` (`inventory.view`, so everyone with Inventory) returns the item (`code`, names, `section`, `group`, units, `kg_estimated`, `origin`), its balance and `updated_at`, and **`sources`**: for each batch, the **net** quantity it currently contributes, the sum of all that batch's movements for the item, **every source** (production with its reversals, order stock-outs taken from it, returns given back to it), `[{batch_id, code, count, kg, kg_estimated, last_step}]`, only where the net isn't zero, **oldest batch first**. `last_step` is the latest of that batch's steps still contributing; `kg_estimated` is set when its contribution includes estimated kg. **The totals equal the balance.** No movement details (those need `inventory.history`). Untracked batches never appear.
 
 Example: after two batches finish step 1 (100 + 50 chickens), Chicken lists both; once the 50-chicken batch finishes step 2 it drops out of Chicken and appears under Wings, Thighs and the processed by-products; after its step 3 it drops out of Wings and appears under the packs and wasted items.
 
-> **Note:** the breakdown adds up only because stock changes through production alone. When stock going out (sales, delivery) is added, an allocation rule is needed, usually **oldest batch first (FIFO)**, so each batch's remaining contribution is known and the breakdown still adds up.
+The breakdown keeps adding up with orders because every order movement is **attributed to a batch** (§18.10): stock leaves oldest batch first, and returns go back to the batches it came from. A batch with only order movements for an item (e.g. wasted packs from a return) shows `last_step` 3.
 
 ### 18.7 History (`inventory.history`)
 
@@ -967,7 +1007,7 @@ The movement history is behind **one** permission, `inventory.history` (feature 
 |---|---|---|
 | `GET /inventory` | `inventory.view` | `{sections: [{section, items: [{code, section, group, name_en, name_km, tracks_count, tracks_kg, kg_estimated, origin, count, kg, updated_at}]}]}`, stock first. `updated_at` = the latest movement, `null` if it never changed. Every catalog item is listed (0 until it moves). |
 | `GET /inventory/items/{item_code}` | `inventory.view` | §18.6. |
-| `GET /inventory/movements` | `inventory.history` | Newest first. Filters: `item_code`, `section`, `source` (`production` / `adjustment`), `batch_id`, `batch_code` (part of the code), `date_from` / `date_to` (business days, `BUSINESS_TIMEZONE`); `page`, `page_size` (default 50, max 100). Each row: item and names, section, `count_delta`, `kg_delta`, `kg_estimated`, `source`, `batch {id, code}`, `step`, `reversal_of`, `reason`, `balance_count_after`, `balance_kg_after`, `created_by` (`UserRef`), `created_at`. |
+| `GET /inventory/movements` | `inventory.history` | Newest first. Filters: `item_code`, `section`, `source` (`production` / `adjustment` / `order` / `order_return`), `batch_id`, `batch_code` (part of the code), `order_id`, `date_from` / `date_to` (business days, `BUSINESS_TIMEZONE`); `page`, `page_size` (default 50, max 100). Each row: item and names, section, `count_delta`, `kg_delta`, `kg_estimated`, `source`, `batch {id, code}` (for order movements: the batch the quantity is attributed to), `order {id, code}` (order movements, else `null`), `step`, `reversal_of`, `reason`, `balance_count_after`, `balance_kg_after`, `created_by` (`UserRef`), `created_at`. |
 | `POST /inventory/items/{item_code}/set` | `inventory.view` | §18.5: `409 INVENTORY_ITEM_PRODUCTION_ONLY` for every item today. |
 | `GET /production/{id}` | `production.view` | With `inventory.history`: `inventory_tracked` and `stock_changes`, the batch's un-reversed movements `[{step, item_code, section, name_en, name_km, count_delta, kg_delta, kg_estimated}]`, by step then item order (empty when untracked). Without it both keys are absent. |
 
@@ -984,3 +1024,82 @@ Weights are strings with 3 decimals (`"4.200"`), like production.
 - When `inventory.view` was added, the one-time backfill gave it to existing active general managers and supervisors; `inventory.history` is backfilled to nobody.
 - A supervisor with Staff access can give staff Inventory View only while it holds it itself (§12.3).
 - Redaction (§13): movements made by the superadmin (steps it finished) show "System" in `created_by`.
+
+### 18.10 Orders and batches (FIFO)
+
+Orders (§19) move only orderable items (the packs and the packed by-products). Every order movement carries **`order_id`** and the **`batch_id`** its quantity is attributed to, so the per-batch breakdown (§18.6) always equals the balance.
+
+- **Delivering** (`source = order`, `inventory_service.take_for_order`): for each item, the order's total is taken from the batches by their **current net contribution, oldest batch first** (by creation time, then code), **one movement per (item, batch)**. Example: batches A (7 × 4-Piece) and B (7 × 4-Piece), an order of 10 → A −7, B −3; the breakdown then shows B 4. Not enough stock → `409 INVENTORY_INSUFFICIENT` (per item: available, needed) and nothing is written; the order stays Created.
+- **Return review** (`source = order_return`, `return_from_order`): what goes **back to stock** returns to the batches the order took from, **newest first**, up to what each gave; what is **wasted** continues the same split into the item's wasted item (`wasted.packs_big` / `wasted.packs_small` / `wasted.byproduct.<code>`) **linked to the same batches**. Example (continued): 5 returned, 3 to stock and 2 wasted → B +3 (back to 7), 2 wasted 4-Piece Packs attributed to A.
+- **Production guard** (`reverse`): a reopen (of step 3, or an earlier step that cascades to it) or a cancel takes back what the batch made; it needs the batch's **own** remaining contribution of each item to cover that. If part of it already left in orders → `409 PRODUCTION_STOCK_ALREADY_USED` (`details.items`: `remaining_*` / `needed_*` per unit and the order codes that took it; `details.orders`: all of them), nothing changes. Returned to stock, the packs count again (the reopen is then allowed); returned as wasted, they don't.
+- **Locking:** the balance rows are locked (`FOR UPDATE`, `item_code` order) **before** the contributions are read, so a Delivering and a reversal on the same items take turns and each sees the other's movements. Lock order stays: the batch or order row, then the balances.
+
+---
+
+## 19. Orders
+
+**Orders (ការបញ្ជាទិញ)** under **Workstation**: what a customer receives, packed in **white and black boxes**, its delivery and what comes back.
+
+```
+created ──► delivering ──► success                 (customer accepted everything)
+   │        (stock out)    return_pending ──► partly_returned / fully_returned
+   └──► cancelled (customer cancelled; only while created)
+```
+
+No step back: a delivering order never returns to Created.
+
+### 19.1 Data
+
+| Table | Columns |
+|---|---|
+| `orders` | `id`, `code` (unique, `OR-YYYYMMDD-NNN`), `customer_id` (FK, RESTRICT), `delivery_date` (default today), `driver_id` (FK users, null), `note` (≤ 1000), `status`, `return_reason`, `cancel_reason` (≤ 500), `version`, `created_by` / `updated_by` / `delivering_by` / `delivered_by` / `returns_reviewed_by` / `cancelled_by`, `created_at`, `updated_at`, `delivering_at`, `delivered_at`, `returns_reviewed_at`, `cancelled_at` |
+| `order_boxes` | `id`, `order_id` (cascade), `color` (`white` \| `black`, a code: it can carry meaning later), `position` (1, 2, … unique per order) |
+| `order_box_items` | `id`, `box_id` (cascade), `item_code`, `count` (packs, whole > 0) **xor** `kg` (packed by-products, > 0, 3 decimals), `position`; one line per item per box. **Lines are rows** so `unit_price` / `amount` can be added later without restructuring. |
+| `order_return_items` | `id`, `order_id`, `item_code` (unique per order), `returned_count` / `returned_kg`, `to_stock_count` / `to_stock_kg`, `to_wasted_count` / `to_wasted_kg` (null until reviewed), `reviewed_by`, `reviewed_at` |
+| `order_counters` | `day`, `last_number` (codes per creation day, like production) |
+
+CHECKs: the statuses, the colours, `count` xor `kg` > 0 on lines and returns, the split ≥ 0 and (once reviewed) stock + wasted = returned. **Orderable items:** `packs_big` (4-Piece Packs), `packs_small` (2-Piece Packs) and every `byproduct_packed.<code>` (the same codes as inventory, §18.1).
+
+### 19.2 Rules
+
+- **Create** (`orders.create`): the customer must be **active** (`CUSTOMER_INACTIVE` / `CUSTOMER_NOT_FOUND`, 422); the driver, optional, an **active staff member or supervisor** (`DRIVER_NOT_ALLOWED`); ≥ 1 box, each with ≥ 1 line; only orderable items, in their unit, one line per item per box (`VALIDATION_ERROR`, with `details.fields` locations such as `["body", "boxes", "1", "lines", "0", "count"]`). Stock is **not** touched: the response's `stock_warnings` lists items whose current stock is below the order's totals.
+- **Edit** (`orders.update`, Created only): partial; `boxes` replaces every box and line; a customer or driver is checked only when it changes. Audit diff (§6).
+- **Cancel** (`orders.cancel`, Created only): reason required (the UI pre-fills "Customer cancelled").
+- **Delivering** (`orders.create`, from Created): the order's totals leave stock, oldest batch first (§18.10); not enough → `INVENTORY_INSUFFICIENT` and it stays Created.
+- **Delivered** (`orders.create`, from Delivering): `outcome: accepted` → **success** (no items allowed); `outcome: returned` with a **reason** and items, each > 0 and ≤ what was delivered of that item, listed once → **return_pending**.
+- **Review returns** (`orders.review_returns`, from Return pending): every returned item exactly once, back to stock + wasted = returned (in its unit) → **fully_returned** when everything delivered came back, otherwise **partly_returned**. Stock goes back to its batches; wasted goes to the wasted items (§18.10).
+- **Concurrency:** every write locks the order row and uses the order **`version`**; checks run: not found → status (`ORDER_INVALID_STATUS`, `details.status`) → version (`409 ORDER_CONFLICT`, current order in `details.order`) → values; `version` + 1.
+- Packs are whole numbers everywhere; by-products kg with 3 decimals (strings in responses).
+
+### 19.3 Endpoints
+
+| Endpoint | Guard | Notes |
+|---|---|---|
+| `GET /orders` | `orders.view` | Filters `status` (`all`, a status, or `completed` = success + partly + fully returned), `customer_id`, `driver_id`, `date_from` / `date_to` (delivery date), `q` (code or customer name); newest delivery date first; paging 20 (max 100). Items: `code`, `status`, `customer` (`id, name, phone_display, location, is_active`), `delivery_date`, `driver` (`UserRef`), `white_boxes`, `black_boxes`, `created_at`, `updated_at`. |
+| `GET /orders/stats` | `orders.view` | `created`, `delivering`, `return_pending` (now) and `delivered_this_month` (delivered in the current month, `BUSINESS_TIMEZONE`). |
+| `GET /orders/{id}` | `orders.view` | The order, its timestamps and who did each step, `boxes` with `lines` (`item_code`, names, `unit`, `count` / `kg`), **`summary`** (per colour: `boxes` and the items' totals; `total`: all boxes), `returns` (delivered / returned / to stock / to wasted per item, reviewer), `stock_warnings` (only while Created). |
+| `GET /orders/customer-options` | `orders.create` or `orders.update` | Active customers `{id, name, phone_display}` (`q` on name or phone digits; at most 20), **no Customers access needed**. |
+| `GET /orders/driver-options` | `orders.create` or `orders.update` | Active staff and supervisors `{id, full_name, role}`. |
+| `GET /orders/available-stock` | `orders.create` or `orders.update` | The orderable items with their current balance (`unit`, `count` / `kg`). |
+| `POST /orders` | `orders.create` | `{customer_id, delivery_date?, driver_id?, note?, boxes: [{color, lines: [{item_code, count? \| kg?}]}]}` → `201`. |
+| `PATCH /orders/{id}` | `orders.update` | `{version, …same fields, all optional}`. |
+| `POST /orders/{id}/cancel` | `orders.cancel` | `{version, reason}`. |
+| `POST /orders/{id}/delivering` | `orders.create` | `{version}`. |
+| `POST /orders/{id}/delivered` | `orders.create` | `{version, outcome: accepted}` or `{version, outcome: returned, reason, items: [{item_code, count? \| kg?}]}`. |
+| `POST /orders/{id}/returns/review` | `orders.review_returns` | `{version, items: [{item_code, to_stock_count?, to_stock_kg?, to_wasted_count?, to_wasted_kg?}]}`. |
+
+Delivering, Delivered and the review store their alerts in the same transaction and send them to Telegram after the response (§16).
+
+### 19.4 Access
+
+| Feature | Applies to | Levels |
+|---|---|---|
+| `orders` (Orders) | GM, supervisor, staff | Off · View only (`orders.view`) · Record (`+ orders.create`) |
+| `order_management` (Order management) | GM, supervisor | Off · Full access (`orders.update`, `orders.cancel`) |
+| `order_returns` (Order returns) | GM, supervisor | Off · Full access (`orders.review_returns`; receives the order alerts) |
+
+Defaults: general managers Orders **Record**, management and returns **Full**; supervisors Orders **Record**, management and returns **Off**; staff Off; the superadmin implicitly everything. Backfilled to existing users per these defaults (§5.3). A supervisor with Staff access sets staff Orders up to its own level (§12.3).
+
+### 19.5 Prices later
+
+Orders have no prices yet. Because each line is its own row (`order_box_items`), adding `unit_price` / `amount` columns (and a total on the order) won't restructure anything; the box colour is stored as a code so a colour can later carry a price list.

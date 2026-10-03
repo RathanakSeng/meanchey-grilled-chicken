@@ -47,6 +47,14 @@ const ProductionBatchPage = lazy(() =>
 const InventoryPage = lazy(() =>
   import('@/pages/workstation/inventory/InventoryPage').then((m) => ({ default: m.InventoryPage })),
 )
+// Orders: a lazy chunk for holders of orders.view.
+const OrderListPage = lazy(() =>
+  import('@/pages/workstation/orders/OrderListPage').then((m) => ({ default: m.OrderListPage })),
+)
+const OrderPage = lazy(() => import('@/pages/workstation/orders/OrderPage').then((m) => ({ default: m.OrderPage })))
+const OrderFormPage = lazy(() =>
+  import('@/pages/workstation/orders/OrderFormPage').then((m) => ({ default: m.OrderFormPage })),
+)
 // Packaging plans: another lazy chunk, only for plan holders.
 const PlanListPage = lazy(() =>
   import('@/pages/workstation/production-plans/PlanListPage').then((m) => ({ default: m.PlanListPage })),
@@ -142,6 +150,48 @@ export const router = createBrowserRouter([
                     </PageLoading>
                   </RequireAccess>
                 ),
+              },
+              {
+                path: 'orders',
+                element: <RequireAccess permission="orders.view" />,
+                children: [
+                  {
+                    index: true,
+                    element: (
+                      <PageLoading>
+                        <OrderListPage />
+                      </PageLoading>
+                    ),
+                  },
+                  {
+                    path: 'new',
+                    element: (
+                      <RequireAccess permission="orders.create">
+                        <PageLoading>
+                          <OrderFormPage key="new" mode="create" />
+                        </PageLoading>
+                      </RequireAccess>
+                    ),
+                  },
+                  {
+                    path: ':orderId',
+                    element: (
+                      <PageLoading>
+                        <OrderPage />
+                      </PageLoading>
+                    ),
+                  },
+                  {
+                    path: ':orderId/edit',
+                    element: (
+                      <RequireAccess permission="orders.update">
+                        <PageLoading>
+                          <OrderFormPage key="edit" mode="edit" />
+                        </PageLoading>
+                      </RequireAccess>
+                    ),
+                  },
+                ],
               },
               {
                 path: 'production-plans',

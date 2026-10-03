@@ -12,7 +12,8 @@ from app.schemas.common import UserRef
 # Same wire format as production weights: a string with 3 decimals ("12.500").
 KgOut = Annotated[Decimal, PlainSerializer(lambda v: f"{v:.3f}", return_type=str)]
 
-MovementSource = Literal["production", "adjustment"]
+# order: stock out at Delivering; order_return: returned items (stock or wasted) at the review.
+MovementSource = Literal["production", "adjustment", "order", "order_return"]
 # Why a reversal movement was written (stored in `reason`).
 ReversalCause = Literal["reopen", "cancel"]
 
@@ -66,6 +67,11 @@ class MovementBatch(BaseModel):
     code: str
 
 
+class MovementOrder(BaseModel):
+    id: uuid.UUID
+    code: str
+
+
 class MovementOut(BaseModel):
     id: int
     item_code: str
@@ -76,7 +82,10 @@ class MovementOut(BaseModel):
     kg_delta: KgOut | None
     kg_estimated: bool
     source: MovementSource
+    # Production: the batch. Orders: the batch the quantity is attributed to (FIFO).
     batch: MovementBatch | None
+    # Order / order_return movements: the order.
+    order: MovementOrder | None = None
     step: int | None
     # Set on a reversal: the movement it undoes; `reason` is then "reopen" or "cancel".
     reversal_of: int | None

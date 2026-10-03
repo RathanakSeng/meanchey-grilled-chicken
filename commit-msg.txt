@@ -1,18 +1,15 @@
-<ADD, UPDATE, REMOVE><BOTH><INVENTORY-ACCESS>: production items read-only, inventory history behind its own permission (grantor must hold it), per-batch stock breakdown
+<ADD, UPDATE><BOTH><ORDERS>: orders under Workstation with white/black boxes, delivery statuses, returns review, stock out oldest batch first, production guard, order alerts
 
-- API: ItemDef.origin (all production); set → 409 INVENTORY_ITEM_PRODUCTION_ONLY for everyone;
-  inventory.adjust + inventory_adjust removed; migration 0011 deletes adjustments and recomputes
-  balances / balance_*_after from production (idempotent, refuses negatives)
-- API: inventory.history + feature inventory_history (GM, supervisor; Off by default; no backfill);
-  FeatureDef.grantor_must_hold: hidden from grantors who don't hold it (omitted in GET, 404 on PUT,
-  feature.set audit entries hidden), no cascade; GET /inventory/movements needs it; batch
-  inventory_tracked / stock_changes only with it (batch_out takes the viewer)
-- API: GET /inventory/items/{item_code}: balance + per-batch net sources (oldest first, totals =
-  balance)
-- UI: Set button and Set value sheet removed; History tab only with inventory.history; item sheet
-  "From production" breakdown with total, recent changes only with history; batch Stock changes
-  only with history; ['inventory-item', code]; km/en texts
-- Tests: test_inventory_history, test_migration_inventory_reset; inventory, defaults, features,
-  grants, redaction and superset updated
-- Docs: API FEATURES §5/§6/§9/§10/§12/§13/§14/§18, ARCHITECTURE feature layer + decision rows;
-  UI FEATURES §6.5 / Access tab / matrix, ARCHITECTURE query keys, item sheet, gating
+- API: orders.view/create/update/cancel/review_returns; features orders (Off/View/Record), order_management (Off/Full), order_returns (Off/Full); defaults GM Record+Full+Full, supervisor Record, staff Off; backfilled; supervisor cap applies
+- API: migration 0012 — orders (OR-YYYYMMDD-NNN, per-day counter), order_boxes, order_box_items (rows, count xor kg), order_return_items; inventory_movements.order_id + order/order_return sources; order notification types
+- API: status flow created → delivering → success | return_pending → partly/fully_returned, created → cancelled; row lock + version (ORDER_CONFLICT), ORDER_INVALID_STATUS, CUSTOMER_INACTIVE, DRIVER_NOT_ALLOWED; stock_warnings on create/edit
+- API: Delivering takes stock oldest batch first (one movement per item and batch, INVENTORY_INSUFFICIENT keeps Created); return review gives back newest first, wasted to wasted.packs_big/small or wasted by-products of the same batch; per-batch breakdown counts every source
+- API: production guard on reopen/cancel → PRODUCTION_STOCK_ALREADY_USED (items, remaining, needed, order codes)
+- API: endpoints /orders (list, stats, detail with per-colour summary, customer/driver options, available stock, create, edit, cancel, delivering, delivered, returns/review); movements filter order_id + order link; audit order.* with order entity names
+- API: alerts to orders.review_returns holders (bell + Telegram, Open order button, escaped text); notify() takes the recipients' permission
+- API: tests test_orders, test_order_notifications, test_migration_orders; redaction and superset sweeps fill {order_id}; feature/default tests updated
+- UI: Workstation → Orders (lazy list / form / order page): KPIs, status chips, customer and date filters, search in the URL; boxes builder with live per-colour summary and stock warnings; Start delivery, Mark delivered and Review return sheets; timeline, returns, conflict reload
+- UI: wasted pack cards, order/return history rows and filter, bell texts, audit labels, PRODUCTION_STOCK_ALREADY_USED and order error translations, km + en strings
+- Docs: API FEATURES (§19 Orders, §18.10 FIFO, permissions, audit, errors, endpoints, notifications) and ARCHITECTURE (tables, ER, FIFO design, decisions); UI FEATURES (§6.6, access matrix) and ARCHITECTURE (routes, query keys, layout, decisions)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

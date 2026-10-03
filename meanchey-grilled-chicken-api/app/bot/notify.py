@@ -28,7 +28,14 @@ from app.bot.setup import create_bot
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Language, Notification, User, utcnow
-from app.services.notification_service import COMPLETED, PROCESSING_FINISHED
+from app.services.notification_service import (
+    COMPLETED,
+    ORDER_DELIVERED,
+    ORDER_DELIVERING,
+    ORDER_RETURN_PENDING,
+    ORDER_RETURNS_REVIEWED,
+    PROCESSING_FINISHED,
+)
 
 log = logging.getLogger(__name__)
 
@@ -46,12 +53,67 @@ def mini_app_link(path: str) -> str | None:
     return base.rstrip("/") + path
 
 
+def _items_text(lang: Language, items: list[dict[str, Any]] | None) -> str:
+    """ "3 × 4-Piece Packs, 1.200 kg Liver (packed)" in `lang` (names escaped)."""
+    parts = []
+    for item in items or []:
+        name = escape(str(item.get("name_km" if lang == Language.KM else "name_en", "")))
+        if item.get("count") is not None:
+            parts.append(t(lang, "order_item_count", name=name, count=item["count"]))
+        else:
+            parts.append(t(lang, "order_item_kg", name=name, kg=item.get("kg")))
+    return ", ".join(parts) if parts else t(lang, "order_nothing")
+
+
+def _order_message(row: Notification, lang: Language) -> str:
+    p: dict[str, Any] = row.payload
+    code = escape(str(p.get("code", "")))
+    customer = escape(str(p.get("customer", "")))
+    if row.type == ORDER_DELIVERING:
+        return t(
+            lang,
+            "order_delivering",
+            code=code,
+            customer=customer,
+            white=p.get("white", 0),
+            black=p.get("black", 0),
+        )
+    if row.type == ORDER_DELIVERED:
+        return t(lang, "order_delivered", code=code, customer=customer)
+    if row.type == ORDER_RETURN_PENDING:
+        return t(
+            lang,
+            "order_return_pending",
+            code=code,
+            customer=customer,
+            summary=_items_text(lang, p.get("returned")),
+            reason=escape(str(p.get("reason") or "")),
+        )
+    outcome = (
+        "order_fully_returned" if p.get("outcome") == "fully_returned" else "order_partly_returned"
+    )
+    return t(
+        lang,
+        "order_returns_reviewed",
+        code=code,
+        outcome=t(lang, outcome),
+        to_stock=_items_text(lang, p.get("to_stock")),
+        to_wasted=_items_text(lang, p.get("to_wasted")),
+    )
+
+
+ORDER_TYPES = (ORDER_DELIVERING, ORDER_DELIVERED, ORDER_RETURN_PENDING, ORDER_RETURNS_REVIEWED)
+
+
 def message_for(row: Notification, lang: Language) -> tuple[str, InlineKeyboardMarkup | None]:
     """The alert text (HTML) and its Mini App button, in `lang`."""
     p: dict[str, Any] = row.payload
     again = t(lang, "again") if p.get("repeat") else ""
     code = escape(str(p.get("code", "")))
-    if row.type == PROCESSING_FINISHED:
+    if row.type in ORDER_TYPES:
+        text = _order_message(row, lang)
+        button, path = "open_order", f"/workstation/orders/{row.entity_id}"
+    elif row.type == PROCESSING_FINISHED:
         text = t(
             lang,
             "processing_finished",

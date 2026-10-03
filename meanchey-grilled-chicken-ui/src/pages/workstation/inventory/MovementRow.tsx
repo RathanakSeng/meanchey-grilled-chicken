@@ -26,8 +26,32 @@ export function MovementRow({
   const by = m.created_by && !m.created_by.is_system ? m.created_by.full_name : t('audit.system')
   const stepName = m.step ? t(STEPS[m.step - 1].labelKey) : ''
 
+  const orderLink = m.order && (
+    <Link to={paths.order(m.order.id)} className="font-medium tabular-nums text-brand-700 hover:underline">
+      {m.order.code}
+    </Link>
+  )
+  const batchLink = m.batch && (
+    <Link
+      to={paths.productionBatch(m.batch.id, m.step ?? undefined)}
+      className="tabular-nums text-stone-600 hover:underline"
+    >
+      {m.batch.code}
+    </Link>
+  )
   const source =
-    m.source === 'adjustment' ? (
+    m.source === 'order' || m.source === 'order_return' ? (
+      // "Order OR-… · from PR-…" / "Return OR-… · to PR-…" (the batch it is attributed to).
+      <>
+        {t(m.source === 'order' ? 'inventory.sources.order' : 'inventory.sources.order_return')} {orderLink}
+        {batchLink && (
+          <span>
+            {' · '}
+            {t(m.source === 'order' ? 'inventory.fromBatch' : 'inventory.toBatch')} {batchLink}
+          </span>
+        )}
+      </>
+    ) : m.source === 'adjustment' ? (
       <>
         {t('inventory.sources.adjustment')}
         {m.reason && <span className="text-stone-500"> — {m.reason}</span>}

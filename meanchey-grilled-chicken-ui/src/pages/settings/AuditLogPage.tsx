@@ -41,12 +41,18 @@ const ACTIONS = [
   'production_plan.update',
   'production_plan.confirm',
   'inventory.adjust',
+  'order.create',
+  'order.update',
+  'order.cancel',
+  'order.delivering',
+  'order.delivered',
+  'order.returns_reviewed',
 ]
 // Superadmin settings (hidden from the GM by the API like everything the superadmin does).
 const SUPERADMIN_ACTIONS = ['settings.role_limit_update']
 // Detailed permission entries are listed by the API for the superadmin only.
 const PERMISSION_ACTIONS = ['permission.grant', 'permission.revoke']
-const ENTITY_TYPES = ['supplier', 'customer', 'production_batch'] as const
+const ENTITY_TYPES = ['supplier', 'customer', 'production_batch', 'order'] as const
 const STEP_LABELS = ['production.steps.rawMaterial', 'production.steps.produced', 'production.steps.standardize']
 const PAGE_SIZE = 50
 
@@ -78,11 +84,12 @@ function EntityRef({ entity }: { entity: AuditEntityRef }) {
   const { t } = useTranslation()
   const config = PARTNER_CONFIGS[entity.type as keyof typeof PARTNER_CONFIGS]
   const name = entity.name ?? t('common.none')
-  if (entity.type === 'production_batch') {
+  if (entity.type === 'production_batch' || entity.type === 'order') {
     return (
       <span className="block">
-        <span className="block text-xs text-stone-400">{t('audit.entityTypes.production_batch')}</span>
-        <Link to={paths.productionBatch(entity.id)} className="font-medium tabular-nums text-stone-800 hover:underline">
+        <span className="block text-xs text-stone-400">{t(`audit.entityTypes.${entity.type}`)}</span>
+        <Link
+          to={entity.type === 'order' ? paths.order(entity.id) : paths.productionBatch(entity.id)} className="font-medium tabular-nums text-stone-800 hover:underline">
           {name}
         </Link>
       </span>
@@ -187,6 +194,30 @@ function Details({ log }: { log: AuditLog }) {
     return (
       <span className="block text-sm text-stone-700">
         {t('plans.packsShort', { big: String(d.expected_big ?? '—'), small: String(d.expected_small ?? '—') })}
+      </span>
+    )
+  }
+  if (log.action === 'order.cancel') {
+    return (
+      <span className="block text-sm text-stone-700">
+        {t('audit.cancelReason', { reason: String(d.reason ?? '') })}
+      </span>
+    )
+  }
+  if (log.action === 'order.delivered') {
+    return (
+      <span className="block text-sm text-stone-700">
+        {t(d.outcome === 'returned' ? 'audit.orderReturned' : 'audit.orderAccepted')}
+        {typeof d.reason === 'string' && (
+          <span className="block text-xs text-stone-500">{t('audit.cancelReason', { reason: d.reason })}</span>
+        )}
+      </span>
+    )
+  }
+  if (log.action === 'order.returns_reviewed') {
+    return (
+      <span className="block text-sm text-stone-700">
+        {t(d.outcome === 'fully_returned' ? 'orders.status.fully_returned' : 'orders.status.partly_returned')}
       </span>
     )
   }

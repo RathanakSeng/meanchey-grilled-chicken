@@ -90,6 +90,9 @@ def test_menus() -> None:
         "production_plan": "workstation",
         "inventory": "workstation",
         "inventory_history": "workstation",
+        "orders": "workstation",
+        "order_management": "workstation",
+        "order_returns": "workstation",
     }
 
 
@@ -163,7 +166,13 @@ async def test_gm_sees_staff_features_off_by_default(client, make_user) -> None:
     body = r.json()
     assert [m["menu"] for m in body["menus"]] == ["workstation"]
     features = body["menus"][0]["features"]
-    assert [f["code"] for f in features] == ["suppliers", "customers", "production", "inventory"]
+    assert [f["code"] for f in features] == [
+        "suppliers",
+        "customers",
+        "production",
+        "inventory",
+        "orders",
+    ]
     assert all(f["current_level"] == "off" and f["can_edit"] for f in features)
     assert features[0]["levels"] == [
         {"level": level, "allowed": True} for level in ("off", "view", "full")
@@ -178,7 +187,19 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
     menus = [(m["menu"], [f["code"] for f in m["features"]]) for m in r.json()["menus"]]
     # Workstation first, then settings.
     assert menus == [
-        ("workstation", ["suppliers", "customers", "production", "production_plan", "inventory"]),
+        (
+            "workstation",
+            [
+                "suppliers",
+                "customers",
+                "production",
+                "production_plan",
+                "inventory",
+                "orders",
+                "order_management",
+                "order_returns",
+            ],
+        ),
         ("settings", ["staff_management", "staff_access"]),
     ]
     levels = {code: f["current_level"] for code, f in (await _features(client, gm, sup)).items()}
@@ -187,6 +208,10 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
     assert levels.pop("production_plan") == "off"
     assert levels.pop("staff_management") == "view"
     assert levels.pop("inventory") == "view"
+    # Orders Record; order management and returns Off.
+    assert levels.pop("orders") == "record"
+    assert levels.pop("order_management") == "off"
+    assert levels.pop("order_returns") == "off"
     assert set(levels.values()) == {"full"}
 
 

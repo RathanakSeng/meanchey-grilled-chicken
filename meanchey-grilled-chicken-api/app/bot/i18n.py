@@ -70,6 +70,64 @@ TEXTS: dict[str, dict[Language, str]] = {
         Language.KM: "🍗 បើកផលិតកម្ម",
         Language.EN: "🍗 Open batch",
     },
+    # --- Order alerts (app/bot/notify.py) ---
+    "order_delivering": {
+        Language.KM: (
+            "🚚 <b>{code}</b> សម្រាប់ {customer} កំពុងដឹកជញ្ជូន — ប្រអប់ស {white} / ប្រអប់ខ្មៅ {black}។"
+        ),
+        Language.EN: (
+            "🚚 <b>{code}</b> for {customer} is out for delivery — {white} white / {black} black "
+            "boxes."
+        ),
+    },
+    "order_delivered": {
+        Language.KM: "✅ <b>{code}</b>៖ បានដឹកដល់ {customer} អតិថិជនទទួលយកទាំងអស់។",
+        Language.EN: "✅ <b>{code}</b>: delivered to {customer}, everything accepted.",
+    },
+    "order_return_pending": {
+        Language.KM: (
+            "↩️ <b>{code}</b>៖ {customer} បានប្រគល់ទំនិញមកវិញ — {summary}។ មូលហេតុ៖ “{reason}”។ "
+            "សូមពិនិត្យទំនិញប្រគល់មកវិញ។"
+        ),
+        Language.EN: (
+            "↩️ <b>{code}</b>: {customer} returned items — {summary}. Reason: “{reason}”. "
+            "Review the return."
+        ),
+    },
+    "order_returns_reviewed": {
+        Language.KM: (
+            "📦 <b>{code}</b>៖ បានពិនិត្យទំនិញប្រគល់មកវិញ — {outcome} (ចូលស្តុក {to_stock}, "
+            "ខូចខាត {to_wasted})។"
+        ),
+        Language.EN: (
+            "📦 <b>{code}</b>: return reviewed — {outcome} ({to_stock} to stock, "
+            "{to_wasted} wasted)."
+        ),
+    },
+    "order_partly_returned": {
+        Language.KM: "ប្រគល់មកវិញខ្លះ",
+        Language.EN: "partly returned",
+    },
+    "order_fully_returned": {
+        Language.KM: "ប្រគល់មកវិញទាំងអស់",
+        Language.EN: "fully returned",
+    },
+    "order_item_count": {
+        Language.KM: "{name} {count}",
+        Language.EN: "{count} × {name}",
+    },
+    "order_item_kg": {
+        Language.KM: "{name} {kg} គ.ក",
+        Language.EN: "{kg} kg {name}",
+    },
+    "order_nothing": {
+        Language.KM: "គ្មាន",
+        Language.EN: "nothing",
+    },
+    "open_order": {
+        Language.KM: "🧾 បើកការបញ្ជាទិញ",
+        Language.EN: "🧾 Open order",
+    },
     # --- Superadmin Telegram linking (/start link_<token>) ---
     "link_done": {
         Language.KM: "✅ បានភ្ជាប់ Telegram រួចរាល់។",

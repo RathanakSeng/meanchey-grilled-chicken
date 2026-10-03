@@ -104,6 +104,11 @@ src/
 │   │                      #   (shared by both), itemVisuals.ts (code → picture, badge,
 │   │                      #   short name), useItemDisplay.ts (card / sheet texts),
 │   │                      #   api.ts (inventoryKeys, invalidateInventory, useStockFormat)
+│   │   └── orders/        # OrderListPage, OrderPage, OrderFormPage (lazy: one chunk each), OrderSheets
+│   │                      #   (Mark delivered, Review return), OrderSummaryView (per colour + total, stock
+│   │                      #   warnings; shared by the form's live summary and the page), CustomerPicker,
+│   │                      #   badges (status, box swatch / counts), api.ts (orderKeys, invalidateOrders,
+│   │                      #   integer amounts: parseAmount / amountOf / toApi, formatting)
 │   │   └── production-plans/ # PlanListPage, PlanPage (lazy), PlanBadge, api.ts (planKeys, pending count:
 │   │                      #   outside the lazy chunk because the nav badge uses it)
 │   └── settings/          # SettingsPage (hub), AuditLogPage, ProfilePage, TelegramLinkCard (superadmin), UserLimitsPage (superadmin), users/* (incl. UserAccessTab, UserPermissionsTab, RoleChangeSheet)
@@ -227,6 +232,11 @@ sequenceDiagram
         index                        PlanListPage (lazy, ?status=&q=&page=)
         :batchId                     PlanPage (lazy)
       inventory                      RequireAccess inventory.view → InventoryPage           (lazy, ?tab=stock&section=raw|processed|packed|wasted · ?tab=history&item&area&source&from&to&batch&page; `area` = the stock / wasted filter, `section` stays the Stock sub-tab)
+      orders                         RequireAccess orders.view
+        index                        OrderListPage (lazy, ?status=&customer=&from=&to=&q=&page=)
+        new                          RequireAccess orders.create → OrderFormPage(create) (lazy)
+        :orderId                     OrderPage (lazy)
+        :orderId/edit                RequireAccess orders.update → OrderFormPage(edit) (lazy)
     /settings
       index                          SettingsPage (hub: cards from the nav tree)
       users                          RequireAccess users.view
@@ -355,6 +365,12 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 | `['inventory']` | `GET /inventory` (balances by section) |
 | `['inventory-item', code]` | `GET /inventory/items/{code}`: the item sheet's **From production** breakdown (everyone with `inventory.view`) |
 | `['inventory-movements', params]` | `GET /inventory/movements`, only with `inventory.history`: the History tab (`keepPreviousData`) and the item sheet's recent changes (`{item_code, page_size: 20}`) |
+| `['orders', params]` | `GET /orders` (`keepPreviousData`) |
+| `['orders-stats']` | `GET /orders/stats` (KPI cards) |
+| `['order', id]` | `GET /orders/{id}`; written with `setQueryData` by every save and action (and from `details.order` on `ORDER_CONFLICT`) |
+| `['orders-customer-options', q]` | `GET /orders/customer-options` (customer picker while open; the list's customer filter with `''`) |
+| `['orders-driver-options']` | `GET /orders/driver-options` (form) |
+| `['orders-available-stock']` | `GET /orders/available-stock` (form: item options, live summary warnings) |
 | `['role-limits']` | `GET /settings/role-limits` (superadmin, User limits page); written with `setQueryData` by each Save |
 | `['role-capacity']` | `GET /users/role-capacity` via `useRoleCapacity()` in `lib/useRoleCapacity.ts` (enabled with `users.view` or `users.create`, staleTime 30 s): create form, role change sheet, users list |
 | `['notifications-unread']` | `GET /notifications?unread_only=true&page_size=1` → `unread_count` (the bell; polled every 60 s **and on window focus**, from the app shell, not per page) |
@@ -364,6 +380,7 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 - Supplier / customer mutations (create, edit, deactivate, reactivate) write the returned record into `[entity, id]` and invalidate both the list prefix (`[resource]`) and the stats key, so the table and the KPI cards update together. The keys are built by `partnerKeys(config)`.
 - Production: draft saves only write the returned batch into `['production-batch', id]`. Finish, reopen, cancel and "New production" also invalidate `['production']` and `['production-stats']` (`onBatchChanged` in `production/api.ts`), the plan keys (finishing or reopening steps creates or resets the plan) and the inventory keys (`invalidateInventory`: `['inventory']`, every `['inventory-movements', …]` and `['inventory-item', …]`; Finish, reopen and cancel move stock). There is no manual change to invalidate for: production items are read-only.
 - Inventory: the batch response carries `stock_changes` and `inventory_tracked` **only for viewers with `inventory.history`** (the keys are absent otherwise, so the types are optional); `StockChangesCard` renders nothing without them. The Inventory page reads `usePermission('inventory.history')` to show the History tab (no tab bar without it; `?tab=history` falls back to Stock) and the item sheet's recent changes. `INVENTORY_INSUFFICIENT` is translated per item from `details.items` (names from the API, the unit that is short) in `useErrorMessage`. The keys are built by `productionKeys`.
+- Orders: create / edit / cancel / Start delivery / Mark delivered / Review return write the returned order into `['order', id]` and call `invalidateOrders` (`['orders']`, `['orders-stats']`, `['orders-available-stock']` and the inventory keys: Start delivery and the review move stock). On `ORDER_CONFLICT` the current order from `details.order` is written into the cache (the form resets to it) and a notice is shown; on `ORDER_INVALID_STATUS` the order is refetched. Amounts are integers (counts, or grams for kg: `parseAmount("1.25", "kg") = 1250`), so the live summary, the "at most delivered" and "stock + wasted = returned" checks are exact; they go back to the API as `count` or a 3-decimal `kg` string (`toApi`). `PRODUCTION_STOCK_ALREADY_USED` is translated with the item names and order codes from `details` (`useErrorMessage`).
 - Plans: Save and Confirm write the returned plan into `['production-plan', batchId]` and invalidate the plan list, the pending count, the batch and the production list. On `PRODUCTION_CONFLICT` the plan is refetched and a notice shown (no merge UI: a plan has three fields). Confirm with unsaved edits sends the PATCH first, then confirms with the new version.
 - Role limits: creating a user, reactivating, deactivating and changing a role call `invalidateRoleCapacity()` (`['role-capacity']` and `['role-limits']`); saving a limit writes `['role-limits']` and invalidates `['role-capacity']`. `ROLE_LIMIT_REACHED` is translated with the role name from its `details.role` (`useErrorMessage`).
 - Notifications: opening one marks it read (`POST /notifications/{id}/read`), **Mark all as read** calls `read-all`; both invalidate `['notifications']` and `['notifications-unread']`.
@@ -551,5 +568,7 @@ The page brings the KPI cards (`KpiGrid`), URL-driven filters (`?q&deactivated=1
 | Bell polled from the app shell | One 60-second poll (plus window focus) for the unread count serves every page; the list itself loads only when the bell opens. Telegram delivers the same alerts in real time, so no websocket is needed. |
 | Plan-vs-actual comment rule mirrored in the UI | The API refuses Finish without a comment when packs differ; the form shows the difference as it's typed and lists the missing comment among the Finish blockers, so the refusal never surprises anyone. |
 | Capacity shown before submitting | The API is the authority on role limits (row lock, `ROLE_LIMIT_REACHED`), but a manager shouldn't fill in a whole form to learn the role is full: the form, the role sheet and the list show *active / limit* up front, and the server error remains the fallback for races. |
+| Order form keeps boxes on the client until Save | An order is short and typed in one go, so there are no server drafts (unlike production): boxes and lines live in component state with local keys, the summary is computed live, and one POST / PATCH replaces the boxes. The API repeats every check; the version guards against a concurrent edit. |
+| Order actions by status, one primary button | Each status has exactly one next step (Start delivery, Mark delivered, Review return), shown as the main button only to whoever may do it; Edit and Cancel, rarer and only while Created, live in the ⋮ menu. |
 | Inventory amounts straight from the API | Balances and movements are computed and locked server-side (the ledger); the page only formats them (count, kg with up to 3 decimals, "≈" when estimated) and never adds anything up, so it can't disagree with the server. |
 | Back = parent route, not history | Mini App sessions often start from a deep link with no history. The route structure always gives a meaningful "up". |

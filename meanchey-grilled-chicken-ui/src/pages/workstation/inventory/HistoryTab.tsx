@@ -96,6 +96,8 @@ export function HistoryTab({ items }: { items: InventoryItem[] }) {
             <Select id={id} value={get('source')} onChange={(e) => update({ source: e.target.value })}>
               <option value="">{t('inventory.filters.all')}</option>
               <option value="production">{t('inventory.sources.production')}</option>
+              <option value="order">{t('inventory.sources.order')}</option>
+              <option value="order_return">{t('inventory.sources.order_return')}</option>
             </Select>
           )}
         </Field>

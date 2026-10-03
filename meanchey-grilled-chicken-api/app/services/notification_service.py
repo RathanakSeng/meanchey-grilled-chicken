@@ -1,8 +1,9 @@
-"""Production alerts: stored first (the bell), sent to Telegram after commit.
+"""Production and order alerts: stored first (the bell), sent to Telegram after commit.
 
-- **Recipients:** active users holding `production_plan.view` (effective permissions: granted,
+- **Recipients:** active users holding the alert's permission (effective permissions: granted,
   permission active, still assignable to their role) and the superadmin, who holds everything
-  implicitly. Staff can't hold it. The actor is included when they qualify.
+  implicitly. Production alerts: `production_plan.view`; order alerts: `orders.review_returns`.
+  Staff can hold neither. The actor is included when they qualify.
 - **Creation:** `notify()` inserts one row per recipient in the caller's transaction (e.g. the step
   2 Finish), so an alert exists exactly when the action committed. The new ids are queued on the
   session (`session.info`); the router hands them to a background task after the response
@@ -23,19 +24,24 @@ from app.schemas.common import UserRef
 from app.schemas.notification import NotificationOut, NotificationPage
 
 ALERT_PERMISSION = "production_plan.view"
+ORDER_ALERT_PERMISSION = "orders.review_returns"
 PROCESSING_FINISHED = "production.processing_finished"
 COMPLETED = "production.completed"
+ORDER_DELIVERING = "order.delivering"
+ORDER_DELIVERED = "order.delivered"
+ORDER_RETURN_PENDING = "order.return_pending"
+ORDER_RETURNS_REVIEWED = "order.returns_reviewed"
 _QUEUE_KEY = "queued_notifications"
 
 
-async def recipients(session: AsyncSession) -> list[User]:
-    """Active users who hold `production_plan.view` (same rule as effective permissions)."""
+async def recipients(session: AsyncSession, permission: str = ALERT_PERMISSION) -> list[User]:
+    """Active users who hold `permission` (same rule as effective permissions)."""
     holds_view = exists(
         select(UserPermission.user_id)
         .join(Permission, Permission.code == UserPermission.permission_code)
         .where(
             UserPermission.user_id == User.id,
-            UserPermission.permission_code == ALERT_PERMISSION,
+            UserPermission.permission_code == permission,
             Permission.is_active,
             cast(User.role, String) == any_(Permission.assignable_to),
         )
@@ -43,9 +49,7 @@ async def recipients(session: AsyncSession) -> list[User]:
     # The superadmin implicitly holds every active permission.
     superadmin_holds = and_(
         User.role == Role.SUPERADMIN,
-        exists(
-            select(Permission.code).where(Permission.code == ALERT_PERMISSION, Permission.is_active)
-        ),
+        exists(select(Permission.code).where(Permission.code == permission, Permission.is_active)),
     )
     stmt = (
         select(User)
@@ -62,6 +66,7 @@ async def notify(
     entity_type: str,
     entity_id: uuid.UUID,
     payload: dict[str, Any],
+    permission: str = ALERT_PERMISSION,
 ) -> list[uuid.UUID]:
     """Insert one notification per recipient (not committed) and queue them for Telegram.
 
@@ -90,7 +95,7 @@ async def notify(
             created_at=now,
             telegram_status="pending",
         )
-        for user in await recipients(session)
+        for user in await recipients(session, permission)
     ]
     session.add_all(rows)
     ids = [r.id for r in rows]
