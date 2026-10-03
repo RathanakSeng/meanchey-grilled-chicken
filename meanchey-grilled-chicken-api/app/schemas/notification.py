@@ -8,7 +8,14 @@ from pydantic import BaseModel
 
 from app.schemas.common import UserRef
 
-NotificationType = Literal["production.processing_finished", "production.completed"]
+NotificationType = Literal[
+    "production.processing_finished",
+    "production.completed",
+    "order.delivering",
+    "order.delivered",
+    "order.return_pending",
+    "order.returns_reviewed",
+]
 TelegramStatus = Literal["pending", "sent", "failed", "not_linked", "bot_off"]
 
 

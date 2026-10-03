@@ -46,9 +46,20 @@ async def world(client, session, superadmin, make_user) -> dict:
             headers=h,
         )
     ).json()
+    order = (
+        await client.post(
+            "/orders",
+            json={
+                "customer_id": customer["id"],
+                "boxes": [{"color": "white", "lines": [{"item_code": "packs_big", "count": 1}]}],
+            },
+            headers=h,
+        )
+    ).json()
     return {
         "gm": gm,
         "superadmin": superadmin,
+        "order_id": order["id"],
         "user_id": str(target.id),
         "suppliers": supplier["id"],
         "customers": customer["id"],
@@ -70,6 +81,7 @@ def _fill(path: str, world: dict) -> str:
     url = url.replace("{batch_id}", world["batch_id"]).replace("{step}", "raw-material")
     url = url.replace("{code}", "suppliers.view").replace("{feature}", "suppliers")
     url = url.replace("{role}", "staff").replace("{item_code}", "packs_big")
+    url = url.replace("{order_id}", world["order_id"])
     # Someone else's (or no) notification: 404 for both, never 403.
     url = url.replace("{notification_id}", str(uuid.uuid4()))
     if "{partner_id}" in url:
@@ -120,5 +132,7 @@ async def test_superadmin_is_never_forbidden_where_the_gm_is_allowed(
         "GET /production-plans",
         "PATCH /production-plans/{batch_id}",
         "GET /notifications",
+        "GET /orders/{order_id}",
+        "POST /orders/{order_id}/returns/review",
     ):
         assert route in checked, route

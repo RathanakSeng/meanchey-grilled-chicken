@@ -146,8 +146,16 @@ async def test_permission_matrix_inactive_target(client, superadmin, make_user) 
 async def test_permission_catalog(client, superadmin) -> None:
     r = await client.get("/permissions", headers=auth(superadmin))
     assert r.status_code == 200
-    users, partners, production, plan, inventory = r.json()
+    users, partners, production, plan, inventory, orders = r.json()
     assert [p["code"] for p in inventory["permissions"]] == ["inventory.view", "inventory.history"]
+    assert orders["module"] == "orders"
+    assert [p["code"] for p in orders["permissions"]] == [
+        "orders.view",
+        "orders.create",
+        "orders.update",
+        "orders.cancel",
+        "orders.review_returns",
+    ]
     assert users["module"] == "users"
     assert users["name_km"]
     assert len(users["permissions"]) == 7  # incl. users.manage_access (supervisors only)

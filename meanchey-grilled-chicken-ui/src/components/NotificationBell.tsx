@@ -7,7 +7,7 @@ import { useIsMobileLayout } from '@/layouts/useIsMobileLayout'
 import { api } from '@/lib/api'
 import { useFormatDate } from '@/lib/format'
 import { paths } from '@/lib/paths'
-import type { AppNotification, NotificationPage } from '@/lib/types'
+import type { AppNotification, NotificationPage, OrderAlertItem } from '@/lib/types'
 import { Icon } from './icons'
 import { Sheet } from './Sheet'
 import { Button, Spinner, cx } from './ui'
@@ -21,18 +21,69 @@ export const notificationKeys = {
 
 const LIST_PARAMS = { page_size: 20 }
 
-/** ✅ processing finished · 🎉 completed as planned · ⚠️ completed, different from the plan. */
+const ORDER_EMOJI: Partial<Record<AppNotification['type'], string>> = {
+  'order.delivering': '🚚',
+  'order.delivered': '✅',
+  'order.return_pending': '↩️',
+  'order.returns_reviewed': '📦',
+}
+
+function isOrderAlert(n: AppNotification): boolean {
+  return n.type.startsWith('order.')
+}
+
+/** ✅ processing finished · 🎉 completed as planned · ⚠️ completed, different from the plan;
+ * orders: 🚚 out for delivery · ✅ delivered · ↩️ returned · 📦 return reviewed. */
 function emoji(n: AppNotification): string {
+  if (isOrderAlert(n)) return ORDER_EMOJI[n.type] ?? '🧾'
   if (n.type === 'production.processing_finished') return '✅'
   return n.payload.matches ? '🎉' : '⚠️'
 }
 
 /** The alert text, built from `type` + `payload` in the UI language. */
 export function useNotificationText() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   return (n: AppNotification): { text: string; comment: string | null } => {
     const p = n.payload
     const again = p.repeat ? t('notifications.again') : ''
+    if (isOrderAlert(n)) {
+      // "3 × 4-Piece Packs, 0.250 kg Liver (packed)" in the UI language.
+      const items = (value: unknown) => {
+        const list = Array.isArray(value) ? (value as OrderAlertItem[]) : []
+        if (list.length === 0) return t('notifications.orderNothing')
+        return list
+          .map((i) => {
+            const name = (i18n.language === 'en' ? i.name_en : i.name_km) || i.name_en
+            return i.count !== null
+              ? t('notifications.orderItemCount', { name, count: i.count })
+              : t('notifications.orderItemKg', { name, kg: i.kg })
+          })
+          .join(', ')
+      }
+      const common = { code: p.code, customer: p.customer }
+      if (n.type === 'order.delivering') {
+        return {
+          text: t('notifications.orderDelivering', { ...common, white: p.white ?? 0, black: p.black ?? 0 }),
+          comment: null,
+        }
+      }
+      if (n.type === 'order.delivered') return { text: t('notifications.orderDelivered', common), comment: null }
+      if (n.type === 'order.return_pending') {
+        return {
+          text: t('notifications.orderReturnPending', { ...common, summary: items(p.returned) }),
+          comment: typeof p.reason === 'string' ? p.reason : null,
+        }
+      }
+      return {
+        text: t('notifications.orderReturnsReviewed', {
+          code: p.code,
+          outcome: t(p.outcome === 'fully_returned' ? 'orders.status.fully_returned' : 'orders.status.partly_returned'),
+          toStock: items(p.to_stock),
+          toWasted: items(p.to_wasted),
+        }),
+        comment: null,
+      }
+    }
     if (n.type === 'production.processing_finished') {
       return {
         text: t('notifications.processingFinished', {
@@ -66,6 +117,7 @@ export function useNotificationText() {
 }
 
 function targetOf(n: AppNotification): string {
+  if (isOrderAlert(n)) return paths.order(n.entity_id)
   return n.type === 'production.processing_finished'
     ? paths.productionPlan(n.entity_id)
     : paths.productionBatch(n.entity_id, 3)

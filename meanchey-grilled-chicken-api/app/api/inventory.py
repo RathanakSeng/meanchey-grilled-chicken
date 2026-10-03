@@ -48,13 +48,14 @@ async def movements(
     source: MovementSource | None = None,
     batch_id: uuid.UUID | None = None,
     batch_code: Annotated[str | None, Query(max_length=32)] = None,
+    order_id: uuid.UUID | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = svc.MOVEMENTS_PAGE_SIZE,
 ) -> MovementPage:
     """Newest first. Dates are business days (BUSINESS_TIMEZONE); `batch_code` matches part of
-    the batch code."""
+    the batch code; `order_id`: the movements of one order (delivery and return)."""
     return await svc.movements(
         session,
         item_code=item_code,
@@ -62,6 +63,7 @@ async def movements(
         source=source,
         batch_id=batch_id,
         batch_code=batch_code,
+        order_id=order_id,
         date_from=date_from,
         date_to=date_to,
         page=page,

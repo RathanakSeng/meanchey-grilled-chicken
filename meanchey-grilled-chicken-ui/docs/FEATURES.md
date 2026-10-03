@@ -96,7 +96,8 @@ Home                      everyone
 │   ├── Customers         customers.view    /workstation/customers
 │   ├── Production        production.view   /workstation/production  (batch: /workstation/production/:id?step=1|2|3)
 │   ├── Production plan   production_plan.view  /workstation/production-plans  (plan: /workstation/production-plans/:batchId)
-│   └── Inventory         inventory.view    /workstation/inventory  (?tab=history)
+│   ├── Inventory         inventory.view    /workstation/inventory  (?tab=history)
+│   └── Orders            orders.view       /workstation/orders  (new: /new; order: /:id; edit: /:id/edit)
 └── Settings              everyone          /settings
     ├── Users             users.view        /settings/users
     ├── Audit log         superadmin, GM    /settings/audit-logs
@@ -137,6 +138,8 @@ A hub with one card per Workstation page the user may open, built from the same 
 | Customers | holders of `customers.view` |
 | Production | holders of `production.view` |
 | Production plan | holders of `production_plan.view` (with the number of plans waiting) |
+| Inventory | holders of `inventory.view` |
+| Orders | holders of `orders.view` |
 
 With no visible cards (staff by default) it shows *"You don't have access to any workstation features yet"* with a hint to ask a manager.
 
@@ -246,19 +249,21 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
 
 "again" is added when a step was finished again after a reopen. Tapping one marks it read and opens it; **Mark all as read** clears the count. Empty: *"No notifications yet."*
 
-**Who gets them:** everyone with Production plan access (general managers, supervisors given access, and the system account), also on **Telegram** when their Telegram account is linked, with an **Open plan** / **Open batch** button into the Mini App. Staff get none.
+| 🚚 ✅ ↩️ 📦 | An order out for delivery, delivered, returned, return reviewed (§6.6) | e.g. *"OR-…: Dara Shop returned items — 2 × 4-Piece Packs. Review the return."* and the reason | the order |
+
+**Who gets them:** production alerts go to everyone with Production plan access, order alerts to everyone with **Order returns** (general managers, supervisors given access, and the system account), also on **Telegram** when their Telegram account is linked, with an **Open plan** / **Open batch** / **Open order** button into the Mini App. Staff get none.
 
 ### 6.5 Inventory (ស្តុក)
 
 **Path:** `/workstation/inventory`: main tabs **Stock** (ស្តុក, `?tab=stock&section=raw|processed|packed|wasted`) and **History** (ប្រវត្តិ, `?tab=history`). **Who can open it:** `inventory.view` (GM and supervisors by default; staff when given *View only*). Lazy-loaded.
 
-**Production items are read-only.** Every item changes only through production (Finish, reopen, cancel); nobody sets stock by hand, so there is no Set button anywhere. **History** (every movement) needs **Inventory history** (`inventory.history`), which is off by default: without it there is no tab bar and Stock shows directly, item sheets show no recent changes, and batch pages show no Stock changes.
+**Production items are read-only.** Every item changes only through production (Finish, reopen, cancel) and orders (Start delivery, return review, §6.6); nobody sets stock by hand, so there is no Set button anywhere. **History** (every movement) needs **Inventory history** (`inventory.history`), which is off by default: without it there is no tab bar and Stock shows directly, item sheets show no recent changes, and batch pages show no Stock changes.
 
 Stock updates **automatically** as production steps are finished; reopening a step or cancelling a batch undoes what it did. Nothing can go below zero.
 
 **Stock tab**: four sub-tabs, each a grid of item cards, like a menu of products.
 
-- **Sub-tabs:** **Raw** (វត្ថុធាតុដើម: Chicken) · **Processed** (ផលិត: Wings, Thighs, Gizzard, Liver, Heart, Head) · **Packed** (វេចខ្ចប់: 4-Piece Packs, 2-Piece Packs, Gizzard, Liver, Heart, Head) · **Wasted** (ខូចខាត: Wings, Thighs, by-products). Which tab an item belongs to comes from the API, so a new by-product appears in the right one on its own.
+- **Sub-tabs:** **Raw** (វត្ថុធាតុដើម: Chicken) · **Processed** (ផលិត: Wings, Thighs, Gizzard, Liver, Heart, Head) · **Packed** (វេចខ្ចប់: 4-Piece Packs, 2-Piece Packs, Gizzard, Liver, Heart, Head) · **Wasted** (ខូចខាត: Wings, Thighs, 4-Piece Packs, 2-Piece Packs, by-products). Which tab an item belongs to comes from the API, so a new by-product appears in the right one on its own.
 - **Pill bar**, lighter than the main tabs (pills on a grey track, no underline): full width with equal pills on phones and in the Mini App (scrolls sideways if a label doesn't fit), compact and left-aligned from tablets. The selected Wasted pill is muted red, so it's never mistaken for stock.
 - **Stock badge** on each pill: how many items in that tab have stock (count or kg above 0); no badge at 0 or while loading. It updates in place when production changes stock.
 - The selected sub-tab is in the URL (`?tab=stock&section=processed`; default **Raw**), so refresh, Back (e.g. after opening a batch from an item's history) and shared links keep it. Switching to History and back keeps it too.
@@ -276,10 +281,11 @@ Stock updates **automatically** as production steps are finished; reopening a st
 
 **History tab**
 
-- Movements, newest first, 50 per page (the same rows as in the item sheet). Filters (kept in the URL): item, section (stock / wasted), type (production), date range, part of a batch code. Only with **Inventory history**.
+- Movements, newest first, 50 per page (the same rows as in the item sheet). Filters (kept in the URL): item, section (stock / wasted), type (production, order, return), date range, part of a batch code. Only with **Inventory history**.
 - Each row: item (*"Wasted: Wings"* for wasted items), the change (+ green / − red; count and kg, "≈" when estimated), the new balance, the source and who did it:
   - production: the **batch code** (opens the batch at that step) · step name;
   - a reversal: *"Reversed: reopen"* or *"Reversed: cancelled"* · batch code · step;
+  - an order: *"Order OR-… · from PR-…"* (the order and the batch the packs were taken from), or a return: *"Return OR-… · to PR-…"*;
   - an adjustment: *"Adjustment — reason"*.
 - Movements made by the superadmin read *System*.
 
@@ -287,6 +293,50 @@ Stock updates **automatically** as production steps are finished; reopening a st
 
 - With **Inventory history** only (the API sends the data only then): a **Stock changes** card under the step lists what each finished step added (+, green) or removed (−, red), step by step. Reopened steps drop out of it. Batches from before inventory existed show *"Not counted in inventory (before inventory started)."*
 - **Finish, Reopen and Cancel** can be refused when stock is short; the message names each item, e.g. *"Not enough Chicken in stock: 10 available, 100 needed."* (in the step's error area, the reopen dialog or the cancel sheet). Nothing changes.
+
+### 6.6 Orders (ការបញ្ជាទិញ)
+
+**Paths:** `/workstation/orders` (list), `/workstation/orders/new`, `/workstation/orders/:id`, `/workstation/orders/:id/edit`. **Who can open them:** `orders.view` (GM and supervisors by default; staff when given Orders); New needs `orders.create`, Edit `orders.update`. Lazy-loaded (one chunk per page). Menu icon: receipt.
+
+```
+Created ──► Delivering ──► Delivered ─┬─► Success                (everything accepted)
+   │        (stock out)               └─► Return pending ──► Partly / Fully returned
+   └─► Cancelled (only while Created)
+```
+
+**List**
+
+- **Figures:** Created · Delivering · Return pending · Delivered this month (tap one of the first three to filter by it).
+- **Status chips:** All · Created · Delivering · Return pending · Completed (success, partly or fully returned) · Cancelled. **Search** (order code or customer), **Customer** (for people who record or edit orders) and a **delivery date** range. Everything is in the URL (`?status=&customer=&from=&to=&q=&page=`), 20 per page.
+- Phones: a card per order (code, customer, status badge, delivery date · driver, ▢ white / ■ black box counts). Desktop: a table with the same columns. **New order** with `orders.create`.
+
+**Order form** (create; edit while Created with `orders.update`)
+
+- **Customer** picker (active customers, search by name or phone; no Customers access needed), **Delivery date** (today), **Driver** (optional: active staff and supervisors), **Note**.
+- **Boxes builder:** **+ White box** and **+ Black box** add a card (*Box 3 · White box*) with item lines: the item (4-Piece Packs, 2-Piece Packs, packed by-products, each with the stock available, e.g. *"4-Piece Packs (12 in stock)"*; an item already in that box is disabled) and the quantity (whole numbers for packs, kg with up to 3 decimals for by-products), **×** to remove a line, **Add item**; box actions **Duplicate** (inserted after it) and **Remove**.
+- **Live summary:** per colour (*White boxes: 2* — 4-Piece Packs 5, 2-Piece Packs 1, Liver (packed) 0.150 kg), then the **grand total**; an amber line when a total is above the stock (*"Only 12 × 4-Piece Packs in stock."*). Sticky beside the form on desktop; on phones a bar at the bottom (*Summary · Boxes: 3*, with ⚠ when short) that opens it, with the Save button.
+- **Checks before saving** (the same as the API's): a customer, a date, at least one box, at least one item per box, an item and a valid quantity on every line, an item at most once per box. Mistakes are outlined in red with a short message, and *"Check the highlighted fields."* above Save.
+- Saving opens the order. A stock warning doesn't block saving; stock is only taken at Start delivery. If someone else changed the order meanwhile, the form reloads it with a notice.
+
+**Order page**
+
+- **Header:** code, status badge, customer; **⋮** with **Edit** (`orders.update`) and **Cancel order** (`orders.cancel`) while Created.
+- **Details:** customer (name, phone as a call link, location), delivery date, driver, note. While Created with too little stock: an amber list (*"Only 12 × 4-Piece Packs in stock."*).
+- **Main action** by status (a full-width button under the header on phones):
+  - Created (`orders.create`): **Start delivery** → a confirmation (*"The 3 boxes for Dara Shop leave stock now (oldest batches first). This can't be undone."*); a stock refusal names each item (*"Not enough 4-Piece Packs in stock: 7 available, 9 needed."*).
+  - Delivering (`orders.create`): **Mark delivered** → a sheet: **Everything accepted**, or **Some items returned** with a quantity per item (the delivered amount shown next to it, at most that) and a required **reason**.
+  - Return pending (`orders.review_returns`): **Review return** → a sheet: the reason, then per item what came back with **Back to stock** and **Wasted** (they must add up, shown in red until they do); **All to stock** / **All wasted** fill every item. Without the permission: *"Waiting for a manager to review the returned items."*
+- **Status** timeline: Created → Out for delivery → Delivered (*Delivered, items returned*) → Return reviewed, or Created → Cancelled, each with its time and who did it ("System" for the system account).
+- **Summary** (per colour and grand total), **Boxes** (each box with its lines), and after a return **Returns** (delivered / returned and, once reviewed, back to stock in green and wasted in red, with the reason).
+- **Cancel order:** a sheet with the reason pre-filled *"Customer cancelled"* (required).
+- **Conflicts:** if someone else moved the order on, the page shows the current order with *"Someone else changed this order. It has been reloaded; check it and try again."*
+
+**Elsewhere**
+
+- **Inventory:** two new **Wasted** cards, 4-Piece Packs and 2-Piece Packs (packs returned damaged). The item sheet's *From production* breakdown already reflects orders (packs leave the oldest batches first; returns go back to theirs). History (with Inventory history) shows **Order OR-… · from PR-…** and **Return OR-… · to PR-…** rows linking to the order and the batch, and the Type filter has Order and Return.
+- **Production batch page:** reopening or cancelling a batch whose packs already left in orders is refused: *"4-Piece Packs from this batch were already delivered in OR-20261003-001 — can't reopen or cancel it."*
+- **Bell and Telegram** (holders of Order returns): 🚚 *"OR-…: for Dara Shop is out for delivery — 2 white / 1 black boxes."* · ✅ *"…delivered to Dara Shop, everything accepted."* · ↩️ *"…Dara Shop returned items — 2 × 4-Piece Packs. Review the return."* (with the reason) · 📦 *"…return reviewed — Partly returned (1 × 4-Piece Packs to stock, 1 × 4-Piece Packs wasted)."* Each opens the order.
+- **Audit log:** Order created / edited / cancelled (reason) / out for delivery / delivered (*Everything accepted* or *Items returned* with the reason) / return reviewed (partly / fully), with the order code linking to the order; record type **Order** in the filter.
 
 ## 7. Settings
 
@@ -434,8 +484,9 @@ Supervisors never see detailed permissions; they see feature levels only on the 
   - suppliers and customers added, edited, deactivated and reactivated;
   - production: batch started, step finished and step reopened (*"Step 1 · Intake"*, plus *"Also back to draft: step 2, 3"* when later steps were reopened with it), batch cancelled (with the reason). Draft saves aren't logged;
   - packaging plans: *Edited packaging plan* (field changes in the details) and *Confirmed packaging plan* (*"148 × 4-piece · 4 × 2-piece"*), linked to the batch;
+  - orders: created, edited, cancelled (with the reason), out for delivery, delivered (*Everything accepted* / *Items returned* and the reason), return reviewed (*Partly* / *Fully returned*), linked to the order;
   - the system account linking or unlinking its Telegram (superadmin only).
-- **Filters:** record type (All · Suppliers · Customers · Production batches) and action type.
+- **Filters:** record type (All · Suppliers · Customers · Production batches · Orders) and action type.
 - Each entry shows:
   - the time, in the current language's format;
   - the action, as a translated badge, red for failures and locks;
@@ -526,7 +577,11 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 | Workstation → Inventory (stock, wasted, item sheet with the per-batch breakdown) | ✅ | Inventory = View only (default) | Inventory = View only (default) | Inventory = View only (default Off) |
 | Inventory → History tab, item's recent changes; batch page → Stock changes | ✅ | Inventory history = View only (default Off; given by the superadmin) | Inventory history = View only (default Off; given by the superadmin or a GM who has it) | ❌ never |
 | Set stock by hand | ❌ never (production items) | ❌ never | ❌ never | ❌ never |
-| Header bell | ✅ | ✅ | ✅ (empty without plan access) | ✅ (always empty) |
+| Workstation → Orders (list, order page) | ✅ | Orders ≥ View only (default Record) | Orders ≥ View only (default Record) | Orders ≥ View only (default Off) |
+| Create orders, Start delivery, Mark delivered (incl. returns) | ✅ | Orders = Record (default) | Orders = Record (default) | Orders = Record |
+| Edit / cancel Created orders | ✅ | Order management = Full (default) | Order management = Full (default Off) | ❌ never |
+| Review returns; order alerts (bell, Telegram) | ✅ | Order returns = Full (default) | Order returns = Full (default Off) | ❌ never |
+| Header bell | ✅ | ✅ | ✅ (empty without plan or order returns access) | ✅ (always empty) |
 | My profile → Telegram card | ✅ | ❌ | ❌ | ❌ |
 
 "Suppliers = Full" etc. refers to the levels a general manager (for staff also their supervisor) sets on the Access tab (§10). "(default)" is the level a new account starts with.

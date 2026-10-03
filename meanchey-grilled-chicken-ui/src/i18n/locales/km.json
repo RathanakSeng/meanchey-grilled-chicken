@@ -45,7 +45,8 @@
     "production": "ផលិតកម្ម",
     "productionPlans": "ផែនការវេចខ្ចប់",
     "userLimits": "ចំនួនអ្នកប្រើប្រាស់",
-    "inventory": "ស្តុក"
+    "inventory": "ស្តុក",
+    "orders": "ការបញ្ជាទិញ"
   },
   "roles": {
     "superadmin": "ប្រព័ន្ធ",
@@ -197,7 +198,10 @@
       "production_plan": "ផែនការវេចខ្ចប់",
       "staff_access": "សិទ្ធិបុគ្គលិក",
       "inventory": "ស្តុក",
-      "inventory_history": "ប្រវត្តិស្តុក"
+      "inventory_history": "ប្រវត្តិស្តុក",
+      "orders": "ការបញ្ជាទិញ",
+      "order_management": "គ្រប់គ្រងការបញ្ជាទិញ",
+      "order_returns": "ទំនិញប្រគល់មកវិញ"
     },
     "legendRecord": "កត់ត្រា៖ អាចចាប់ផ្តើមបាច់ និងបំពេញជំហាន ប៉ុន្តែមិនអាចបើកជំហានដែលបានបញ្ចប់ឡើងវិញបានទេ។",
     "gmHint": "ការបិទគណនីអ្នកប្រើ ការកំណត់ពាក្យសម្ងាត់ឡើងវិញ ការគ្រប់គ្រងការចូលប្រើ និងការលុបចោលបាច់ ត្រូវកំណត់នៅក្នុង សិទ្ធិ (កម្រិតខ្ពស់)។",
@@ -223,7 +227,8 @@
     "entityTypes": {
       "supplier": "អ្នកផ្គត់ផ្គង់",
       "customer": "អតិថិជន",
-      "production_batch": "បាច់ផលិតកម្ម"
+      "production_batch": "បាច់ផលិតកម្ម",
+      "order": "ការបញ្ជាទិញ"
     },
     "defaultBackfill": "ផ្តល់ដោយស្វ័យប្រវត្តិ (សិទ្ធិលំនាំដើមរបស់តួនាទី)",
     "actions": {
@@ -261,7 +266,13 @@
       "profile_telegram_link": "បានភ្ជាប់គណនី Telegram",
       "profile_telegram_unlink": "បានផ្តាច់គណនី Telegram",
       "settings_role_limit_update": "បានកែចំនួនអ្នកប្រើប្រាស់កំណត់",
-      "inventory_adjust": "កំណត់តម្លៃស្តុក"
+      "inventory_adjust": "កំណត់តម្លៃស្តុក",
+      "order_create": "បានបង្កើតការបញ្ជាទិញ",
+      "order_update": "បានកែការបញ្ជាទិញ",
+      "order_cancel": "បានលុបចោលការបញ្ជាទិញ",
+      "order_delivering": "ការបញ្ជាទិញចេញដឹកជញ្ជូន",
+      "order_delivered": "ការបញ្ជាទិញបានដឹកដល់",
+      "order_returns_reviewed": "បានពិនិត្យទំនិញប្រគល់មកវិញ"
     },
     "featureChange": "{{feature}}៖ {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
@@ -270,7 +281,9 @@
     "alsoReopened": "ត្រឡប់ទៅព្រាងដែរ៖ ជំហានទី {{steps}}",
     "roleLimitChange": "{{role}}៖ {{from}} → {{to}}",
     "defaultChange": "លំនាំដើមថ្មីសម្រាប់អ្នកត្រួតពិនិត្យ",
-    "inventoryAdjust": "{{item}}៖ {{from}} → {{to}}"
+    "inventoryAdjust": "{{item}}៖ {{from}} → {{to}}",
+    "orderAccepted": "អតិថិជនទទួលយកទាំងអស់",
+    "orderReturned": "មានទំនិញប្រគល់មកវិញ"
   },
   "profile": {
     "title": "ប្រវត្តិរូបរបស់ខ្ញុំ",
@@ -443,7 +456,13 @@
     "INVENTORY_INSUFFICIENT": "{{items}}",
     "INVENTORY_ITEM_NOT_FOUND": "ទំនិញស្តុកនេះមិនមានទេ។",
     "inventoryShortItem": "{{name}} ក្នុងស្តុកមិនគ្រប់គ្រាន់៖ មាន {{available}} ត្រូវការ {{needed}}។",
-    "INVENTORY_ITEM_PRODUCTION_ONLY": "ទំនិញនេះផ្លាស់ប្តូរតែតាមរយៈផលិតកម្មប៉ុណ្ណោះ។"
+    "INVENTORY_ITEM_PRODUCTION_ONLY": "ទំនិញនេះផ្លាស់ប្តូរតែតាមរយៈផលិតកម្មប៉ុណ្ណោះ។",
+    "PRODUCTION_STOCK_ALREADY_USED": "{{items}} ពីបាច់នេះត្រូវបានដឹកជញ្ជូនរួចហើយក្នុង {{orders}} — មិនអាចបើកឡើងវិញ ឬលុបចោលបានទេ។",
+    "ORDER_NOT_FOUND": "រកមិនឃើញការបញ្ជាទិញ។",
+    "ORDER_CONFLICT": "មាននរណាម្នាក់បានកែការបញ្ជាទិញនេះ។ វាត្រូវបានផ្ទុកឡើងវិញ សូមព្យាយាមម្តងទៀត។",
+    "ORDER_INVALID_STATUS": "ការបញ្ជាទិញនេះបានផ្លាស់ប្តូរស្ថានភាពរួចហើយ មិនអាចកែតាមរបៀបនេះបានទៀតទេ។",
+    "CUSTOMER_INACTIVE": "អតិថិជននេះត្រូវបានបិទ។ សូមជ្រើសរើសអតិថិជនផ្សេង។",
+    "DRIVER_NOT_ALLOWED": "អ្នកដឹកជញ្ជូនត្រូវតែជាបុគ្គលិក ឬអ្នកត្រួតពិនិត្យដែលសកម្ម។"
   },
   "permissions": {
     "readOnlyNotice": "អ្នកអាចមើលសិទ្ធិទាំងនេះ ប៉ុន្តែមិនអាចផ្លាស់ប្តូរនៅទីនេះបានទេ។",
@@ -682,7 +701,14 @@
     "again": " ម្តងទៀត",
     "processingFinished": "{{code}}៖ ការផលិតបានបញ្ចប់{{again}} — មាន់ {{quantity}} ក្បាល → ស្លាប {{wings}} ភ្លៅ {{thighs}}។ សូមកំណត់ផែនការវេចខ្ចប់។",
     "completedAsPlanned": "{{code}}៖ ផលិតកម្មបានបញ្ចប់{{again}} ស្របតាមផែនការ — កញ្ចប់ ៤ ដុំ {{big}} និងកញ្ចប់ ២ ដុំ {{small}}។",
-    "completedDiffers": "{{code}}៖ ផលិតកម្មបានបញ្ចប់{{again}} ខុសពីផែនការ។ ផែនការ {{pb}} / {{ps}} ជាក់ស្តែង {{ab}} / {{as}}។"
+    "completedDiffers": "{{code}}៖ ផលិតកម្មបានបញ្ចប់{{again}} ខុសពីផែនការ។ ផែនការ {{pb}} / {{ps}} ជាក់ស្តែង {{ab}} / {{as}}។",
+    "orderNothing": "គ្មាន",
+    "orderItemCount": "{{name}} {{count}}",
+    "orderItemKg": "{{name}} {{kg}} គ.ក",
+    "orderDelivering": "{{code}} សម្រាប់ {{customer}} កំពុងដឹកជញ្ជូន — ប្រអប់ស {{white}} / ប្រអប់ខ្មៅ {{black}}។",
+    "orderDelivered": "{{code}}៖ បានដឹកដល់ {{customer}} អតិថិជនទទួលយកទាំងអស់។",
+    "orderReturnPending": "{{code}}៖ {{customer}} បានប្រគល់ទំនិញមកវិញ — {{summary}}។ សូមពិនិត្យទំនិញប្រគល់មកវិញ។",
+    "orderReturnsReviewed": "{{code}}៖ បានពិនិត្យទំនិញប្រគល់មកវិញ — {{outcome}} (ចូលស្តុក {{toStock}}, ខូចខាត {{toWasted}})។"
   },
   "telegramLink": {
     "title": "Telegram",
@@ -734,8 +760,8 @@
   },
   "inventory": {
     "title": "ស្តុក",
-    "subtitle": "ធ្វើបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិ នៅពេលបញ្ចប់ជំហានផលិតកម្ម។",
-    "description": "ស្តុក និងទំនិញខូចខាត ពីផលិតកម្ម។",
+    "subtitle": "ធ្វើបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិពីផលិតកម្ម និងការបញ្ជាទិញ។",
+    "description": "ស្តុក និងទំនិញខូចខាត ពីផលិតកម្ម និងការបញ្ជាទិញ។",
     "tabs": {
       "stock": "ស្តុក",
       "history": "ប្រវត្តិ"
@@ -765,7 +791,9 @@
     },
     "sources": {
       "production": "ផលិតកម្ម",
-      "adjustment": "ការកែតម្រូវ"
+      "adjustment": "ការកែតម្រូវ",
+      "order": "ការបញ្ជាទិញ",
+      "order_return": "ប្រគល់មកវិញ"
     },
     "reversedReopen": "បានដកវិញ៖ បើកឡើងវិញ",
     "reversedCancel": "បានដកវិញ៖ លុបចោល",
@@ -796,6 +824,158 @@
     "emptySection": "មិនទាន់មានទំនិញនៅទីនេះទេ។",
     "fromProduction": "ពីផលិតកម្ម",
     "total": "សរុប",
-    "noProductionStock": "មិនទាន់មានស្តុកពីផលិតកម្មនៅពេលនេះទេ។"
+    "noProductionStock": "មិនទាន់មានស្តុកពីផលិតកម្មនៅពេលនេះទេ។",
+    "fromBatch": "ពី",
+    "toBatch": "ទៅ"
+  },
+  "orders": {
+    "title": "ការបញ្ជាទិញ",
+    "description": "ការបញ្ជាទិញរបស់អតិថិជនក្នុងប្រអប់ស និងប្រអប់ខ្មៅ ការដឹកជញ្ជូន និងការប្រគល់មកវិញ។",
+    "new": "ការបញ្ជាទិញថ្មី",
+    "newTitle": "ការបញ្ជាទិញថ្មី",
+    "editTitle": "កែការបញ្ជាទិញ",
+    "actions": "សកម្មភាពការបញ្ជាទិញ",
+    "searchPlaceholder": "ស្វែងរកលេខកូដ ឬអតិថិជន",
+    "noResults": "គ្មានការបញ្ជាទិញត្រូវនឹងតម្រងទាំងនេះទេ។",
+    "emptyTitle": "មិនទាន់មានការបញ្ជាទិញ",
+    "emptyBody": "បង្កើតការបញ្ជាទិញដំបូង៖ ជ្រើសអតិថិជន ហើយបំពេញប្រអប់។",
+    "emptyBodyReadOnly": "ការបញ្ជាទិញនឹងបង្ហាញនៅទីនេះ នៅពេលមាននរណាម្នាក់បង្កើត។",
+    "status": {
+      "created": "បានបង្កើត",
+      "delivering": "កំពុងដឹកជញ្ជូន",
+      "return_pending": "រង់ចាំពិនិត្យការប្រគល់វិញ",
+      "success": "ជោគជ័យ",
+      "partly_returned": "ប្រគល់មកវិញខ្លះ",
+      "fully_returned": "ប្រគល់មកវិញទាំងអស់",
+      "cancelled": "បានលុបចោល"
+    },
+    "colors": {
+      "white": "ប្រអប់ស",
+      "black": "ប្រអប់ខ្មៅ"
+    },
+    "colorBoxes": {
+      "white": "ប្រអប់ស៖ {{count}}",
+      "black": "ប្រអប់ខ្មៅ៖ {{count}}"
+    },
+    "boxCountsLabel": "ប្រអប់ស {{white}} ប្រអប់ខ្មៅ {{black}}",
+    "kpi": {
+      "created": "បានបង្កើត",
+      "delivering": "កំពុងដឹកជញ្ជូន",
+      "returnPending": "រង់ចាំពិនិត្យការប្រគល់វិញ",
+      "deliveredThisMonth": "បានដឹកដល់ខែនេះ"
+    },
+    "filters": {
+      "all": "ទាំងអស់",
+      "created": "បានបង្កើត",
+      "delivering": "កំពុងដឹកជញ្ជូន",
+      "return_pending": "រង់ចាំពិនិត្យការប្រគល់វិញ",
+      "completed": "បានបញ្ចប់",
+      "cancelled": "បានលុបចោល",
+      "customer": "អតិថិជន",
+      "allCustomers": "អតិថិជនទាំងអស់",
+      "deliveryDate": "ដឹកជញ្ជូន",
+      "from": "ពី",
+      "to": "ដល់"
+    },
+    "columns": {
+      "code": "លេខកូដ",
+      "boxes": "ប្រអប់",
+      "status": "ស្ថានភាព"
+    },
+    "fields": {
+      "customer": "អតិថិជន",
+      "deliveryDate": "ថ្ងៃដឹកជញ្ជូន",
+      "driver": "អ្នកដឹកជញ្ជូន",
+      "note": "កំណត់សម្គាល់"
+    },
+    "summary": "សង្ខេប",
+    "summaryEmpty": "បន្ថែមប្រអប់ ដើម្បីមើលសង្ខេប។",
+    "grandTotal": "សរុបទាំងអស់",
+    "boxesCount": "ប្រអប់៖ {{count}}",
+    "onlyInStock": "{{name}} មានក្នុងស្តុកតែ {{amount}} ប៉ុណ្ណោះ។",
+    "customerInactive": "បានបិទ",
+    "chooseCustomer": "ជ្រើសរើសអតិថិជន",
+    "searchCustomer": "ស្វែងរកឈ្មោះ ឬលេខទូរស័ព្ទ",
+    "noCustomers": "រកមិនឃើញអតិថិជនសកម្មទេ។",
+    "errors": {
+      "customerRequired": "សូមជ្រើសរើសអតិថិជន។",
+      "dateRequired": "សូមជ្រើសរើសថ្ងៃដឹកជញ្ជូន។",
+      "boxesRequired": "សូមបន្ថែមប្រអប់យ៉ាងតិចមួយ។",
+      "linesRequired": "សូមបន្ថែមទំនិញយ៉ាងតិចមួយក្នុងប្រអប់នេះ។",
+      "itemRequired": "សូមជ្រើសរើសទំនិញ។",
+      "itemTwice": "មានក្នុងប្រអប់នេះរួចហើយ។",
+      "countInvalid": "ចំនួនគត់ធំជាង 0។",
+      "kgInvalid": "ទម្ងន់ធំជាង 0 (ទសភាគមិនលើស 3 ខ្ទង់)។",
+      "fixHighlighted": "សូមពិនិត្យប្រអប់ដែលបានសម្គាល់។"
+    },
+    "boxes": "ប្រអប់",
+    "boxTitle": "ប្រអប់ទី {{n}}",
+    "boxesTitle": "ប្រអប់ ({{count}})",
+    "addBox": {
+      "white": "ប្រអប់ស",
+      "black": "ប្រអប់ខ្មៅ"
+    },
+    "duplicateBox": "ចម្លង",
+    "removeBox": "ដកចេញ",
+    "item": "ទំនិញ",
+    "chooseItem": "ជ្រើសរើសទំនិញ",
+    "itemOption": "{{name}} (មានក្នុងស្តុក {{amount}})",
+    "quantity": "បរិមាណ",
+    "kgUnit": "គ.ក",
+    "removeLine": "ដកទំនិញចេញ",
+    "addLine": "បន្ថែមទំនិញ",
+    "driverHint": "ស្រេចចិត្ត៖ បុគ្គលិក ឬអ្នកត្រួតពិនិត្យដែលសកម្ម។",
+    "noDriver": "គ្មានអ្នកដឹកជញ្ជូន",
+    "notePlaceholder": "ឧ. ទូរស័ព្ទមុនពេលទៅដល់",
+    "createOrder": "បង្កើតការបញ្ជាទិញ",
+    "notEditable": "ការបញ្ជាទិញនេះមិនអាចកែបានទៀតទេ៖ អាចកែបានតែការបញ្ជាទិញដែលមិនទាន់ចេញដឹកប៉ុណ្ណោះ។",
+    "openOrder": "បើកការបញ្ជាទិញ",
+    "conflictReloaded": "មាននរណាម្នាក់បានកែការបញ្ជាទិញនេះ។ វាត្រូវបានផ្ទុកឡើងវិញ សូមពិនិត្យ ហើយព្យាយាមម្តងទៀត។",
+    "startDelivery": "ចាប់ផ្តើមដឹកជញ្ជូន",
+    "startDeliveryTitle": "ចាប់ផ្តើមដឹកជញ្ជូន {{code}}?",
+    "startDeliveryBody": "ប្រអប់ {{boxes}} សម្រាប់ {{customer}} នឹងចេញពីស្តុកឥឡូវនេះ (បាច់ចាស់មុន)។ មិនអាចត្រឡប់វិញបានទេ។",
+    "markDelivered": "កំណត់ថាបានដឹកដល់",
+    "confirmDelivered": "រក្សាទុក",
+    "outcome": {
+      "accepted": "អតិថិជនទទួលយកទាំងអស់",
+      "returned": "មានទំនិញប្រគល់មកវិញ"
+    },
+    "outcomeHint": {
+      "accepted": "អតិថិជនទទួលយកទាំងអស់៖ ការបញ្ជាទិញបានបញ្ចប់។",
+      "returned": "បញ្ចូលទំនិញដែលប្រគល់មកវិញ និងមូលហេតុ៖ អ្នកគ្រប់គ្រងនឹងពិនិត្យ។"
+    },
+    "returnedHint": "ទំនិញនីមួយៗប្រគល់មកវិញប៉ុន្មាន? ទុកចន្លោះទទេសម្រាប់ទំនិញដែលមិនបានប្រគល់។",
+    "deliveredAmount": "បានដឹក៖ {{amount}}",
+    "returnedOf": "{{name}} ដែលប្រគល់មកវិញ",
+    "returnReason": "មូលហេតុ",
+    "returnReasonPlaceholder": "ឧ. ប្រអប់ពីរសើមទឹក",
+    "reviewReturn": "ពិនិត្យទំនិញប្រគល់មកវិញ",
+    "confirmReview": "រក្សាទុកការពិនិត្យ",
+    "reasonQuoted": "មូលហេតុ៖ “{{reason}}”",
+    "allToStock": "ចូលស្តុកទាំងអស់",
+    "allWasted": "ខូចខាតទាំងអស់",
+    "returnedAmount": "ប្រគល់មកវិញ៖ {{amount}}",
+    "backToStock": "ចូលស្តុកវិញ",
+    "wasted": "ខូចខាត",
+    "mustAddUp": "ស្តុក + ខូចខាត = {{sum}}៖ ត្រូវតែស្មើ {{returned}}។",
+    "timeline": {
+      "title": "ស្ថានភាព",
+      "created": "បានបង្កើត",
+      "cancelled": "បានលុបចោល",
+      "delivering": "ចេញដឹកជញ្ជូន",
+      "delivered": "បានដឹកដល់",
+      "deliveredReturned": "បានដឹកដល់ មានទំនិញប្រគល់មកវិញ",
+      "reviewed": "បានពិនិត្យទំនិញប្រគល់មកវិញ"
+    },
+    "returns": "ទំនិញប្រគល់មកវិញ",
+    "delivered": "បានដឹក",
+    "returned": "ប្រគល់មកវិញ",
+    "waitingReview": "កំពុងរង់ចាំអ្នកគ្រប់គ្រងពិនិត្យទំនិញដែលប្រគល់មកវិញ។",
+    "cancelOrder": "លុបចោលការបញ្ជាទិញ",
+    "cancelBody": "លុបចោល {{code}}? មិនទាន់មានអ្វីចេញពីស្តុកនៅឡើយទេ។ មិនអាចត្រឡប់វិញបានទេ។",
+    "cancelReason": "មូលហេតុ",
+    "cancelReasonDefault": "អតិថិជនបានលុបចោល",
+    "cancelledNotice": "ការបញ្ជាទិញនេះត្រូវបានលុបចោល។",
+    "stockWarningTitle": "ស្តុកមិនគ្រប់គ្រាន់ទេឥឡូវនេះ — មិនអាចចាប់ផ្តើមដឹកជញ្ជូនបានទេ រហូតដល់មាន៖"
   }
 }

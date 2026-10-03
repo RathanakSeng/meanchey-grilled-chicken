@@ -76,6 +76,13 @@ export const NAV_ITEMS: NavItem[] = [
         icon: 'boxes',
         permission: 'inventory.view',
       },
+      {
+        to: paths.orders,
+        labelKey: 'nav.orders',
+        descriptionKey: 'orders.description',
+        icon: 'receipt',
+        permission: 'orders.view',
+      },
     ],
   },
   {

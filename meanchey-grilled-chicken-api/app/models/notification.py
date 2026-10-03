@@ -14,7 +14,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, utcnow
 
-NOTIFICATION_TYPES = ("production.processing_finished", "production.completed")
+NOTIFICATION_TYPES = (
+    "production.processing_finished",
+    "production.completed",
+    "order.delivering",
+    "order.delivered",
+    "order.return_pending",
+    "order.returns_reviewed",
+)
 TELEGRAM_STATUSES = ("pending", "sent", "failed", "not_linked", "bot_off")
 
 

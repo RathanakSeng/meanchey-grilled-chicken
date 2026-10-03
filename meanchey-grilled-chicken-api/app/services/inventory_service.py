@@ -1,16 +1,30 @@
 """Inventory: a ledger of movements plus a balance per item, never below zero.
 
 Everything that changes stock goes through `apply_movements` in the caller's transaction:
-production (finish / reopen / cancel, `production_service`) and adjustments (`set_value`). It
+production (finish / reopen / cancel, `production_service`), orders (Delivering and the return
+review, `order_service`) and adjustments (`set_value`). It
 locks the affected balance rows `FOR UPDATE` in `item_code` order (a fixed order, so two
 transactions can't deadlock on them; the batch row, when there is one, is always locked first),
 applies the deltas, refuses with `409 INVENTORY_INSUFFICIENT` if any balance would go below zero
 (the caller's whole action is then rolled back), and inserts the movements with the balances
 after. It never commits.
 
-Every catalog item today has `origin = production`: it changes only through production, and
-`set_value` refuses it for everyone (INVENTORY_ITEM_PRODUCTION_ONLY). Adjustments remain for
-future `manual` items. Migration 0011 removed the adjustments made before this rule.
+Every catalog item today has `origin = production`: it changes only through production and
+orders, and `set_value` refuses it for everyone (INVENTORY_ITEM_PRODUCTION_ONLY). Adjustments
+remain for future `manual` items. Migration 0011 removed the adjustments made before this rule.
+
+Per-batch attribution: every movement of a production item carries the batch its quantity
+belongs to, so a batch's current contribution to an item is the sum of its movements (any
+source). Orders keep this exact:
+- Delivering (`take_for_order`) splits each item across the batches by their current
+  contribution, **oldest batch first** (FIFO), one movement per (item, batch), `source = order`.
+- The return review (`return_from_order`) gives back to the batches the order took from,
+  **newest first**: first what goes back to stock, then what goes to wasted (the wasted item of
+  the same batch), `source = order_return`.
+- A production reversal (reopen / cancel, `reverse`) needs the batch's own remaining contribution
+  to cover it, otherwise `409 PRODUCTION_STOCK_ALREADY_USED` (its stock already left in orders).
+The contributions are read after the balance rows are locked, so a concurrent order or reversal
+on the same items waits and then sees the other's movements.
 
 Production rules (tracked batches only, `production_batches.inventory_tracked`):
 - Finish step 1/2/3 writes the movements of `step_deltas`.
@@ -48,8 +62,16 @@ from app.inventory.catalog import (
     byproduct_packed,
     byproduct_processed,
     wasted_byproduct,
+    wasted_for,
 )
-from app.models import InventoryBalance, InventoryMovement, ProductionBatch, User, utcnow
+from app.models import (
+    InventoryBalance,
+    InventoryMovement,
+    Order,
+    ProductionBatch,
+    User,
+    utcnow,
+)
 from app.permissions.service import effective_permissions
 from app.production.catalog import BYPRODUCT_CODES
 from app.schemas.common import UserRef
@@ -60,6 +82,7 @@ from app.schemas.inventory import (
     InventorySectionOut,
     ItemSourceOut,
     MovementBatch,
+    MovementOrder,
     MovementOut,
     MovementPage,
     MovementSource,
@@ -83,6 +106,9 @@ class Delta:
     step: int | None = None
     reversal_of: int | None = None
     reason: str | None = None
+    # Per movement; `apply_movements(batch_id=...)` is the default for the batch.
+    batch_id: uuid.UUID | None = None
+    order_id: uuid.UUID | None = None
 
 
 def _kg(value: Decimal | None) -> Decimal:
@@ -116,6 +142,45 @@ async def ensure_balances(session: AsyncSession, codes: list[str] | None = None)
     )
 
 
+async def lock_balances(session: AsyncSession, codes: list[str]) -> dict[str, InventoryBalance]:
+    """Create missing rows, then lock the balances of `codes` FOR UPDATE in item_code order."""
+    codes = sorted(set(codes))
+    if not codes:
+        return {}
+    await ensure_balances(session, codes)
+    return {
+        b.item_code: b
+        for b in await session.scalars(
+            select(InventoryBalance)
+            .where(InventoryBalance.item_code.in_(codes))
+            .order_by(InventoryBalance.item_code)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    }
+
+
+def _short_entry(
+    code: str, bal: InventoryBalance, needed_count: int | None, needed_kg: Decimal | None
+) -> dict[str, Any]:
+    return {
+        "item_code": code,
+        # Names included: whoever records production or orders may not see the inventory.
+        "name_en": _names(code)[0],
+        "name_km": _names(code)[1],
+        "available_count": bal.count,
+        "available_kg": str(bal.kg) if bal.kg is not None else None,
+        "needed_count": needed_count,
+        "needed_kg": str(needed_kg) if needed_kg is not None else None,
+    }
+
+
+def _insufficient(short: list[dict[str, Any]]) -> AppError:
+    return AppError(
+        409, ErrorCode.INVENTORY_INSUFFICIENT, "Not enough stock for this change", {"items": short}
+    )
+
+
 def _normalized(delta: Delta) -> Delta | None:
     """Keep only tracked units (a unit not given stays None); None when nothing changes."""
     item = ITEMS_BY_CODE[delta.item_code]
@@ -140,17 +205,7 @@ async def apply_movements(
     if not rows:
         return []
     codes = sorted({d.item_code for d in rows})
-    await ensure_balances(session, codes)
-    balances = {
-        b.item_code: b
-        for b in await session.scalars(
-            select(InventoryBalance)
-            .where(InventoryBalance.item_code.in_(codes))
-            .order_by(InventoryBalance.item_code)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    }
+    balances = await lock_balances(session, codes)
 
     # Net change per item: refuse before writing anything if one would go below zero.
     net: dict[str, tuple[int, Decimal]] = {}
@@ -164,24 +219,15 @@ async def apply_movements(
         kg_short = bal.kg is not None and bal.kg + dk < 0
         if count_short or kg_short:
             short.append(
-                {
-                    "item_code": code,
-                    # Names included: whoever records production may not see the inventory.
-                    "name_en": _names(code)[0],
-                    "name_km": _names(code)[1],
-                    "available_count": bal.count,
-                    "available_kg": str(bal.kg) if bal.kg is not None else None,
-                    "needed_count": -dc if bal.count is not None and dc < 0 else None,
-                    "needed_kg": str(-dk) if bal.kg is not None and dk < 0 else None,
-                }
+                _short_entry(
+                    code,
+                    bal,
+                    -dc if bal.count is not None and dc < 0 else None,
+                    -dk if bal.kg is not None and dk < 0 else None,
+                )
             )
     if short:
-        raise AppError(
-            409,
-            ErrorCode.INVENTORY_INSUFFICIENT,
-            "Not enough stock for this change",
-            {"items": short},
-        )
+        raise _insufficient(short)
 
     now = utcnow()
     written = []
@@ -198,7 +244,8 @@ async def apply_movements(
             kg_delta=d.kg,
             kg_estimated=d.kg_estimated,
             source=source,
-            batch_id=batch_id,
+            batch_id=d.batch_id or batch_id,
+            order_id=d.order_id,
             step=d.step,
             reversal_of=d.reversal_of,
             reason=d.reason,
@@ -328,7 +375,245 @@ async def reverse(
         )
         for m in originals
     ]
+    await _guard_reversal(session, batch, deltas)
     await apply_movements(session, actor, deltas, source="production", batch_id=batch.id)
+
+
+async def batch_contributions(
+    session: AsyncSession, codes: list[str], *, batch_id: uuid.UUID | None = None
+) -> dict[str, list[tuple[uuid.UUID, int, Decimal]]]:
+    """Per item, each batch's current net contribution `(batch_id, count, kg)`: the sum of all
+    the batch's movements of that item (every source). Oldest batch first; zero nets included."""
+    stmt = (
+        select(
+            InventoryMovement.item_code,
+            InventoryMovement.batch_id,
+            func.coalesce(func.sum(InventoryMovement.count_delta), 0),
+            func.coalesce(func.sum(InventoryMovement.kg_delta), 0),
+        )
+        .join(ProductionBatch, ProductionBatch.id == InventoryMovement.batch_id)
+        .where(InventoryMovement.item_code.in_(codes))
+        .group_by(
+            InventoryMovement.item_code,
+            InventoryMovement.batch_id,
+            ProductionBatch.created_at,
+            ProductionBatch.code,
+        )
+        .order_by(ProductionBatch.created_at, ProductionBatch.code)
+    )
+    if batch_id is not None:
+        stmt = stmt.where(InventoryMovement.batch_id == batch_id)
+    result: dict[str, list[tuple[uuid.UUID, int, Decimal]]] = {c: [] for c in codes}
+    for code, b_id, count, kg in await session.execute(stmt):
+        result[code].append((b_id, int(count), Decimal(kg)))
+    return result
+
+
+async def _guard_reversal(
+    session: AsyncSession, batch: ProductionBatch, deltas: list[Delta]
+) -> None:
+    """A reversal may only take back what the batch still has: if part of what it made already
+    left in orders, refuse with PRODUCTION_STOCK_ALREADY_USED (nothing is written)."""
+    needed: dict[str, tuple[int, Decimal]] = {}
+    for d in deltas:
+        c, k = needed.get(d.item_code, (0, Decimal(0)))
+        needed[d.item_code] = (c - (d.count or 0), k - (d.kg or Decimal(0)))
+    codes = sorted(code for code, (c, k) in needed.items() if c > 0 or k > 0)
+    if not codes:
+        return
+    # Locked first: an order delivering these items waits, then sees the reversal (or refuses).
+    await lock_balances(session, codes)
+    own = await batch_contributions(session, codes, batch_id=batch.id)
+    short = []
+    for code in codes:
+        item = ITEMS_BY_CODE[code]
+        have_c = sum(c for _, c, _ in own[code])
+        have_k = sum((k for _, _, k in own[code]), Decimal(0))
+        need_c, need_k = needed[code]
+        if (item.tracks_count and have_c < need_c) or (item.tracks_kg and have_k < need_k):
+            short.append((item, have_c, have_k, need_c, need_k))
+    if not short:
+        return
+    order_codes = await _orders_using(session, batch.id, [i.code for i, *_ in short])
+    raise AppError(
+        409,
+        ErrorCode.PRODUCTION_STOCK_ALREADY_USED,
+        "Stock from this batch already left in orders",
+        {
+            "items": [
+                {
+                    "item_code": item.code,
+                    "name_en": item.name_en,
+                    "name_km": item.name_km,
+                    "remaining_count": have_c if item.tracks_count else None,
+                    "remaining_kg": str(_kg(have_k)) if item.tracks_kg else None,
+                    "needed_count": need_c if item.tracks_count else None,
+                    "needed_kg": str(_kg(need_k)) if item.tracks_kg else None,
+                    "orders": order_codes.get(item.code, []),
+                }
+                for item, have_c, have_k, need_c, need_k in short
+            ],
+            "orders": sorted({c for codes_ in order_codes.values() for c in codes_}),
+        },
+    )
+
+
+async def _orders_using(
+    session: AsyncSession, batch_id: uuid.UUID, codes: list[str]
+) -> dict[str, list[str]]:
+    """Per item, the codes of the orders that took this batch's stock of it."""
+    rows = await session.execute(
+        select(InventoryMovement.item_code, Order.code)
+        .join(Order, Order.id == InventoryMovement.order_id)
+        .where(
+            InventoryMovement.batch_id == batch_id,
+            InventoryMovement.source == "order",
+            InventoryMovement.item_code.in_(codes),
+        )
+        .distinct()
+        .order_by(InventoryMovement.item_code, Order.code)
+    )
+    result: dict[str, list[str]] = {}
+    for code, order_code in rows:
+        result.setdefault(code, []).append(order_code)
+    return result
+
+
+# --- Orders --------------------------------------------------------------------------------------
+
+# Quantities of orderable items, each in its own unit: a whole count (packs) or kg (by-products).
+Quantities = dict[str, Decimal]
+
+
+def _qty_delta(code: str, qty: Decimal, **kwargs: Any) -> Delta:
+    if ITEMS_BY_CODE[code].tracks_count:
+        return Delta(code, count=int(qty), **kwargs)
+    return Delta(code, kg=qty, **kwargs)
+
+
+def _amount(item: ItemDef, count: int | None, kg: Decimal | None) -> Decimal:
+    """A balance or net in the item's own unit."""
+    return Decimal(count or 0) if item.tracks_count else Decimal(kg or 0)
+
+
+async def available(session: AsyncSession, codes: list[str]) -> Quantities:
+    """Current balances of `codes` in each item's unit (not locked)."""
+    rows = {
+        b.item_code: b
+        for b in await session.scalars(
+            select(InventoryBalance).where(InventoryBalance.item_code.in_(codes))
+        )
+    }
+    result: Quantities = {}
+    for code in codes:
+        bal = rows.get(code)
+        result[code] = _amount(ITEMS_BY_CODE[code], bal.count, bal.kg) if bal else Decimal(0)
+    return result
+
+
+async def take_for_order(
+    session: AsyncSession, actor: User, order: Order, totals: Quantities
+) -> None:
+    """Delivering: remove the order's totals from stock, oldest batch first, one movement per
+    (item, batch). Refuses with INVENTORY_INSUFFICIENT (per item: available, needed) without
+    writing anything."""
+    codes = sorted(code for code, qty in totals.items() if qty > 0)
+    balances = await lock_balances(session, codes)
+    contributions = await batch_contributions(session, codes)
+    deltas: list[Delta] = []
+    short = []
+    for code in codes:
+        item, need, bal = ITEMS_BY_CODE[code], totals[code], balances[code]
+        if _amount(item, bal.count, bal.kg) < need:
+            short.append(
+                _short_entry(
+                    code,
+                    bal,
+                    int(need) if item.tracks_count else None,
+                    None if item.tracks_count else _kg(need),
+                )
+            )
+            continue
+        left = need
+        for b_id, count, kg in contributions[code]:
+            net = _amount(item, count, kg)
+            if left <= 0:
+                break
+            if net <= 0:
+                continue
+            take = min(net, left)
+            deltas.append(_qty_delta(code, -take, batch_id=b_id, order_id=order.id))
+            left -= take
+        if left > 0:
+            # Stock attributed to no batch (not expected: every movement has one).
+            deltas.append(_qty_delta(code, -left, order_id=order.id))
+    if short:
+        raise _insufficient(short)
+    await apply_movements(session, actor, deltas, source="order")
+
+
+def _spread(slots: list[list[Any]], qty: Decimal) -> list[tuple[uuid.UUID | None, Decimal]]:
+    """Take `qty` from `slots` ([batch_id, room], in order), reducing their room."""
+    out: list[tuple[uuid.UUID | None, Decimal]] = []
+    left = qty
+    for slot in slots:
+        if left <= 0:
+            break
+        give = min(slot[1], left)
+        if give > 0:
+            out.append((slot[0], give))
+            slot[1] -= give
+            left -= give
+    if left > 0:
+        # More than the order took from its batches (validation prevents it): the last batch.
+        out.append((slots[-1][0] if slots else None, left))
+    return out
+
+
+async def return_from_order(
+    session: AsyncSession, actor: User, order: Order, to_stock: Quantities, to_wasted: Quantities
+) -> None:
+    """Return review: what goes back to stock returns to the batches the order took it from,
+    newest first; what is wasted continues the same split into the item's wasted item."""
+    codes = sorted({*to_stock, *to_wasted})
+    if not codes:
+        return
+    rows = await session.execute(
+        select(
+            InventoryMovement.item_code,
+            InventoryMovement.batch_id,
+            func.coalesce(func.sum(InventoryMovement.count_delta), 0),
+            func.coalesce(func.sum(InventoryMovement.kg_delta), 0),
+        )
+        .outerjoin(ProductionBatch, ProductionBatch.id == InventoryMovement.batch_id)
+        .where(
+            InventoryMovement.order_id == order.id,
+            InventoryMovement.source == "order",
+            InventoryMovement.item_code.in_(codes),
+        )
+        .group_by(
+            InventoryMovement.item_code,
+            InventoryMovement.batch_id,
+            ProductionBatch.created_at,
+            ProductionBatch.code,
+        )
+        # Newest batch first (stock without a batch last).
+        .order_by(ProductionBatch.created_at.desc().nulls_last(), ProductionBatch.code.desc())
+    )
+    slots: dict[str, list[list[Any]]] = {c: [] for c in codes}
+    for code, b_id, count, kg in rows:
+        # The order's movements are negative: what it took is their opposite.
+        slots[code].append([b_id, -_amount(ITEMS_BY_CODE[code], int(count), Decimal(kg))])
+
+    deltas: list[Delta] = []
+    for code in codes:
+        for target, qty in ((code, to_stock.get(code)), (wasted_for(code), to_wasted.get(code))):
+            if qty:
+                deltas += [
+                    _qty_delta(target, give, batch_id=b_id, order_id=order.id)
+                    for b_id, give in _spread(slots[code], qty)
+                ]
+    await apply_movements(session, actor, deltas, source="order_return")
 
 
 async def stock_changes(session: AsyncSession, batch: ProductionBatch) -> list[StockChangeOut]:
@@ -463,10 +748,9 @@ def _item_out(item: ItemDef, bal: InventoryBalance | None, last_change: datetime
 async def item_detail(session: AsyncSession, item_code: str) -> InventoryItemDetailOut:
     """One item with its balance and, per batch, what it currently contributes.
 
-    A batch's contribution is the sum of all its movements for the item (reversals included), so
-    the contributions add up to the balance while stock only changes through production. Stock
-    going out (sales, delivery) will need an allocation rule (e.g. oldest batch first) to keep
-    this true.
+    A batch's contribution is the sum of all its movements for the item, every source: production
+    (reversals included), orders taken from it (oldest batch first) and returns given back to it.
+    So the contributions add up to the balance.
     """
     item = _item(item_code)
     bal = await session.get(InventoryBalance, item.code)
@@ -491,10 +775,7 @@ async def item_detail(session: AsyncSession, item_code: str) -> InventoryItemDet
                 func.max(case((still_open, InventoryMovement.step))),
             )
             .join(ProductionBatch, ProductionBatch.id == InventoryMovement.batch_id)
-            .where(
-                InventoryMovement.item_code == item.code,
-                InventoryMovement.source == "production",
-            )
+            .where(InventoryMovement.item_code == item.code)
             .group_by(ProductionBatch.id, ProductionBatch.code, ProductionBatch.created_at)
             .order_by(ProductionBatch.created_at, ProductionBatch.code)
         )
@@ -506,7 +787,8 @@ async def item_detail(session: AsyncSession, item_code: str) -> InventoryItemDet
             count=int(count) if item.tracks_count else None,
             kg=Decimal(kg) if item.tracks_kg else None,
             kg_estimated=bool(estimated),
-            last_step=int(step or 0),
+            # Only order movements (e.g. wasted packs from a return): packs come from step 3.
+            last_step=int(step or 3),
         )
         for batch_id, code, count, kg, estimated, step in rows
         if (item.tracks_count and count) or (item.tracks_kg and kg)
@@ -548,6 +830,7 @@ async def movements(
     source: MovementSource | None = None,
     batch_id: uuid.UUID | None = None,
     batch_code: str | None = None,
+    order_id: uuid.UUID | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     page: int = 1,
@@ -564,6 +847,8 @@ async def movements(
         conditions.append(InventoryMovement.source == source)
     if batch_id:
         conditions.append(InventoryMovement.batch_id == batch_id)
+    if order_id:
+        conditions.append(InventoryMovement.order_id == order_id)
     if batch_code:
         conditions.append(
             InventoryMovement.batch_id.in_(
@@ -605,6 +890,17 @@ async def movements(
         if batch_ids
         else {}
     )
+    order_ids = {m.order_id for m in rows if m.order_id}
+    orders = (
+        {
+            o.id: o.code
+            for o in await session.execute(
+                select(Order.id, Order.code).where(Order.id.in_(order_ids))
+            )
+        }
+        if order_ids
+        else {}
+    )
     user_ids = {m.created_by for m in rows if m.created_by}
     users = (
         {u.id: u for u in await session.scalars(select(User).where(User.id.in_(user_ids)))}
@@ -625,6 +921,9 @@ async def movements(
                 source=m.source,  # type: ignore[arg-type]
                 batch=MovementBatch(id=m.batch_id, code=codes[m.batch_id])
                 if m.batch_id in codes
+                else None,
+                order=MovementOrder(id=m.order_id, code=orders[m.order_id])
+                if m.order_id in orders
                 else None,
                 step=m.step,
                 reversal_of=m.reversal_of,

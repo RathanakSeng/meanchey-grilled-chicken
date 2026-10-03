@@ -45,7 +45,8 @@
     "production": "Production",
     "productionPlans": "Production plan",
     "userLimits": "User limits",
-    "inventory": "Inventory"
+    "inventory": "Inventory",
+    "orders": "Orders"
   },
   "roles": {
     "superadmin": "System",
@@ -197,7 +198,10 @@
       "production_plan": "Production plan",
       "staff_access": "Staff access",
       "inventory": "Inventory",
-      "inventory_history": "Inventory history"
+      "inventory_history": "Inventory history",
+      "orders": "Orders",
+      "order_management": "Order management",
+      "order_returns": "Order returns"
     },
     "legendRecord": "Record: can start batches and fill in steps, but can't reopen finished steps.",
     "gmHint": "Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced).",
@@ -223,7 +227,8 @@
     "entityTypes": {
       "supplier": "Supplier",
       "customer": "Customer",
-      "production_batch": "Production batch"
+      "production_batch": "Production batch",
+      "order": "Order"
     },
     "defaultBackfill": "Granted automatically (role default)",
     "actions": {
@@ -261,7 +266,13 @@
       "profile_telegram_link": "Linked Telegram account",
       "profile_telegram_unlink": "Unlinked Telegram account",
       "settings_role_limit_update": "Changed user limit",
-      "inventory_adjust": "Set stock value"
+      "inventory_adjust": "Set stock value",
+      "order_create": "Order created",
+      "order_update": "Order edited",
+      "order_cancel": "Order cancelled",
+      "order_delivering": "Order out for delivery",
+      "order_delivered": "Order delivered",
+      "order_returns_reviewed": "Order return reviewed"
     },
     "featureChange": "{{feature}}: {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
@@ -270,7 +281,9 @@
     "alsoReopened": "Also back to draft: step {{steps}}",
     "roleLimitChange": "{{role}}: {{from}} → {{to}}",
     "defaultChange": "New default for supervisors",
-    "inventoryAdjust": "{{item}}: {{from}} → {{to}}"
+    "inventoryAdjust": "{{item}}: {{from}} → {{to}}",
+    "orderAccepted": "Everything accepted",
+    "orderReturned": "Items returned"
   },
   "profile": {
     "title": "My profile",
@@ -443,7 +456,13 @@
     "INVENTORY_INSUFFICIENT": "{{items}}",
     "INVENTORY_ITEM_NOT_FOUND": "This inventory item doesn't exist.",
     "inventoryShortItem": "Not enough {{name}} in stock: {{available}} available, {{needed}} needed.",
-    "INVENTORY_ITEM_PRODUCTION_ONLY": "This item changes only through production."
+    "INVENTORY_ITEM_PRODUCTION_ONLY": "This item changes only through production.",
+    "PRODUCTION_STOCK_ALREADY_USED": "{{items}} from this batch were already delivered in {{orders}} — can't reopen or cancel it.",
+    "ORDER_NOT_FOUND": "Order not found.",
+    "ORDER_CONFLICT": "Someone else changed this order. It has been reloaded; please try again.",
+    "ORDER_INVALID_STATUS": "This order has moved on and can’t be changed this way any more.",
+    "CUSTOMER_INACTIVE": "This customer is deactivated. Choose another customer.",
+    "DRIVER_NOT_ALLOWED": "The driver must be an active staff member or supervisor."
   },
   "permissions": {
     "readOnlyNotice": "You can view these permissions, but you can't change them here.",
@@ -682,7 +701,14 @@
     "again": " again",
     "processingFinished": "{{code}}: processing finished{{again}} — {{quantity}} chickens → {{wings}} wings, {{thighs}} thighs. Set the packaging plan.",
     "completedAsPlanned": "{{code}}: production completed{{again}} as planned — {{big}} × 4-Piece Packs, {{small}} × 2-Piece Packs.",
-    "completedDiffers": "{{code}}: production completed{{again}}, different from the plan. Planned {{pb}} / {{ps}}, actual {{ab}} / {{as}}."
+    "completedDiffers": "{{code}}: production completed{{again}}, different from the plan. Planned {{pb}} / {{ps}}, actual {{ab}} / {{as}}.",
+    "orderNothing": "nothing",
+    "orderItemCount": "{{count}} × {{name}}",
+    "orderItemKg": "{{kg}} kg {{name}}",
+    "orderDelivering": "{{code}} for {{customer}} is out for delivery — {{white}} white / {{black}} black boxes.",
+    "orderDelivered": "{{code}}: delivered to {{customer}}, everything accepted.",
+    "orderReturnPending": "{{code}}: {{customer}} returned items — {{summary}}. Review the return.",
+    "orderReturnsReviewed": "{{code}}: return reviewed — {{outcome}} ({{toStock}} to stock, {{toWasted}} wasted)."
   },
   "telegramLink": {
     "title": "Telegram",
@@ -734,8 +760,8 @@
   },
   "inventory": {
     "title": "Inventory",
-    "subtitle": "Updated automatically as production steps are finished.",
-    "description": "Stock and wasted items, from production.",
+    "subtitle": "Updated automatically by production and orders.",
+    "description": "Stock and wasted items, from production and orders.",
     "tabs": {
       "stock": "Stock",
       "history": "History"
@@ -765,7 +791,9 @@
     },
     "sources": {
       "production": "Production",
-      "adjustment": "Adjustment"
+      "adjustment": "Adjustment",
+      "order": "Order",
+      "order_return": "Return"
     },
     "reversedReopen": "Reversed: reopen",
     "reversedCancel": "Reversed: cancelled",
@@ -796,6 +824,158 @@
     "emptySection": "No items here yet.",
     "fromProduction": "From production",
     "total": "Total",
-    "noProductionStock": "No stock from production right now."
+    "noProductionStock": "No stock from production right now.",
+    "fromBatch": "from",
+    "toBatch": "to"
+  },
+  "orders": {
+    "title": "Orders",
+    "description": "Customer orders in white and black boxes, delivery and returns.",
+    "new": "New order",
+    "newTitle": "New order",
+    "editTitle": "Edit order",
+    "actions": "Order actions",
+    "searchPlaceholder": "Search order code or customer",
+    "noResults": "No orders match these filters.",
+    "emptyTitle": "No orders yet",
+    "emptyBody": "Create the first order: pick the customer and fill the boxes.",
+    "emptyBodyReadOnly": "Orders will appear here once someone creates them.",
+    "status": {
+      "created": "Created",
+      "delivering": "Delivering",
+      "return_pending": "Return pending",
+      "success": "Success",
+      "partly_returned": "Partly returned",
+      "fully_returned": "Fully returned",
+      "cancelled": "Cancelled"
+    },
+    "colors": {
+      "white": "White box",
+      "black": "Black box"
+    },
+    "colorBoxes": {
+      "white": "White boxes: {{count}}",
+      "black": "Black boxes: {{count}}"
+    },
+    "boxCountsLabel": "{{white}} white, {{black}} black boxes",
+    "kpi": {
+      "created": "Created",
+      "delivering": "Delivering",
+      "returnPending": "Return pending",
+      "deliveredThisMonth": "Delivered this month"
+    },
+    "filters": {
+      "all": "All",
+      "created": "Created",
+      "delivering": "Delivering",
+      "return_pending": "Return pending",
+      "completed": "Completed",
+      "cancelled": "Cancelled",
+      "customer": "Customer",
+      "allCustomers": "All customers",
+      "deliveryDate": "Delivery",
+      "from": "From",
+      "to": "To"
+    },
+    "columns": {
+      "code": "Code",
+      "boxes": "Boxes",
+      "status": "Status"
+    },
+    "fields": {
+      "customer": "Customer",
+      "deliveryDate": "Delivery date",
+      "driver": "Driver",
+      "note": "Note"
+    },
+    "summary": "Summary",
+    "summaryEmpty": "Add a box to see the summary.",
+    "grandTotal": "Grand total",
+    "boxesCount": "Boxes: {{count}}",
+    "onlyInStock": "Only {{amount}} × {{name}} in stock.",
+    "customerInactive": "Deactivated",
+    "chooseCustomer": "Choose the customer",
+    "searchCustomer": "Search name or phone",
+    "noCustomers": "No active customers found.",
+    "errors": {
+      "customerRequired": "Choose the customer.",
+      "dateRequired": "Choose the delivery date.",
+      "boxesRequired": "Add at least one box.",
+      "linesRequired": "Add at least one item to this box.",
+      "itemRequired": "Choose an item.",
+      "itemTwice": "Already in this box.",
+      "countInvalid": "A whole number above 0.",
+      "kgInvalid": "A weight above 0 (up to 3 decimals).",
+      "fixHighlighted": "Check the highlighted fields."
+    },
+    "boxes": "Boxes",
+    "boxTitle": "Box {{n}}",
+    "boxesTitle": "Boxes ({{count}})",
+    "addBox": {
+      "white": "White box",
+      "black": "Black box"
+    },
+    "duplicateBox": "Duplicate",
+    "removeBox": "Remove",
+    "item": "Item",
+    "chooseItem": "Choose an item",
+    "itemOption": "{{name}} ({{amount}} in stock)",
+    "quantity": "Quantity",
+    "kgUnit": "kg",
+    "removeLine": "Remove item",
+    "addLine": "Add item",
+    "driverHint": "Optional: an active staff member or supervisor.",
+    "noDriver": "No driver",
+    "notePlaceholder": "e.g. Call before arriving",
+    "createOrder": "Create order",
+    "notEditable": "This order can't be edited any more: only orders that haven't left can be.",
+    "openOrder": "Open the order",
+    "conflictReloaded": "Someone else changed this order. It has been reloaded; check it and try again.",
+    "startDelivery": "Start delivery",
+    "startDeliveryTitle": "Start the delivery of {{code}}?",
+    "startDeliveryBody": "The {{boxes}} boxes for {{customer}} leave stock now (oldest batches first). This can’t be undone.",
+    "markDelivered": "Mark delivered",
+    "confirmDelivered": "Save",
+    "outcome": {
+      "accepted": "Everything accepted",
+      "returned": "Some items returned"
+    },
+    "outcomeHint": {
+      "accepted": "The customer kept everything: the order is done.",
+      "returned": "Enter what came back and why; a manager reviews it."
+    },
+    "returnedHint": "How much of each item came back? Leave items that weren’t returned empty.",
+    "deliveredAmount": "Delivered: {{amount}}",
+    "returnedOf": "{{name}} returned",
+    "returnReason": "Reason",
+    "returnReasonPlaceholder": "e.g. Two boxes arrived wet",
+    "reviewReturn": "Review return",
+    "confirmReview": "Save review",
+    "reasonQuoted": "Reason: “{{reason}}”",
+    "allToStock": "All to stock",
+    "allWasted": "All wasted",
+    "returnedAmount": "Returned: {{amount}}",
+    "backToStock": "Back to stock",
+    "wasted": "Wasted",
+    "mustAddUp": "Stock + wasted = {{sum}}; it must equal {{returned}}.",
+    "timeline": {
+      "title": "Status",
+      "created": "Created",
+      "cancelled": "Cancelled",
+      "delivering": "Out for delivery",
+      "delivered": "Delivered",
+      "deliveredReturned": "Delivered, items returned",
+      "reviewed": "Return reviewed"
+    },
+    "returns": "Returns",
+    "delivered": "Delivered",
+    "returned": "Returned",
+    "waitingReview": "Waiting for a manager to review the returned items.",
+    "cancelOrder": "Cancel order",
+    "cancelBody": "Cancel {{code}}? Nothing has left stock yet. This can’t be undone.",
+    "cancelReason": "Reason",
+    "cancelReasonDefault": "Customer cancelled",
+    "cancelledNotice": "This order was cancelled.",
+    "stockWarningTitle": "Not enough stock right now — delivery can’t start until there is:"
   }
 }

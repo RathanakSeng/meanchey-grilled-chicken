@@ -20,6 +20,7 @@ PARTNERS = {
 }
 PRODUCTION = {f"production.{a}" for a in ("view", "create", "update", "delete")}
 PLAN = {"production_plan.view", "production_plan.manage"}
+ORDERS = {f"orders.{a}" for a in ("view", "create", "update", "cancel", "review_returns")}
 
 
 async def _create(client, actor, role: str, username: str) -> dict:
@@ -45,6 +46,7 @@ async def test_gm_gets_all_phase1_partner_and_production_permissions(client, sup
         | PRODUCTION
         | PLAN
         | {"inventory.view"}  # not inventory.history (Off)
+        | ORDERS  # Orders Record, management Full, returns Full
     )
 
 
@@ -61,6 +63,9 @@ async def test_supervisor_defaults(client, superadmin, make_user) -> None:
         *(PRODUCTION - {"production.delete"}),  # cancelling batches is GM-only
         # No production plan: Off by default, the GM decides who plans and gets the alerts.
         "inventory.view",
+        # Orders Record; editing, cancelling and reviewing returns are Off.
+        "orders.view",
+        "orders.create",
     }
 
 
