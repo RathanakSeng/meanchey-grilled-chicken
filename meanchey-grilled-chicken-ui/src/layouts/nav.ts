@@ -113,6 +113,14 @@ export const NAV_ITEMS: NavItem[] = [
         roles: ROLE_LIMIT_ROLES,
       },
       {
+        // The superadmin holds it implicitly; a general manager only when given Business info.
+        to: paths.businessInfo,
+        labelKey: 'nav.businessInfo',
+        descriptionKey: 'business.description',
+        icon: 'building',
+        permission: 'settings.business_info',
+      },
+      {
         to: paths.profile,
         labelKey: 'nav.profile',
         descriptionKey: 'settings.profileDescription',

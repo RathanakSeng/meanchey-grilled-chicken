@@ -320,8 +320,8 @@ Created ──► Delivering ──► Delivered ─┬─► Success           
 
 **Order page**
 
-- **Header:** code, status badge, customer; **⋮** with **Edit** (`orders.update`) and **Cancel order** (`orders.cancel`) while Created.
-- **Details:** customer (name, phone as a call link, location), delivery date, driver, note. While Created with too little stock: an amber list (*"Only 12 × 4-Piece Packs in stock."*).
+- **Header:** code, status badge, customer; **ព្រីន / Print** (PC and phone browsers; **Send to Telegram** inside the Mini App, see *Delivery note* below); **⋮** with **Send to my Telegram** (outside the Mini App), **Edit** (`orders.update`) and **Cancel order** (`orders.cancel`) while Created.
+- **Details:** customer (name, phone as a call link, location), delivery date, driver, note, and once printed *"Printed 2× (the next one says COPY)"*. While Created with too little stock: an amber list (*"Only 12 × 4-Piece Packs in stock."*).
 - **Main action** by status (a full-width button under the header on phones):
   - Created (`orders.create`): **Start delivery** → a confirmation (*"The 3 boxes for Dara Shop leave stock now (oldest batches first). This can't be undone."*); a stock refusal names each item (*"Not enough 4-Piece Packs in stock: 7 available, 9 needed."*).
   - Delivering (`orders.create`): **Mark delivered** → a sheet: **Everything accepted**, or **Some items returned** with a quantity per item (the delivered amount shown next to it, at most that) and a required **reason**.
@@ -331,12 +331,18 @@ Created ──► Delivering ──► Delivered ─┬─► Success           
 - **Cancel order:** a sheet with the reason pre-filled *"Customer cancelled"* (required).
 - **Conflicts:** if someone else moved the order on, the page shows the current order with *"Someone else changed this order. It has been reloaded; check it and try again."*
 
+**Delivery note (ប័ណ្ណដឹកជញ្ជូន)** — everyone who can open the order, any status (Created onward, Cancelled too). The API makes an 80 mm receipt PDF (API FEATURES §19.6): business info and logo, the title, COPY on reprints, CANCELLED on cancelled orders, customer / date / driver, white boxes then black boxes with their lines and subtotals, the grand total, returns (when there are any), the note, signature lines (Prepared by, Driver, Received by) and a QR code to the order. Khmer with English under each label, black and white only.
+
+- **Print** (PC and phone browsers): on a PC the note loads in a hidden frame and the browser's print dialog opens (choose the receipt printer; if the browser can't print the frame, the PDF opens in a new tab). On phones and tablets the PDF opens in a new tab (opened at the tap, so popup blockers allow it), to print or share from there.
+- **Send to my Telegram:** the bot sends the PDF to the person's own Telegram chat; *"Sent to your Telegram chat."* Inside the **Telegram Mini App** this is the button in the header and **Print is hidden** (printing isn't reliable in Telegram); elsewhere it's in the ⋮ menu. Errors are translated: not linked → *"Your Telegram account isn't linked yet. Open the app once from the bot in Telegram (the Open app button), then try again."*; bot not configured; Telegram couldn't deliver it (blocked bot).
+- Every print or send is counted: the first is the original, later ones print **COPY #n**; the count on the page refreshes after each one.
+
 **Elsewhere**
 
 - **Inventory:** two new **Wasted** cards, 4-Piece Packs and 2-Piece Packs (packs returned damaged). The item sheet's *From production* breakdown already reflects orders (packs leave the oldest batches first; returns go back to theirs). History (with Inventory history) shows **Order OR-… · from PR-…** and **Return OR-… · to PR-…** rows linking to the order and the batch, and the Type filter has Order and Return.
 - **Production batch page:** reopening or cancelling a batch whose packs already left in orders is refused: *"4-Piece Packs from this batch were already delivered in OR-20261003-001 — can't reopen or cancel it."*
 - **Bell and Telegram** (holders of Order returns): 🚚 *"OR-…: for Dara Shop is out for delivery — 2 white / 1 black boxes."* · ✅ *"…delivered to Dara Shop, everything accepted."* · ↩️ *"…Dara Shop returned items — 2 × 4-Piece Packs. Review the return."* (with the reason) · 📦 *"…return reviewed — Partly returned (1 × 4-Piece Packs to stock, 1 × 4-Piece Packs wasted)."* Each opens the order.
-- **Audit log:** Order created / edited / cancelled (reason) / out for delivery / delivered (*Everything accepted* or *Items returned* with the reason) / return reviewed (partly / fully), with the order code linking to the order; record type **Order** in the filter.
+- **Audit log:** Order created / edited / cancelled (reason) / out for delivery / delivered (*Everything accepted* or *Items returned* with the reason) / return reviewed (partly / fully) / **Delivery note printed** (*Original* or *Copy #2*, *Downloaded / printed* or *Sent to Telegram*), with the order code linking to the order; record type **Order** in the filter.
 
 ## 7. Settings
 
@@ -349,6 +355,7 @@ Created ──► Delivering ──► Delivered ─┬─► Success           
   | Users | holders of `users.view` |
   | Audit log | superadmin, general managers |
   | User limits | superadmin |
+  | Business info | superadmin; general managers given Business info (`settings.business_info`) |
   | My profile | everyone |
 
 - The cards come from the same menu definition as the sidebar, so a new Settings page appears here automatically.
@@ -361,6 +368,17 @@ Created ──► Delivering ──► Delivered ─┬─► Success           
 - **Over the limit** (after lowering it): an amber warning on the row, e.g. *"4 active — above the limit of 3. No new supervisors can be added until someone is deactivated."* Nobody is deactivated automatically.
 - *Last changed by … · time* under each changed row, and a note that only active users count.
 - Changes are in the audit log as *Changed user limit* (*"Staff: 10 → 12"*), visible to the superadmin only.
+
+### 7.2 Business info (ព័ត៌មានអាជីវកម្ម)
+
+**Path:** `/settings/business-info` (lazy-loaded). **Who can open it:** holders of `settings.business_info`: the superadmin, and a general manager whose **Business info** the superadmin set to Full access on its Access tab (default Off). Menu icon: building.
+
+What every delivery note prints at the top and bottom:
+
+- **Business name** (Khmer, English; both required), **Address** (Khmer, English; line breaks kept), **Phone** (any separators; shown formatted after saving), **Footer note** (Khmer, English; optional, e.g. *"សូមអរគុណ!"* / *"Thank you!"*). **Save** (enabled when something changed); *"Business info saved."*; *Last changed … by …* under the form.
+- **Logo:** a preview, **Upload logo** / **Change logo** (PNG or JPEG up to 500 kB; checked before uploading, then by the API; stored at most 400 px wide) and **Remove**. Printed in black and white, so simple dark logos print best.
+- **Preview** (header): opens a sample delivery note PDF in a new tab, marked **SAMPLE**: the latest order when the person can see orders, otherwise made-up data. Not counted as a print.
+- Changes are in the audit log as *Changed business info* with the changed fields (*"Phone, Logo changed"*).
 
 ## 8. Users
 
@@ -484,7 +502,8 @@ Supervisors never see detailed permissions; they see feature levels only on the 
   - suppliers and customers added, edited, deactivated and reactivated;
   - production: batch started, step finished and step reopened (*"Step 1 · Intake"*, plus *"Also back to draft: step 2, 3"* when later steps were reopened with it), batch cancelled (with the reason). Draft saves aren't logged;
   - packaging plans: *Edited packaging plan* (field changes in the details) and *Confirmed packaging plan* (*"148 × 4-piece · 4 × 2-piece"*), linked to the batch;
-  - orders: created, edited, cancelled (with the reason), out for delivery, delivered (*Everything accepted* / *Items returned* and the reason), return reviewed (*Partly* / *Fully returned*), linked to the order;
+  - orders: created, edited, cancelled (with the reason), out for delivery, delivered (*Everything accepted* / *Items returned* and the reason), return reviewed (*Partly* / *Fully returned*), delivery note printed (*Original* / *Copy #n*, downloaded or sent to Telegram), linked to the order;
+  - business info changed (the changed fields; the superadmin's changes are hidden from general managers);
   - the system account linking or unlinking its Telegram (superadmin only).
 - **Filters:** record type (All · Suppliers · Customers · Production batches · Orders) and action type.
 - Each entry shows:
@@ -556,6 +575,7 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 | Edit staff info | ✅ | ✅ | Staff management = Full (only if allowed) | ❌ |
 | Change role (promote / demote) | ✅ GM ↔ supervisor ↔ staff | ✅ supervisor ↔ staff | ❌ | ❌ |
 | Settings → User limits (role limits) | ✅ | ❌ | ❌ | ❌ |
+| Settings → Business info (edit, logo, preview) | ✅ | Business info = Full (default Off; set by the superadmin) | ❌ never | ❌ never |
 | Role capacity in the users list and forms | ✅ all three roles | ✅ supervisors, staff | ✅ staff | ❌ |
 | Deactivate / reactivate users | ✅ | ✅ | ❌ never | ❌ |
 | Reset others' password | ✅ | ✅ | ❌ never | ❌ |
@@ -581,6 +601,7 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 | Create orders, Start delivery, Mark delivered (incl. returns) | ✅ | Orders = Record (default) | Orders = Record (default) | Orders = Record |
 | Edit / cancel Created orders | ✅ | Order management = Full (default) | Order management = Full (default Off) | ❌ never |
 | Review returns; order alerts (bell, Telegram) | ✅ | Order returns = Full (default) | Order returns = Full (default Off) | ❌ never |
+| Delivery note: Print / Send to my Telegram (any status) | ✅ | Orders ≥ View only | Orders ≥ View only | Orders ≥ View only |
 | Header bell | ✅ | ✅ | ✅ (empty without plan or order returns access) | ✅ (always empty) |
 | My profile → Telegram card | ✅ | ❌ | ❌ | ❌ |
 

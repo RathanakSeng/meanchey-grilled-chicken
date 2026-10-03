@@ -62,8 +62,9 @@ flowchart LR
 | Password hashing | argon2-cffi (argon2id), with transparent rehash on login |
 | Tokens | PyJWT (HS256) for access tokens; opaque random refresh tokens stored hashed |
 | Bot | aiogram 3 |
+| Documents (PDF) | Jinja2 templates → WeasyPrint (Pango / HarfBuzz) PDFs; Kantumruy Pro font bundled; segno (QR codes); Pillow (logo resize) |
 | Config | pydantic-settings, reading `.env` |
-| Tooling | uv (dependencies and lock), ruff (lint and format), pytest + pytest-asyncio + httpx |
+| Tooling | uv (dependencies and lock), ruff (lint and format), pytest + pytest-asyncio + httpx, pypdf (reading PDFs in tests) |
 
 ## 3. Code layout and layering
 
@@ -83,13 +84,19 @@ app/
 ├── models/              # SQLAlchemy ORM (User, Permission, UserPermission, RefreshToken, AuditLog, BotPref, AppSetting,
 │                        #   Supplier + Customer via PartnerMixin, production batches + steps + plan,
 │                        #   Notification, TelegramLinkToken, InventoryBalance, InventoryMovement,
-│                        #   Order, OrderBox, OrderBoxItem, OrderReturnItem, OrderCounter)
+│                        #   Order, OrderBox, OrderBoxItem, OrderReturnItem, OrderCounter, BusinessSettings)
 ├── schemas/             # Pydantic request/response models; common.UserRef = the only user-reference shape
 ├── production/
 │   └── catalog.py       # by-products and raw material kinds (code catalogs, no migration to extend)
 ├── inventory/
 │   └── catalog.py       # inventory items (stock / wasted), by-product items generated from production,
 │                        #   ORDERABLE (packs + packed by-products), wasted_for(code)
+├── documents/           # delivery notes (later invoices): order → HTML → PDF
+│   ├── delivery_note.py # build_context (what the note shows), labels km/en, DocumentKind + kind_for
+│   │                    #   (delivery note now, invoice once orders have prices), sample_order
+│   ├── render.py        # Jinja2 + WeasyPrint (lazy import), two-pass height, thread + timeout
+│   ├── templates/       # delivery_note.html.j2, receipt.css (80 mm, black and white)
+│   └── fonts/           # Kantumruy Pro Regular / Bold (static instances) + OFL.txt
 ├── permissions/
 │   ├── registry.py      # PERMISSIONS, MODULES, FEATURES, DEFAULT_PERMISSIONS  ← feature authors edit this
 │   ├── features.py      # feature access levels: current level, matrix, set_level (diff + feature.set audit)
@@ -104,6 +111,8 @@ app/
 │   ├── plan_service.py  # packaging plans: list, detail, save, confirm (batch version, pieces rule)
 │   ├── notification_service.py # alert recipients (per permission), rows in the action's transaction, the bell
 │   ├── order_service.py # orders: boxes, status flow, returns, codes, list / stats / options, summary
+│   ├── document_service.py # delivery notes: count (print_count) + render + audit, preview
+│   ├── business_service.py # business info row (get-or-create), text fields, logo (validate, resize)
 │   ├── telegram_link_service.py # superadmin one-time Telegram link (create, consume, unlink)
 │   ├── role_limit_service.py # role limits: ensure_slot (row lock + count), settings, capacity
 │   ├── inventory_service.py # ledger: apply_movements (locks, no-negative), production hooks, per-batch
@@ -113,11 +122,13 @@ app/
 │   └── redaction.py     # hides the superadmin from other viewers: viewer context, hides(), middleware
 ├── api/                 # thin routers: auth, me, users, permissions (superadmin), features, audit,
 │                        #   partners (build_router(kind) → /suppliers, /customers), production,
-│                        #   production_plans, notifications, settings (role limits), inventory, orders
+│                        #   production_plans, notifications, settings (role limits, business info), inventory,
+│                        #   orders (incl. document.pdf, document/send-telegram)
 └── bot/
     ├── setup.py         # create_bot(), create_dispatcher(): the one place handlers are registered
     ├── handlers.py      # /start (incl. /start link_<token>), /lang (create_router())
-    ├── notify.py        # send stored alerts after commit (deliver, resend_failed), bot username
+    ├── notify.py        # send stored alerts after commit (deliver, resend_failed), bot username,
+    │                    #   api_bot (which bot the API sends with), send_document (delivery notes)
     ├── i18n.py          # bot texts (km/en)
     ├── webhook.py       # POST /api/telegram/webhook (secret check → dp.feed_update)
     ├── runtime.py       # TelegramRuntime (Bot + Dispatcher on app.state), create_runtime()
@@ -219,6 +230,7 @@ erDiagram
     orders ||--o{ inventory_movements : "order_id (SET NULL)"
     orders ||..o{ audit_logs : "entity (no FK)"
     orders ||..o{ notifications : "entity (no FK)"
+    users ||--o{ business_settings : "updated_by (one row)"
 
     users {
         uuid id PK
@@ -481,6 +493,7 @@ erDiagram
 - **Partial unique indexes** enforce the business invariants. See FEATURES §3.
 - **Role limits** (`role_limits`, migration `0008`): one row per limited role, seeded 2 / 3 / 10 (bootstrap inserts any missing row, never overwrites). CHECKs keep `max_active` null or 1–999 and never null for the general manager. The migration dropped `uq_users_single_active_gm`; `services/role_limit_service.ensure_slot` locks the role's row (`FOR UPDATE`) and counts active users inside the create / reactivate / role-change transaction, so concurrent requests for the last slot are serialized.
 - **Inventory** (migration `0010`): `inventory_balances` (one row per catalog item, created at startup and on demand; CHECK `count >= 0`, `kg >= 0`) and `inventory_movements` (append-only ledger; indexes on (`item_code`, `created_at`) and `batch_id`; unique partial index on `reversal_of`, so a movement is reversed at most once). `production_batches.inventory_tracked` was added as false for every existing batch, then defaults to true. Migration `0011` (data only) removed the adjustment movements and recomputed the balances and `balance_*_after` from production (production items are read-only). Item codes have no FK: the catalog lives in code (`app/inventory/catalog.py`), like permissions and by-products.
+- **Business info and delivery notes** (migration `0013`): `business_settings`, one row (`ck_business_settings_single_row`: `id = 1`; `ck_business_settings_logo_mime`: logo and its MIME type both set or both null), seeded with the business name; the logo is `bytea`, loaded only when asked for (`deferred`). `orders.print_count` (default 0) counts generated delivery notes; it isn't part of the order's `version`.
 - **Orders** (`models/order.py`, migration `0012`): `orders` (code unique; `ix_orders_status_delivery_date`, `customer_id`, `driver_id` indexed), `order_boxes` (unique `order_id, position`), `order_box_items` (unique `box_id, item_code`; CHECK `count` xor `kg`, > 0), `order_return_items` (unique `order_id, item_code`; CHECKs returned > 0, split ≥ 0, and once reviewed stock + wasted = returned), `order_counters` (codes per day, like production). Boxes, lines and returns load with the order (`selectin`). The migration also added `inventory_movements.order_id` (FK, SET NULL, indexed), widened `ck_inventory_movements_source` to `order` / `order_return` and `ck_notifications_type` to the four order alerts. Item codes are the inventory codes (no FK). The wasted pack items need no migration (balance rows on demand).
 - **Uniqueness only counts active users,** so a deactivated user's username can be reused.
 - **`permissions` rows are never deleted.** Removing a permission from the registry flips `is_active`.
@@ -527,6 +540,38 @@ sequenceDiagram
 - **Locking:** both paths lock the affected balance rows **before** reading contributions. Any change to an item's movements takes that lock, so the read is consistent until commit. Lock order is unchanged: the batch / order row first, then balances in `item_code` order (an order and a batch are never locked together).
 - **Warnings vs. errors:** create and edit only compute `stock_warnings` (not locked); the hard check is at Delivering (`INVENTORY_INSUFFICIENT`, nothing written).
 - **Units:** inside the services a quantity is one `Decimal` in the item's unit (count or kg); `_qty_delta` turns it into a count or kg movement. Packs stay whole numbers.
+
+### Documents (delivery notes)
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant R as GET /orders/{id}/document.pdf
+    participant D as document_service
+    participant DB as PostgreSQL
+    participant W as worker thread (WeasyPrint)
+
+    C->>R: Bearer token
+    R->>D: print_order(order_id, via=download)
+    D->>DB: UPDATE orders SET print_count = print_count + 1 RETURNING (locks the row)
+    D->>D: OrderOut (redacted for the viewer) + business info → build_context (COPY #n if n > 1)
+    D->>W: render_pdf (≤ 2 at once, 20 s timeout)
+    W-->>D: PDF bytes
+    D->>DB: audit order.document_printed
+    R->>DB: COMMIT
+    R-->>C: application/pdf (inline, <code>.pdf)
+```
+
+- **Template:** `documents/templates/delivery_note.html.j2` + `receipt.css`, Jinja2 with autoescape. `build_context` (pure Python, no WeasyPrint) turns the order **as serialized for the requester** into the template's context, so user names are already redacted. Labels are Khmer with English under them (`LABELS`); items use short names ("Liver", not "Liver (packed)").
+- **Fonts:** Kantumruy Pro (SIL OFL) as two static instances (Regular 400, Bold 700) cut from the Google Fonts variable font with fontTools, loaded by `@font-face` from `documents/fonts/`. Nothing is fetched at runtime; Pango + HarfBuzz shape the Khmer. DejaVu Sans (image package) is the fallback for any glyph the font lacks.
+- **Height fits the content (two passes):** pass 1 renders on an 80 × 3000 mm page and reads the bottom of the empty `#end` element from WeasyPrint's layout boxes; pass 2 renders at that height + the bottom margin (at least 60 mm). A note longer than the probe page keeps the probe's pages.
+- **Off the event loop:** `anyio.to_thread.run_sync` with a `CapacityLimiter(2)` and `fail_after(20)` (`abandon_on_cancel`: the request returns 503 while the thread finishes). WeasyPrint is imported lazily (`render.unavailable_reason()`), so the API starts and everything else works where its system libraries are missing (plain Windows); documents then answer `503 DOCUMENT_UNAVAILABLE`.
+- **Counting:** the atomic `UPDATE … RETURNING` both numbers the note and locks the order row until commit, so concurrent prints get distinct numbers (one original). The order's `version` is untouched. A failed render or Telegram send rolls back: nothing counted, nothing audited.
+- **Telegram:** `notify.api_bot(runtime)` is the one place deciding which bot the API sends with (shared with `deliver`); `send_document` posts a `BufferedInputFile` to the requester's `telegram_user_id` with a 30 s request timeout.
+- **Black and white:** the stylesheet uses only `#000` / `#fff` (a test checks it); box colours are a filled or outlined square plus the name.
+- **Prices later:** `DocumentKind` (`DELIVERY_NOTE`, `INVOICE`) holds the title and `show_prices`; `kind_for(order)` is the single switch. The template's price columns and money total already exist behind `kind.show_prices`.
+- **Docker:** the image installs `libpango-1.0-0`, `libpangoft2-1.0-0`, `libharfbuzz-subset0`, `libfontconfig1` and `fonts-dejavu-core`.
+- **Business info** (`services/business_service.py`): `get_row` recreates the single row with the default names if it's missing; the logo is decoded with Pillow (PNG / JPEG only, ≤ 500 kB, ≤ 25 megapixels before decoding) and stored resized to ≤ 400 px wide.
 
 ## 6. Authorization model
 
@@ -823,7 +868,8 @@ Settings are read at import time by `app.db` to build the engine. Tests therefor
 | Engine | `DB_NULL_POOL=true` avoids connection reuse across pytest-asyncio event loops. |
 | HTTP | `httpx.AsyncClient` over `ASGITransport(app)`: in-process, no server. |
 | Auth in tests | `auth(user)` mints an access token directly. Login flows have their own tests. |
-| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation; default backfill, `grantable_by` and `reason`; suppliers/customers CRUD, validation, phone rules, duplicates, search/sort/paging, stats month boundary, audit entities (parametrized over both lists); feature levels (mapping, diffs, check order, defaults, startup validation); detailed permissions superadmin-only; **superadmin invisibility sweep** over every GET route from the OpenAPI schema plus key mutations, as GM / supervisor / staff; **superadmin ⊇ GM sweep** (`test_superadmin_superset.py`): every route and method in the schema is called as the GM and, wherever the GM isn't refused with 403, as the superadmin, which must not get 403 either (placeholders filled with targets both manage; empty bodies unless a valid one is needed to reach a service-level check; both accounts reset between calls); production steps, drafts, versions, reopen (cascading), cancel (GM only), codes under concurrency, stats; GM feature levels set by the superadmin; packaging plan (feature and backfill, lifecycle through reopen sequences, pieces rule, confirm, lock, versions, cancelled, legacy batches, audit, list and detail) and the step 3 gate and comment rule; notifications (recipients by permission, rows only with a successful Finish, Telegram per language with the web_app button, `not_linked` / `bot_off` / `failed`, polling-mode bot, repeat after reopen, resend, own-only bell, "System" actor); superadmin Telegram link (hashed single-use token, expiry, id taken, unlink, role guard); role limits (defaults, create / reactivate / role change at the limit per role and actor, freed slots, unlimited, range, lowering below the count, superadmin-only settings and hidden audit, capacity per viewer, two GMs out of each other's scope and both alerted) including **concurrent creates for the last slot** (several requests at once, each with its own session: exactly one succeeds; the test fails without the row lock); supervisors setting staff access (scope, cap, `allowed`, no cascade, Staff access Off) and View / Record / Full staff management; migrations `0006`, `0007`, `0008`, `0009` (idempotent), `0010` and `0011` (reset, idempotent); inventory (movements per Finish incl. estimated waste kg and the by-product split, two batches, reopen cascades latest first, re-finish, cancel, no double reversal, negative guard on Finish / reopen / cancel with nothing changed, untracked batches, production items refused for everyone, per-batch breakdown through step 3 / reopen / cancel adding up to the balance, access and backfill, history filters, concurrent Finishes on the same items); inventory history (Off by default, movements and batch stock changes gated, grantor-must-hold: superadmin on GMs and supervisors, a GM only while holding it, hidden in GET / 404 on PUT / hidden audit entries, no cascade); orders (`test_orders.py`: registry levels and defaults, backfill, staff Off / View only, supervisor cap for staff Orders, staff Record without edit / review; create with boxes and the per-colour summary, every validation location, colours and extra fields, customer / driver rules, edit with box replacement and audit diff, conflicts, edit / cancel only Created and only with their permission; Delivering FIFO across two batches with the per-batch breakdown and order movements, `INVENTORY_INSUFFICIENT` keeping it Created, version conflict; Delivered accepted / returned validation; review split, stock / wasted movements attributed newest first, partly vs fully returned, wasted by-products; the **production guard** on reopen of step 3 and of step 2 (cascade), allowed for an untouched batch and after a return to stock, still blocked after a return to wasted; codes under concurrency; stats and list filters; available stock; audit entity names); order alerts (`test_order_notifications.py`: recipients = holders of `orders.review_returns`, one row per status change, payloads, none on a failed Delivering, the bell, Khmer Telegram texts with the **Open order** button, English texts escaped); migration `0012` round trip. The redaction and superset sweeps fill `{order_id}`. |
+| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation; default backfill, `grantable_by` and `reason`; suppliers/customers CRUD, validation, phone rules, duplicates, search/sort/paging, stats month boundary, audit entities (parametrized over both lists); feature levels (mapping, diffs, check order, defaults, startup validation); detailed permissions superadmin-only; **superadmin invisibility sweep** over every GET route from the OpenAPI schema plus key mutations, as GM / supervisor / staff; **superadmin ⊇ GM sweep** (`test_superadmin_superset.py`): every route and method in the schema is called as the GM and, wherever the GM isn't refused with 403, as the superadmin, which must not get 403 either (placeholders filled with targets both manage; empty bodies unless a valid one is needed to reach a service-level check; both accounts reset between calls); production steps, drafts, versions, reopen (cascading), cancel (GM only), codes under concurrency, stats; GM feature levels set by the superadmin; packaging plan (feature and backfill, lifecycle through reopen sequences, pieces rule, confirm, lock, versions, cancelled, legacy batches, audit, list and detail) and the step 3 gate and comment rule; notifications (recipients by permission, rows only with a successful Finish, Telegram per language with the web_app button, `not_linked` / `bot_off` / `failed`, polling-mode bot, repeat after reopen, resend, own-only bell, "System" actor); superadmin Telegram link (hashed single-use token, expiry, id taken, unlink, role guard); role limits (defaults, create / reactivate / role change at the limit per role and actor, freed slots, unlimited, range, lowering below the count, superadmin-only settings and hidden audit, capacity per viewer, two GMs out of each other's scope and both alerted) including **concurrent creates for the last slot** (several requests at once, each with its own session: exactly one succeeds; the test fails without the row lock); supervisors setting staff access (scope, cap, `allowed`, no cascade, Staff access Off) and View / Record / Full staff management; migrations `0006`, `0007`, `0008`, `0009` (idempotent), `0010` and `0011` (reset, idempotent); inventory (movements per Finish incl. estimated waste kg and the by-product split, two batches, reopen cascades latest first, re-finish, cancel, no double reversal, negative guard on Finish / reopen / cancel with nothing changed, untracked batches, production items refused for everyone, per-batch breakdown through step 3 / reopen / cancel adding up to the balance, access and backfill, history filters, concurrent Finishes on the same items); inventory history (Off by default, movements and batch stock changes gated, grantor-must-hold: superadmin on GMs and supervisors, a GM only while holding it, hidden in GET / 404 on PUT / hidden audit entries, no cascade); orders (`test_orders.py`: registry levels and defaults, backfill, staff Off / View only, supervisor cap for staff Orders, staff Record without edit / review; create with boxes and the per-colour summary, every validation location, colours and extra fields, customer / driver rules, edit with box replacement and audit diff, conflicts, edit / cancel only Created and only with their permission; Delivering FIFO across two batches with the per-batch breakdown and order movements, `INVENTORY_INSUFFICIENT` keeping it Created, version conflict; Delivered accepted / returned validation; review split, stock / wasted movements attributed newest first, partly vs fully returned, wasted by-products; the **production guard** on reopen of step 3 and of step 2 (cascade), allowed for an untouched batch and after a return to stock, still blocked after a return to wasted; codes under concurrency; stats and list filters; available stock; audit entity names); order alerts (`test_order_notifications.py`: recipients = holders of `orders.review_returns`, one row per status change, payloads, none on a failed Delivering, the bell, Khmer Telegram texts with the **Open order** button, English texts escaped); migration `0012` round trip. The redaction and superset sweeps fill `{order_id}`; delivery notes (`test_documents.py`: content per status (Created, Delivering, Return pending, reviewed, Success, Cancelled banner), COPY numbering and `order.document_printed` audit, version untouched, access, "System" for the superadmin, renderer unavailable → 503 with nothing counted, Telegram send to the linked chat (`SendDocument`, escaped caption, QR) / not linked / bot off / Telegram failing with nothing counted, invoice switch and black-and-white stylesheet; with WeasyPrint: real PDFs 80 mm wide, Khmer and English text extracted with pypdf, a longer order gives a taller page, the preview PDF); business info (`test_business_info.py`: seeded row, superadmin edits, GM only with the feature, not applicable to supervisors, validation, phone normalization, logo resize / kept as uploaded / wrong type / empty / over 500 kB / remove, audit, preview data source). Route tests use the `html_documents` fixture (the renderer returns the template's HTML), so counting, audit and **redaction** are checked as text and run anywhere; the redaction sweep reads the notes, and the superset sweep gives its GM Business info so the settings routes are compared. |
+| PDFs | The `needs_weasyprint` tests are **skipped where WeasyPrint's system libraries are missing** (a plain Windows machine). Run the full suite in the API image to cover them: build the image, add the dev dependencies (`FROM <image>` + `RUN uv sync --frozen`), mount the repo and run `/app/.venv/bin/python -m pytest` with `TEST_DATABASE_URL` pointing at the test database. Put the test container and the test Postgres on **one Docker network** and use the container name as host: through `host.docker.internal` (Docker Desktop's port forwarding) a few of the thousands of new connections (`DB_NULL_POOL`) time out, which shows up as random `TimeoutError`s. |
 | Telegram | Never contacted. Alert tests put a runtime with a `RecordingSession` bot on `app.state` (webhook mode) or replace `notify.bot_factory` (polling); background tasks finish before the in-process request returns, so assertions see the final `telegram_status`. `tests/telegram_fakes.RecordingSession` is an aiogram `BaseSession` that records Bot API calls (`SendMessage`, `SetWebhook`, …) and returns canned responses, or simulates an outage. `BOT_MODE=off` by default; webhook tests put their own `TelegramRuntime` on `app.state`. |
 
 Run:
@@ -840,12 +886,12 @@ uv run ruff check . && uv run ruff format --check .
 
 ## 13. Deployment
 
-- **Image:** one image (`Dockerfile`, `python:3.12-slim` + uv, frozen lockfile, no dev dependencies) serves both the `api` and the optional `bot-polling` service.
+- **Image:** one image (`Dockerfile`, `python:3.12-slim` + uv, frozen lockfile, no dev dependencies) serves both the `api` and the optional `bot-polling` service. It also installs WeasyPrint's system packages (Pango, HarfBuzz, fontconfig, DejaVu fonts) for delivery note PDFs.
 - **Default stack** (`docker compose up`): `postgres` + `api`.
   1. `postgres` becomes healthy.
   2. `api` runs migrations and bootstrap (including webhook registration), then becomes healthy on `/health`.
 - **Polling profile** (`docker compose --profile polling up`, with `BOT_MODE=polling` in `.env`): adds `bot-polling`, which starts after `api` is healthy.
-- **Network:** the `api` container needs **outbound HTTPS to `api.telegram.org`** (for `setWebhook` and `sendMessage`), and **inbound HTTPS from Telegram** on the public URL.
+- **Network:** the `api` container needs **outbound HTTPS to `api.telegram.org`** (for `setWebhook`, `sendMessage` and `sendDocument`), and **inbound HTTPS from Telegram** on the public URL.
 - **Production notes:**
   - Put the API behind a TLS-terminating reverse proxy that forwards `/api/*`, including `/api/telegram/webhook`.
   - Serve the UI on the same origin under `/`, and the API under `/api`. Otherwise configure `CORS_ORIGINS`.
@@ -932,6 +978,10 @@ A third list with the same fields needs a model class, a `PartnerKind`, a router
 | Production reversal blocked once stock is used | Reopening or cancelling a batch takes back what it made; if its packs are already with a customer, undoing them would make the batch's contribution negative and the history false. So the reversal needs the batch's own remaining stock (`PRODUCTION_STOCK_ALREADY_USED`, naming the orders), checked after locking the balances so a concurrent Delivering can't slip in between. A return to stock frees the batch again. |
 | Order lines as rows for future prices | Boxes and their lines are tables (`order_boxes`, `order_box_items`), not JSON, so the database checks them (units, one line per item per box) and prices can later be columns on the line (`unit_price`, `amount`) without restructuring. The box colour is a code for the same reason. |
 | Order alerts to whoever reviews returns | The people who must act on a return are the ones told about deliveries: one permission (`orders.review_returns`) decides both, like the plan feature for production alerts. `notify` takes the permission, so the mechanism is shared. |
+| Server-side PDF instead of browser print (Telegram WebView) | The Mini App runs in Telegram's WebView, where `window.print()` and downloads are unreliable or missing, and phone browsers print web pages at A4 with their own headers. A PDF rendered by the API looks the same everywhere, can be sent to the person's Telegram chat (from where it prints or forwards), and gives one place to number originals and copies. WeasyPrint keeps the layout in HTML/CSS (the team's language) and shapes Khmer through HarfBuzz with a bundled font. |
+| Receipt layout black-and-white | Thermal receipt printers print black dots only: colours vanish and greys dither into noise. Nothing carries meaning through colour (box colour = filled / outlined square + its name), rules are solid black, the page is 80 mm wide and as tall as its content so no paper is wasted. |
+| One template for delivery note and future invoice | The invoice is the delivery note plus prices. One template with price columns behind `show_prices`, and one switch (`kind_for`) for the title, means prices are a data change (line columns) plus flipping that switch, not a second document to keep in sync. |
+| Print count outside the order version | Printing doesn't change the order; bumping `version` would make anyone editing it hit `ORDER_CONFLICT` because a driver printed. The count is incremented atomically on its own column, which also serializes concurrent prints so exactly one is the original. |
 | By-product kg balance enforced by the UI only (for now) | Weights are measured on a scale and may legitimately not add up exactly; the business may relax the rule. Keeping it out of the API means that change is UI-only; a test documents that the API accepts it. |
 | Batch code from a per-day counter row | Readable, gap-free per day and race-safe (`ON CONFLICT … RETURNING`), without a sequence per day. |
 | Always `200` once the secret is valid | Telegram retries non-2xx responses, so a failing handler would otherwise replay the same update in a loop. Failures are logged instead. |

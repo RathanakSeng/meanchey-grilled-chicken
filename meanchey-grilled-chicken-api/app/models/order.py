@@ -96,6 +96,9 @@ class Order(Base):
     cancel_reason: Mapped[str | None] = mapped_column(String(ORDER_REASON_MAX_LENGTH))
     # Optimistic concurrency: every change increments it; writers send the version they saw.
     version: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
+    # Delivery notes generated so far (download or Telegram); the first is the original, later
+    # ones say COPY. Not part of `version`: printing doesn't change the order.
+    print_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     created_by: Mapped[uuid.UUID | None] = _user_fk()
     updated_by: Mapped[uuid.UUID | None] = _user_fk()
     delivering_by: Mapped[uuid.UUID | None] = _user_fk()

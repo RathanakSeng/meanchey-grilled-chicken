@@ -79,7 +79,7 @@ async def _clean_database() -> None:
                 "TRUNCATE audit_logs, refresh_tokens, user_permissions, permissions, users, "
                 "bot_prefs, app_settings, production_batches, production_batch_counters, "
                 "suppliers, customers, role_limits, inventory_movements, inventory_balances, "
-                "orders, order_counters "
+                "orders, order_counters, business_settings "
                 "RESTART IDENTITY CASCADE"
             )
         )
@@ -156,3 +156,16 @@ def auth(user: User) -> dict[str, str]:
 def assert_error(response, status: int, code: str) -> None:
     assert response.status_code == status, response.text
     assert response.json()["error"]["code"] == code, response.text
+
+
+@pytest.fixture
+def html_documents(monkeypatch) -> None:
+    """Delivery notes come back as the template's HTML instead of a PDF: the routes' counting,
+    audit and redaction can be checked as text, also where WeasyPrint can't run (Windows)."""
+    from app.documents.render import render_html
+    from app.services import document_service
+
+    async def fake_render(context: dict) -> bytes:
+        return render_html(context).encode()
+
+    monkeypatch.setattr(document_service, "render_pdf", fake_render)

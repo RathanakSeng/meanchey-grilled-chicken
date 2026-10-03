@@ -1,20 +1,23 @@
 """Orders (see services/order_service.py for the rules)."""
 
+import logging
 import uuid
 from collections.abc import Awaitable
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.notify import deliver
+from app.bot.notify import api_bot, deliver, send_document
+from app.core.errors import AppError, ErrorCode
 from app.deps import SessionDep, require_any_permission, require_permission
-from app.models import Order, User
+from app.models import Customer, Order, User
 from app.schemas.order import (
     AvailableItem,
     CustomerOption,
     DeliveredIn,
+    DocumentSentOut,
     DriverOption,
     OrderCancelIn,
     OrderCreate,
@@ -26,9 +29,10 @@ from app.schemas.order import (
     OrderVersionIn,
     ReviewIn,
 )
-from app.services import notification_service
+from app.services import document_service, notification_service
 from app.services import order_service as svc
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 CanView = Annotated[User, Depends(require_permission("orders.view"))]
@@ -189,3 +193,61 @@ async def review_returns(
         session, request, background, svc.review_returns(session, actor, order_id, body)
     )
     return await svc.order_out(session, order)
+
+
+def pdf_response(pdf: bytes, filename: str) -> Response:
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get(
+    "/{order_id}/document.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+async def order_document(order_id: uuid.UUID, actor: CanView, session: SessionDep) -> Response:
+    """The delivery note (80 mm receipt PDF), any status. The first one is the original, later
+    ones are marked COPY; each is counted and audited (`order.document_printed`)."""
+    order, pdf, _ = await document_service.print_order(session, actor, order_id, "download")
+    await session.commit()
+    return pdf_response(pdf, f"{order.code}.pdf")
+
+
+@router.post("/{order_id}/document/send-telegram", response_model=DocumentSentOut)
+async def send_document_to_telegram(
+    order_id: uuid.UUID, actor: CanView, session: SessionDep, request: Request
+) -> DocumentSentOut:
+    """The bot sends the delivery note to the requester's own Telegram chat. No bot →
+    503 TELEGRAM_NOT_CONFIGURED; no linked Telegram account → 409 TELEGRAM_NOT_LINKED; Telegram
+    refused or unreachable → 502 TELEGRAM_SEND_FAILED (not counted)."""
+    async with api_bot(request.app.state.telegram) as bot:
+        if bot is None:
+            raise AppError(503, ErrorCode.TELEGRAM_NOT_CONFIGURED, "Telegram bot is not configured")
+        if actor.telegram_user_id is None:
+            raise AppError(
+                409,
+                ErrorCode.TELEGRAM_NOT_LINKED,
+                "Your Telegram account isn't linked; open the app from the bot once",
+            )
+        order, pdf, number = await document_service.print_order(
+            session, actor, order_id, "telegram"
+        )
+        customer = await session.get(Customer, order.customer_id)
+        code, actor_id = order.code, actor.id
+        try:
+            name = customer.name if customer else ""
+            await send_document(bot, actor, pdf, f"{code}.pdf", code, name)
+        except Exception as e:
+            await session.rollback()  # nothing counted or audited
+            log.warning("Sending delivery note %s to user %s failed: %s", code, actor_id, e)
+            raise AppError(
+                502, ErrorCode.TELEGRAM_SEND_FAILED, "Telegram couldn't deliver the document"
+            ) from e
+    await session.commit()
+    return DocumentSentOut(copy_number=number)

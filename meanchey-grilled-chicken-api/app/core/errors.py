@@ -27,6 +27,10 @@ class ErrorCode(StrEnum):
     INVALID_TELEGRAM_DATA = "INVALID_TELEGRAM_DATA"
     TELEGRAM_DATA_EXPIRED = "TELEGRAM_DATA_EXPIRED"
     USER_NOT_REGISTERED = "USER_NOT_REGISTERED"
+    # The requester has no Telegram account bound (open the Mini App from the bot once).
+    TELEGRAM_NOT_LINKED = "TELEGRAM_NOT_LINKED"
+    # Telegram refused the message or couldn't be reached.
+    TELEGRAM_SEND_FAILED = "TELEGRAM_SEND_FAILED"
     # Authorization
     FORBIDDEN_SCOPE = "FORBIDDEN_SCOPE"
     FORBIDDEN_ROLE = "FORBIDDEN_ROLE"
@@ -76,6 +80,8 @@ class ErrorCode(StrEnum):
     ORDER_INVALID_STATUS = "ORDER_INVALID_STATUS"
     CUSTOMER_INACTIVE = "CUSTOMER_INACTIVE"
     DRIVER_NOT_ALLOWED = "DRIVER_NOT_ALLOWED"
+    # Documents (delivery note PDF): the renderer is missing or took too long.
+    DOCUMENT_UNAVAILABLE = "DOCUMENT_UNAVAILABLE"
     # Notifications
     NOTIFICATION_NOT_FOUND = "NOTIFICATION_NOT_FOUND"
     # Inventory

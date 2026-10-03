@@ -56,6 +56,8 @@ uv run pytest
 
 The tests need PostgreSQL. `TEST_DATABASE_URL` (from the environment or `.env`) must point to a **dedicated** database, because the suite drops and recreates its `public` schema on every run. The schema is built from the Alembic migrations, so the migrations are tested too.
 
+**Delivery note PDFs** use WeasyPrint, which needs Pango / HarfBuzz from the OS (the Docker image installs them). Without them (e.g. plain Windows) the API still runs, the PDF routes answer `503 DOCUMENT_UNAVAILABLE`, and the tests that render real PDFs are skipped; run the suite in the API image to cover them (see docs/ARCHITECTURE.md §12).
+
 ## Environment variables
 
 | Variable | Default | Description |
@@ -354,6 +356,7 @@ app/
   permissions/       registry, sync, hierarchy (scope), service (grants, effective perms)
   services/          auth, users, audit
   api/               routers: auth, me, users, permissions, audit
+  documents/         delivery note: Jinja2 template, receipt CSS, bundled Kantumruy Pro font, WeasyPrint renderer
   bot/               aiogram bot: webhook endpoint + registration, shared setup, handlers, CLI (python -m app.bot)
 alembic/             migrations
 tests/               pytest suite (scope matrix, grants, defaults, constraints, auth, lockout, Telegram, …)

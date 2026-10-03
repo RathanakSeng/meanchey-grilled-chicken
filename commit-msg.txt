@@ -1,18 +1,11 @@
-<ADD, UPDATE, REMOVE><BOTH><INVENTORY-ACCESS>: production items read-only, inventory history behind its own permission (grantor must hold it), per-batch stock breakdown
+<ADD, UPDATE><BOTH><DELIVERY-NOTE>: printable 80 mm delivery note PDF for orders (print / send to my Telegram, COPY on reprints) + Business info settings
 
-- API: ItemDef.origin (all production); set → 409 INVENTORY_ITEM_PRODUCTION_ONLY for everyone;
-  inventory.adjust + inventory_adjust removed; migration 0011 deletes adjustments and recomputes
-  balances / balance_*_after from production (idempotent, refuses negatives)
-- API: inventory.history + feature inventory_history (GM, supervisor; Off by default; no backfill);
-  FeatureDef.grantor_must_hold: hidden from grantors who don't hold it (omitted in GET, 404 on PUT,
-  feature.set audit entries hidden), no cascade; GET /inventory/movements needs it; batch
-  inventory_tracked / stock_changes only with it (batch_out takes the viewer)
-- API: GET /inventory/items/{item_code}: balance + per-batch net sources (oldest first, totals =
-  balance)
-- UI: Set button and Set value sheet removed; History tab only with inventory.history; item sheet
-  "From production" breakdown with total, recent changes only with history; batch Stock changes
-  only with history; ['inventory-item', code]; km/en texts
-- Tests: test_inventory_history, test_migration_inventory_reset; inventory, defaults, features,
-  grants, redaction and superset updated
-- Docs: API FEATURES §5/§6/§9/§10/§12/§13/§14/§18, ARCHITECTURE feature layer + decision rows;
-  UI FEATURES §6.5 / Access tab / matrix, ARCHITECTURE query keys, item sheet, gating
+- API: app/documents/ (Jinja2 template + receipt CSS, bundled Kantumruy Pro, WeasyPrint with the page as tall as its content, in a worker thread with a 20 s timeout, imported only when needed); black and white, Khmer labels with English under them, white / black boxes with lines and subtotals, grand total, returns, note, signatures, QR, CANCELLED banner, COPY #n
+- API: GET /orders/{id}/document.pdf and POST /orders/{id}/document/send-telegram (orders.view, any status); orders.print_count (migration 0013), audit order.document_printed {copy, via}; TELEGRAM_NOT_LINKED, TELEGRAM_SEND_FAILED, DOCUMENT_UNAVAILABLE; notify.api_bot / send_document
+- API: prices later — DocumentKind + kind_for switch the same template to INVOICE with price columns
+- API: business_settings (one row, seeded) + settings.business_info (GM only, feature business_info Off/Full, superadmin implicit); GET/PUT /settings/business, GET/PUT/DELETE /settings/business/logo (PNG/JPEG ≤ 500 kB, resized to ≤ 400 px), GET /settings/business/preview.pdf (SAMPLE); audit settings.business_update
+- API: Dockerfile installs Pango/HarfBuzz/fontconfig/DejaVu; deps weasyprint, jinja2, segno, pillow, python-multipart (dev: pypdf)
+- API: tests test_documents (statuses, COPY + audit, access, redaction, Telegram linked / not linked / bot off / failing, renderer unavailable, real 80 mm PDFs with Khmer text and fitted height), test_business_info; redaction sweep reads the notes, superset sweep covers the settings routes; feature/catalog tests updated
+- UI: order page Print (hidden frame + print dialog on PCs, new tab on phones) and Send to my Telegram (header button in the Mini App where Print is hidden, ⋮ menu elsewhere), print count; lib/pdf.ts
+- UI: Settings → Business info (lazy): names, address, phone, footer note, logo upload / remove, Preview; ['business-settings'] query; audit labels; km + en strings
+- Docs: API FEATURES (§19.6 Delivery note, §20 Business info, §5/§6/§9/§10/§12/§13), ARCHITECTURE (documents, two-pass height, thread offload, Docker, decisions), README; UI FEATURES (order page, Business info, access matrix) and ARCHITECTURE (lib/pdf, routes, query keys, decisions)

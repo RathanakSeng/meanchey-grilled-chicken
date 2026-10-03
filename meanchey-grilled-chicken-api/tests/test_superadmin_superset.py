@@ -18,6 +18,7 @@ from sqlalchemy import update
 
 from app.main import app
 from app.models import Role, User
+from app.permissions.registry import DEFAULT_PERMISSIONS
 from tests.conftest import auth
 
 PREFIX = "/api/v1"
@@ -29,12 +30,17 @@ BODIES: dict[tuple[str, str], dict] = {
     ("PATCH", "/production-plans/{batch_id}"): {"version": 1, "expected_big": 1},
     ("PUT", "/settings/role-limits/{role}"): {"max_active": 10},
     ("POST", "/inventory/items/{item_code}/set"): {"count": 1, "reason": "Superset check"},
+    ("PUT", "/settings/business"): {"name_km": "ហាង", "name_en": "Shop"},
 }
 
 
 @pytest.fixture
 async def world(client, session, superadmin, make_user) -> dict:
-    gm = await make_user(Role.GENERAL_MANAGER)
+    # With Business info (off by default), so its routes are compared too.
+    gm = await make_user(
+        Role.GENERAL_MANAGER,
+        perms=sorted(DEFAULT_PERMISSIONS[Role.GENERAL_MANAGER] | {"settings.business_info"}),
+    )
     target = await make_user(Role.STAFF)  # someone both can manage
     h = auth(gm)
     supplier = (await client.post("/suppliers", json={"name": "Sokha Farm"}, headers=h)).json()
@@ -134,5 +140,11 @@ async def test_superadmin_is_never_forbidden_where_the_gm_is_allowed(
         "GET /notifications",
         "GET /orders/{order_id}",
         "POST /orders/{order_id}/returns/review",
+        "GET /orders/{order_id}/document.pdf",
+        "POST /orders/{order_id}/document/send-telegram",
+        "GET /settings/business",
+        "PUT /settings/business",
+        "PUT /settings/business/logo",
+        "GET /settings/business/preview.pdf",
     ):
         assert route in checked, route

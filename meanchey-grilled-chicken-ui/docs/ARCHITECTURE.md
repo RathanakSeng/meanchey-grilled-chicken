@@ -79,6 +79,8 @@ src/
 │   ├── errors.ts          # getError, useErrorMessage, ClientError
 │   ├── format.ts          # dates, localized names, initials, username normalize
 │   ├── telegram.ts        # telegram handle, isTelegramMiniApp, initTelegram, openTelegramLink
+│   ├── pdf.ts             # PDFs from the API: fetchPdf (blob, JSON errors), tabForPdf, printPdf
+│   │                      #   (hidden frame + print dialog on PCs, new tab on phones), openPdf
 │   ├── paths.ts           # app routes (paths.users, paths.user(id)…), legacy prefixes, parentPath, isUnder
 │   ├── roles.ts           # isSuperadmin, AUDIT_ROLES, ROLE_LIMIT_ROLES, SUPERADMIN_LOGIN: superadmin checks in one place
 │   ├── useRoleCapacity.ts # ['role-capacity'] query, byRole(), invalidateRoleCapacity()
@@ -111,7 +113,8 @@ src/
 │   │                      #   integer amounts: parseAmount / amountOf / toApi, formatting)
 │   │   └── production-plans/ # PlanListPage, PlanPage (lazy), PlanBadge, api.ts (planKeys, pending count:
 │   │                      #   outside the lazy chunk because the nav badge uses it)
-│   └── settings/          # SettingsPage (hub), AuditLogPage, ProfilePage, TelegramLinkCard (superadmin), UserLimitsPage (superadmin), users/* (incl. UserAccessTab, UserPermissionsTab, RoleChangeSheet)
+│   └── settings/          # SettingsPage (hub), AuditLogPage, ProfilePage, TelegramLinkCard (superadmin), UserLimitsPage (superadmin),
+│                          #   BusinessInfoPage (lazy; settings.business_info), users/* (incl. UserAccessTab, UserPermissionsTab, RoleChangeSheet)
 └── types/telegram.d.ts    # minimal Telegram.WebApp typings
 ```
 
@@ -246,6 +249,7 @@ sequenceDiagram
         :id/edit                     RequireAccess users.update → UserForm(edit)
       audit-logs                     RequireAccess roles=AUDIT_ROLES (superadmin, general managers)
       user-limits                    RequireAccess roles=ROLE_LIMIT_ROLES (superadmin) → UserLimitsPage
+      business-info                  RequireAccess settings.business_info → BusinessInfoPage (lazy)
       profile                        Profile
     /users, /users/*                 LegacyRedirect → /settings/users…
     /audit-logs, /audit-logs/*       LegacyRedirect → /settings/audit-logs…
@@ -253,7 +257,7 @@ sequenceDiagram
     *                                NotFound (e.g. a top-level /production: there is no redirect)
 ```
 
-**Paths.** Every frontend URL comes from `lib/paths.ts` (`paths.users`, `paths.user(id)`, `paths.editUser(id)`, `paths.suppliers`, `paths.customers`, `paths.production`, `paths.productionBatch(id, step?)`, `paths.productionPlans`, `paths.productionPlan(batchId)`, `paths.inventory`, `paths.userLimits`, …). Components never write route literals, so moving a page is a one-file change. API URLs such as `api.get('/users')` are unrelated and stay literal.
+**Paths.** Every frontend URL comes from `lib/paths.ts` (`paths.users`, `paths.user(id)`, `paths.editUser(id)`, `paths.suppliers`, `paths.customers`, `paths.production`, `paths.productionBatch(id, step?)`, `paths.productionPlans`, `paths.productionPlan(batchId)`, `paths.inventory`, `paths.userLimits`, `paths.businessInfo`, …). Components never write route literals, so moving a page is a one-file change. API URLs such as `api.get('/users')` are unrelated and stay literal.
 
 **Legacy redirects.** `LegacyRedirect` swaps the old prefix (from `LEGACY_PREFIXES`) for the new one and keeps the rest of the path, the query string and the hash, e.g. `/users/<id>/edit?x=1#a` → `/settings/users/<id>/edit?x=1#a`.
 
@@ -266,7 +270,7 @@ sequenceDiagram
 | `PublicOnly` | For `/login`. Sends signed-in users to their original destination (`location.state.from`) or to `/`. |
 | `RequireAccess` | Takes `permission` and/or `roles`. Renders `ForbiddenPage` if denied. Works as a layout route (`<Outlet/>`) or as a wrapper around children. |
 
-**Lazy pages.** The production pages, the packaging plan pages (another chunk, only for plan holders) and the inventory page (another chunk, only with `inventory.view`), are loaded with `React.lazy` inside `RequireAccess` (wrapped in `PageLoading`, a `Suspense` with a spinner), so they are separate chunks, downloaded on first visit and never by users without Production access. Everything else is in the main bundle. Other large, access-limited features can use the same pattern.
+**Lazy pages.** The production pages, the packaging plan pages (another chunk, only for plan holders) the inventory page (another chunk, only with `inventory.view`), the order pages and the Business info page (only with `settings.business_info`) are loaded with `React.lazy` inside `RequireAccess` (wrapped in `PageLoading`, a `Suspense` with a spinner), so they are separate chunks, downloaded on first visit and never by users without Production access. Everything else is in the main bundle. Other large, access-limited features can use the same pattern.
 
 The two `PartnerListPage` routes get distinct React `key`s, so switching between Suppliers and Customers remounts the page instead of carrying state (search text, open panel) across.
 
@@ -371,6 +375,8 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 | `['orders-customer-options', q]` | `GET /orders/customer-options` (customer picker while open; the list's customer filter with `''`) |
 | `['orders-driver-options']` | `GET /orders/driver-options` (form) |
 | `['orders-available-stock']` | `GET /orders/available-stock` (form: item options, live summary warnings) |
+| `['business-settings']` | `GET /settings/business` (Business info page); written with `setQueryData` by Save, logo upload and remove |
+| `['business-settings', 'logo', updated_at]` | `GET /settings/business/logo` as a blob → object URL for the preview (only when `has_logo`; the `updated_at` in the key refetches it after a change) |
 | `['role-limits']` | `GET /settings/role-limits` (superadmin, User limits page); written with `setQueryData` by each Save |
 | `['role-capacity']` | `GET /users/role-capacity` via `useRoleCapacity()` in `lib/useRoleCapacity.ts` (enabled with `users.view` or `users.create`, staleTime 30 s): create form, role change sheet, users list |
 | `['notifications-unread']` | `GET /notifications?unread_only=true&page_size=1` → `unread_count` (the bell; polled every 60 s **and on window focus**, from the app shell, not per page) |
@@ -381,6 +387,8 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 - Production: draft saves only write the returned batch into `['production-batch', id]`. Finish, reopen, cancel and "New production" also invalidate `['production']` and `['production-stats']` (`onBatchChanged` in `production/api.ts`), the plan keys (finishing or reopening steps creates or resets the plan) and the inventory keys (`invalidateInventory`: `['inventory']`, every `['inventory-movements', …]` and `['inventory-item', …]`; Finish, reopen and cancel move stock). There is no manual change to invalidate for: production items are read-only.
 - Inventory: the batch response carries `stock_changes` and `inventory_tracked` **only for viewers with `inventory.history`** (the keys are absent otherwise, so the types are optional); `StockChangesCard` renders nothing without them. The Inventory page reads `usePermission('inventory.history')` to show the History tab (no tab bar without it; `?tab=history` falls back to Stock) and the item sheet's recent changes. `INVENTORY_INSUFFICIENT` is translated per item from `details.items` (names from the API, the unit that is short) in `useErrorMessage`. The keys are built by `productionKeys`.
 - Orders: create / edit / cancel / Start delivery / Mark delivered / Review return write the returned order into `['order', id]` and call `invalidateOrders` (`['orders']`, `['orders-stats']`, `['orders-available-stock']` and the inventory keys: Start delivery and the review move stock). On `ORDER_CONFLICT` the current order from `details.order` is written into the cache (the form resets to it) and a notice is shown; on `ORDER_INVALID_STATUS` the order is refetched. Amounts are integers (counts, or grams for kg: `parseAmount("1.25", "kg") = 1250`), so the live summary, the "at most delivered" and "stock + wasted = returned" checks are exact; they go back to the API as `count` or a 3-decimal `kg` string (`toApi`). `PRODUCTION_STOCK_ALREADY_USED` is translated with the item names and order codes from `details` (`useErrorMessage`).
+- Delivery notes (order page): **Print** and **Send to my Telegram** are mutations, not queries (each one is counted by the API, so nothing is cached); on success they invalidate `['order', id]` so `print_count` updates. PDFs are fetched by `lib/pdf.ts` with the API client (`responseType: 'blob'`, bearer token) and shown from a `blob:` URL (revoked after a minute); an error body arriving as a Blob is parsed back to JSON so `useErrorMessage` translates the code (`TELEGRAM_NOT_LINKED`, `TELEGRAM_SEND_FAILED`, `DOCUMENT_UNAVAILABLE`, `TELEGRAM_NOT_CONFIGURED`). On phones the new tab is opened **inside the click handler** (`tabForPdf()`), before the request, so popup blockers (iOS Safari) allow it; on PCs (`pointer: fine`, ≥ 768 px) the PDF loads in a hidden iframe whose `print()` opens the dialog, with a new tab as the fallback. In the Mini App (`isTelegramMiniApp`) Print is hidden and Send to Telegram is the header button; elsewhere Send is in the ⋮ menu.
+- Business info: Save sends every text field (empty → `null`); the logo is uploaded as `FormData` (`file`), type and size checked first (`LOGO_WRONG_TYPE` / `LOGO_TOO_LARGE` client errors); Preview opens `GET /settings/business/preview.pdf` in a new tab (`openPdf`).
 - Plans: Save and Confirm write the returned plan into `['production-plan', batchId]` and invalidate the plan list, the pending count, the batch and the production list. On `PRODUCTION_CONFLICT` the plan is refetched and a notice shown (no merge UI: a plan has three fields). Confirm with unsaved edits sends the PATCH first, then confirms with the new version.
 - Role limits: creating a user, reactivating, deactivating and changing a role call `invalidateRoleCapacity()` (`['role-capacity']` and `['role-limits']`); saving a limit writes `['role-limits']` and invalidates `['role-capacity']`. `ROLE_LIMIT_REACHED` is translated with the role name from its `details.role` (`useErrorMessage`).
 - Notifications: opening one marks it read (`POST /notifications/{id}/read`), **Mark all as read** calls `read-all`; both invalidate `['notifications']` and `['notifications-unread']`.
@@ -571,4 +579,6 @@ The page brings the KPI cards (`KpiGrid`), URL-driven filters (`?q&deactivated=1
 | Order form keeps boxes on the client until Save | An order is short and typed in one go, so there are no server drafts (unlike production): boxes and lines live in component state with local keys, the summary is computed live, and one POST / PATCH replaces the boxes. The API repeats every check; the version guards against a concurrent edit. |
 | Order actions by status, one primary button | Each status has exactly one next step (Start delivery, Mark delivered, Review return), shown as the main button only to whoever may do it; Edit and Cancel, rarer and only while Created, live in the ⋮ menu. |
 | Inventory amounts straight from the API | Balances and movements are computed and locked server-side (the ledger); the page only formats them (count, kg with up to 3 decimals, "≈" when estimated) and never adds anything up, so it can't disagree with the server. |
+| Delivery notes as API-made PDFs, printed or sent to Telegram | Inside Telegram's WebView `window.print()` and downloads don't work reliably, and browser printing of a web page gives A4 with headers. The API renders an 80 mm receipt PDF; the PC prints it from a hidden frame, phones open it in a tab, and the Mini App has the bot send it to the person's chat, from where it can be printed or forwarded. |
+| PDFs through the API client, not links | The routes need the bearer token (tokens live in `localStorage`, not cookies), so a plain `<a href>` can't open them; fetching a blob keeps auth, refresh and error translation in one place. |
 | Back = parent route, not history | Mini App sessions often start from a deep link with no history. The route structure always gives a meaningful "up". |

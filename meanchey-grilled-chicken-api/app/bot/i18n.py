@@ -128,6 +128,11 @@ TEXTS: dict[str, dict[Language, str]] = {
         Language.KM: "🧾 បើកការបញ្ជាទិញ",
         Language.EN: "🧾 Open order",
     },
+    # Caption of a delivery note sent from the order page ("Send to my Telegram").
+    "document_caption": {
+        Language.KM: "🧾 ប័ណ្ណដឹកជញ្ជូន <b>{code}</b> · {customer}",
+        Language.EN: "🧾 Delivery note <b>{code}</b> · {customer}",
+    },
     # --- Superadmin Telegram linking (/start link_<token>) ---
     "link_done": {
         Language.KM: "✅ បានភ្ជាប់ Telegram រួចរាល់។",

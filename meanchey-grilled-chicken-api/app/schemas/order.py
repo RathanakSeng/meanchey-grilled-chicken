@@ -227,6 +227,8 @@ class OrderOut(BaseModel):
     return_reason: str | None
     cancel_reason: str | None
     version: int
+    # Delivery notes generated so far (the next one is a COPY when this is ≥ 1).
+    print_count: int
     created_by: UserRef | None
     created_at: datetime
     updated_by: UserRef | None
@@ -289,3 +291,10 @@ class DriverOption(BaseModel):
 class AvailableItem(_ItemRef):
     count: int | None
     kg: KgOut | None
+
+
+class DocumentSentOut(BaseModel):
+    """The delivery note went to the requester's Telegram chat; `copy_number` is its number (1 = the
+    original)."""
+
+    copy_number: int

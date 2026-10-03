@@ -189,7 +189,11 @@ EXTRA_QUERIES = [
 
 
 @pytest.mark.parametrize("viewer_key", ["gm", "sup", "staff"])
-async def test_no_response_reveals_the_superadmin(client, world, viewer_key) -> None:
+async def test_no_response_reveals_the_superadmin(
+    client, world, viewer_key, html_documents
+) -> None:
+    """Delivery notes (`/orders/{id}/document.pdf`) come back as their HTML (`html_documents`),
+    so their text is checked too: the orders' creator reads as "System"."""
     viewer = world[viewer_key]
     sa = world["superadmin"]
     urls = [u for path in _get_routes() for u in _fill(path, world)]
@@ -219,6 +223,7 @@ async def test_no_response_reveals_the_superadmin(client, world, viewer_key) -> 
             headers=auth(viewer),
         ),
         client.post("/notifications/read-all", headers=auth(viewer)),
+        client.post(f"/orders/{world['orders'][0]}/document/send-telegram", headers=auth(viewer)),
         client.patch(f"/users/{world['staff'].id}", json={"phone": "012"}, headers=auth(viewer)),
         client.patch(f"/users/{sa.id}", json={"full_name": "x"}, headers=auth(viewer)),
         client.post(f"/users/{sa.id}/reset-password", headers=auth(viewer)),
@@ -236,6 +241,14 @@ async def test_no_response_reveals_the_superadmin(client, world, viewer_key) -> 
     for call in partner_calls:
         r = await call
         _assert_clean(r, sa, f"{viewer_key} mutation {r.request.method} {r.request.url}")
+
+
+async def test_delivery_note_names_the_superadmin_as_system(client, world, html_documents) -> None:
+    for key in ("gm", "sup"):
+        r = await client.get(f"/orders/{world['orders'][0]}/document.pdf", headers=auth(world[key]))
+        assert r.status_code == 200, r.text
+        assert "System" in r.text
+        _assert_clean(r, world["superadmin"], f"{key} delivery note")
 
 
 async def test_alerts_and_plans_name_the_superadmin_as_system(client, world) -> None:

@@ -14,12 +14,13 @@ one (the poller runs in another process). Nothing here raises: an alert must nev
 
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from html import escape
 from typing import Any
 
 from aiogram import Bot
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from sqlalchemy import select
 
 from app.bot.i18n import t
@@ -43,6 +44,7 @@ log = logging.getLogger(__name__)
 bot_factory: Callable[[], Bot] = create_bot
 
 ERROR_MAX_LENGTH = 500
+DOCUMENT_TIMEOUT_SECONDS = 30
 
 
 def mini_app_link(path: str) -> str | None:
@@ -192,24 +194,46 @@ async def _send_all(ids: list[uuid.UUID], bot: Bot | None) -> dict[str, int]:
     return counts
 
 
+@asynccontextmanager
+async def api_bot(runtime: TelegramRuntime | None) -> AsyncIterator[Bot | None]:
+    """The bot the API sends with: the runtime's in webhook mode, a short-lived one in polling
+    mode (the poller is another process), None without a token / `BOT_MODE=off` / runtime."""
+    settings = get_settings()
+    if settings.telegram_bot_token and settings.bot_mode == "webhook" and runtime is not None:
+        yield runtime.bot
+    elif settings.telegram_bot_token and settings.bot_mode == "polling":
+        bot = bot_factory()
+        try:
+            yield bot
+        finally:
+            await bot.session.close()
+    else:
+        yield None
+
+
 async def deliver(ids: list[uuid.UUID], runtime: TelegramRuntime | None) -> None:
     """Background task after the commit that created `ids`. Never raises."""
     if not ids:
         return
-    settings = get_settings()
-    bot: Bot | None = None
-    owned = False
     try:
-        if settings.telegram_bot_token and settings.bot_mode == "webhook" and runtime is not None:
-            bot = runtime.bot
-        elif settings.telegram_bot_token and settings.bot_mode == "polling":
-            bot, owned = bot_factory(), True
-        await _send_all(ids, bot)
+        async with api_bot(runtime) as bot:
+            await _send_all(ids, bot)
     except Exception:
         log.exception("Delivering notifications %s failed", ids)
-    finally:
-        if owned and bot is not None:
-            await bot.session.close()
+
+
+async def send_document(
+    bot: Bot, user: User, data: bytes, filename: str, code: str, customer: str
+) -> None:
+    """Send a PDF to `user`'s linked chat, captioned in their language. Raises on failure."""
+    assert user.telegram_user_id is not None
+    caption = t(user.language, "document_caption", code=escape(code), customer=escape(customer))
+    await bot.send_document(
+        user.telegram_user_id,
+        BufferedInputFile(data, filename=filename),
+        caption=caption,
+        request_timeout=DOCUMENT_TIMEOUT_SECONDS,
+    )
 
 
 _bot_username: str | None = None

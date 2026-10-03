@@ -47,6 +47,9 @@ const ACTIONS = [
   'order.delivering',
   'order.delivered',
   'order.returns_reviewed',
+  'order.document_printed',
+  // A GM given Business info sees its own changes.
+  'settings.business_update',
 ]
 // Superadmin settings (hidden from the GM by the API like everything the superadmin does).
 const SUPERADMIN_ACTIONS = ['settings.role_limit_update']
@@ -213,6 +216,27 @@ function Details({ log }: { log: AuditLog }) {
         )}
       </span>
     )
+  }
+  if (log.action === 'order.document_printed') {
+    const copy = Number(d.copy)
+    return (
+      <span className="block text-sm text-stone-700">
+        {copy > 1 ? t('audit.documentCopy', { copy }) : t('audit.documentOriginal')}
+        <span className="block text-xs text-stone-500">
+          {t(d.via === 'telegram' ? 'audit.documentViaTelegram' : 'audit.documentViaDownload')}
+        </span>
+      </span>
+    )
+  }
+  if (log.action === 'settings.business_update') {
+    // {changes: {field: [old, new]}, or logo: "changed" / "removed"}: list the changed fields.
+    const changes = (d.changes ?? {}) as Record<string, unknown>
+    const fields = Object.keys(changes).map((f) =>
+      f === 'logo'
+        ? t(changes.logo === 'removed' ? 'audit.logoRemoved' : 'audit.logoChanged')
+        : t(`business.auditFields.${f}`, { defaultValue: f }),
+    )
+    return <span className="block text-sm text-stone-700">{fields.join(', ')}</span>
   }
   if (log.action === 'order.returns_reviewed') {
     return (

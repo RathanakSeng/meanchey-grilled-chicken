@@ -46,7 +46,8 @@
     "productionPlans": "Production plan",
     "userLimits": "User limits",
     "inventory": "Inventory",
-    "orders": "Orders"
+    "orders": "Orders",
+    "businessInfo": "Business info"
   },
   "roles": {
     "superadmin": "System",
@@ -272,7 +273,9 @@
       "order_cancel": "Order cancelled",
       "order_delivering": "Order out for delivery",
       "order_delivered": "Order delivered",
-      "order_returns_reviewed": "Order return reviewed"
+      "order_returns_reviewed": "Order return reviewed",
+      "order_document_printed": "Delivery note printed",
+      "settings_business_update": "Changed business info"
     },
     "featureChange": "{{feature}}: {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
@@ -283,7 +286,13 @@
     "defaultChange": "New default for supervisors",
     "inventoryAdjust": "{{item}}: {{from}} → {{to}}",
     "orderAccepted": "Everything accepted",
-    "orderReturned": "Items returned"
+    "orderReturned": "Items returned",
+    "documentOriginal": "Original",
+    "documentCopy": "Copy #{{copy}}",
+    "documentViaDownload": "Downloaded / printed",
+    "documentViaTelegram": "Sent to Telegram",
+    "logoChanged": "Logo changed",
+    "logoRemoved": "Logo removed"
   },
   "profile": {
     "title": "My profile",
@@ -462,7 +471,12 @@
     "ORDER_CONFLICT": "Someone else changed this order. It has been reloaded; please try again.",
     "ORDER_INVALID_STATUS": "This order has moved on and can’t be changed this way any more.",
     "CUSTOMER_INACTIVE": "This customer is deactivated. Choose another customer.",
-    "DRIVER_NOT_ALLOWED": "The driver must be an active staff member or supervisor."
+    "DRIVER_NOT_ALLOWED": "The driver must be an active staff member or supervisor.",
+    "TELEGRAM_NOT_LINKED": "Your Telegram account isn't linked yet. Open the app once from the bot in Telegram (the Open app button), then try again.",
+    "TELEGRAM_SEND_FAILED": "Telegram couldn't deliver the delivery note. Check that you haven't blocked the bot, then try again.",
+    "DOCUMENT_UNAVAILABLE": "The delivery note can't be created right now. Please try again later.",
+    "LOGO_WRONG_TYPE": "The logo must be a PNG or JPEG image.",
+    "LOGO_TOO_LARGE": "The logo must be at most 500 kB."
   },
   "permissions": {
     "readOnlyNotice": "You can view these permissions, but you can't change them here.",
@@ -976,6 +990,53 @@
     "cancelReason": "Reason",
     "cancelReasonDefault": "Customer cancelled",
     "cancelledNotice": "This order was cancelled.",
-    "stockWarningTitle": "Not enough stock right now — delivery can’t start until there is:"
+    "stockWarningTitle": "Not enough stock right now — delivery can’t start until there is:",
+    "document": {
+      "title": "Delivery note",
+      "print": "Print",
+      "printHint": "Print the delivery note (80 mm receipt)",
+      "sendTelegram": "Send to my Telegram",
+      "sendTelegramShort": "Send to Telegram",
+      "sent": "Sent to your Telegram chat.",
+      "printedCount": "Printed {{count}}× (the next one says COPY)"
+    }
+  },
+  "business": {
+    "title": "Business info",
+    "subtitle": "Printed at the top and bottom of every delivery note.",
+    "description": "Name, address, phone, logo and footer note on delivery notes.",
+    "preview": "Preview",
+    "saved": "Business info saved.",
+    "nameSection": "Business name",
+    "contactSection": "Address and phone",
+    "footerSection": "Footer note",
+    "fields": {
+      "nameKm": "Name (Khmer)",
+      "nameEn": "Name (English)",
+      "addressKm": "Address (Khmer)",
+      "addressEn": "Address (English)",
+      "phone": "Phone",
+      "footerKm": "Footer note (Khmer)",
+      "footerEn": "Footer note (English)"
+    },
+    "namesRequired": "Both names are required.",
+    "phoneHint": "E.g. 012 345 678.",
+    "footerHint": "Optional, e.g. \"Thank you!\". Printed at the very bottom.",
+    "updated": "Last changed {{date}} by {{name}}",
+    "logo": "Logo",
+    "noLogo": "No logo",
+    "logoHint": "PNG or JPEG, up to 500 kB. Printed in black and white; simple dark logos print best.",
+    "uploadLogo": "Upload logo",
+    "changeLogo": "Change logo",
+    "removeLogo": "Remove",
+    "auditFields": {
+      "name_km": "Name (Khmer)",
+      "name_en": "Name (English)",
+      "address_km": "Address (Khmer)",
+      "address_en": "Address (English)",
+      "phone": "Phone",
+      "footer_note_km": "Footer note (Khmer)",
+      "footer_note_en": "Footer note (English)"
+    }
   }
 }

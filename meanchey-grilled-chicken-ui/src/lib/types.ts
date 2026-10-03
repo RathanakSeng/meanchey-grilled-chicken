@@ -598,6 +598,8 @@ export interface Order {
   return_reason: string | null
   cancel_reason: string | null
   version: number
+  /** Delivery notes generated so far; the next one prints as a COPY when ≥ 1. */
+  print_count: number
   created_by: UserRef | null
   created_at: string
   updated_by: UserRef | null
@@ -658,3 +660,30 @@ export interface OrderAlertItem extends Localized {
   count: number | null
   kg: string | null
 }
+
+/** POST /orders/{id}/document/send-telegram */
+export interface DocumentSent {
+  /** 1 = the original, 2+ = a copy. */
+  copy_number: number
+}
+
+/** GET/PUT /settings/business: what delivery notes print at the top and bottom. */
+export interface BusinessInfo {
+  name_km: string
+  name_en: string
+  address_km: string | null
+  address_en: string | null
+  phone: string | null
+  phone_display: string | null
+  footer_note_km: string | null
+  footer_note_en: string | null
+  has_logo: boolean
+  logo_mime: string | null
+  updated_by: UserRef | null
+  updated_at: string
+}
+
+export const BUSINESS_NAME_MAX_LENGTH = 200
+export const BUSINESS_ADDRESS_MAX_LENGTH = 500
+export const BUSINESS_FOOTER_MAX_LENGTH = 300
+export const LOGO_MAX_BYTES = 500 * 1024

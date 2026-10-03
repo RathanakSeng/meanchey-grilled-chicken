@@ -932,6 +932,7 @@ async def order_out(session: AsyncSession, order: Order) -> OrderOut:
         return_reason=order.return_reason,
         cancel_reason=order.cancel_reason,
         version=order.version,
+        print_count=order.print_count,
         created_by=_ref(users, order.created_by),
         created_at=order.created_at,
         updated_by=_ref(users, order.updated_by),

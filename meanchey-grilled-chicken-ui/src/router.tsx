@@ -55,6 +55,10 @@ const OrderPage = lazy(() => import('@/pages/workstation/orders/OrderPage').then
 const OrderFormPage = lazy(() =>
   import('@/pages/workstation/orders/OrderFormPage').then((m) => ({ default: m.OrderFormPage })),
 )
+// Business info: a small lazy chunk for the superadmin (and GMs given it).
+const BusinessInfoPage = lazy(() =>
+  import('@/pages/settings/BusinessInfoPage').then((m) => ({ default: m.BusinessInfoPage })),
+)
 // Packaging plans: another lazy chunk, only for plan holders.
 const PlanListPage = lazy(() =>
   import('@/pages/workstation/production-plans/PlanListPage').then((m) => ({ default: m.PlanListPage })),
@@ -258,6 +262,16 @@ export const router = createBrowserRouter([
                 element: (
                   <RequireAccess roles={ROLE_LIMIT_ROLES}>
                     <UserLimitsPage />
+                  </RequireAccess>
+                ),
+              },
+              {
+                path: 'business-info',
+                element: (
+                  <RequireAccess permission="settings.business_info">
+                    <PageLoading>
+                      <BusinessInfoPage />
+                    </PageLoading>
                   </RequireAccess>
                 ),
               },

@@ -11,7 +11,9 @@ import { api } from '@/lib/api'
 import { getError, useErrorMessage } from '@/lib/errors'
 import { useFormatDate, useFormatDay, useLocalized } from '@/lib/format'
 import { paths } from '@/lib/paths'
-import { ORDER_REASON_MAX_LENGTH, type Order, type UserRef } from '@/lib/types'
+import { fetchPdf, printPdf, tabForPdf } from '@/lib/pdf'
+import { isTelegramMiniApp } from '@/lib/telegram'
+import { ORDER_REASON_MAX_LENGTH, type DocumentSent, type Order, type UserRef } from '@/lib/types'
 import { amountOf, invalidateOrders, orderKeys, useAmountFormat, useQuantityFormat } from './api'
 import { BoxColorLabel, OrderStatusBadge } from './badges'
 import { DeliveredSheet, ReviewSheet, type DeliveredBody, type ReviewBody } from './OrderSheets'
@@ -203,6 +205,7 @@ export function OrderPage() {
   const [sheet, setSheet] = useState<'delivering' | 'delivered' | 'review' | 'cancel' | null>(null)
   const [reason, setReason] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
+  const [docResult, setDocResult] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
 
   const onSaved = (o: Order) => {
     queryClient.setQueryData(orderKeys.order(o.id), o)
@@ -230,6 +233,25 @@ export function OrderPage() {
     setNotice(null)
     action.mutate({ path, body })
   }
+  // Delivery note: printed (PC / phone browser) or sent to the requester's Telegram chat (Mini App).
+  // Each one is counted by the API (the next one says COPY), so the order is refetched.
+  const refreshCount = () => void queryClient.invalidateQueries({ queryKey: orderKeys.order(orderId) })
+  const print = useMutation({
+    mutationFn: (tab: Window | null) => printPdf(() => fetchPdf(`/orders/${orderId}/document.pdf`), tab),
+    onMutate: () => setDocResult(null),
+    onSuccess: refreshCount,
+    onError: (err) => setDocResult({ tone: 'error', text: errorMessage(err) }),
+  })
+  const sendToTelegram = useMutation({
+    mutationFn: async () => (await api.post<DocumentSent>(`/orders/${orderId}/document/send-telegram`)).data,
+    onMutate: () => setDocResult(null),
+    onSuccess: () => {
+      refreshCount()
+      setDocResult({ tone: 'success', text: t('orders.document.sent') })
+    },
+    onError: (err) => setDocResult({ tone: 'error', text: errorMessage(err) }),
+  })
+
   const open = (which: typeof sheet) => {
     action.reset()
     setReason(t('orders.cancelReasonDefault'))
@@ -254,6 +276,17 @@ export function OrderPage() {
 
   const created = order.status === 'created'
   const menu: ActionMenuItem[] = [
+    // Outside the Mini App, sending to Telegram is the secondary way to get the note.
+    ...(!isTelegramMiniApp
+      ? [
+          {
+            key: 'send-telegram',
+            label: t('orders.document.sendTelegram'),
+            icon: 'telegram' as const,
+            onSelect: () => sendToTelegram.mutate(),
+          },
+        ]
+      : []),
     ...(created && canEdit
       ? [{ key: 'edit', label: t('common.edit'), icon: 'pencil' as const, onSelect: () => navigate(paths.editOrder(order.id)) }]
       : []),
@@ -306,10 +339,38 @@ export function OrderPage() {
         actions={
           <>
             {primary && <span className="hidden sm:inline-flex">{primary}</span>}
+            {/* Printing isn't reliable inside Telegram: there the note is sent to the chat. */}
+            {isTelegramMiniApp ? (
+              <Button
+                variant="secondary"
+                loading={sendToTelegram.isPending}
+                onClick={() => sendToTelegram.mutate()}
+                title={t('orders.document.sendTelegram')}
+              >
+                {!sendToTelegram.isPending && <Icon name="telegram" width={18} height={18} />}
+                <span className="hidden min-[400px]:inline">{t('orders.document.sendTelegramShort')}</span>
+              </Button>
+            ) : (
+              <Button
+                variant="secondary"
+                loading={print.isPending}
+                onClick={() => print.mutate(tabForPdf())}
+                title={t('orders.document.printHint')}
+              >
+                {!print.isPending && <Icon name="printer" width={18} height={18} />}
+                <span className="hidden min-[400px]:inline">{t('orders.document.print')}</span>
+              </Button>
+            )}
             <ActionMenu items={menu} label={t('orders.actions')} />
           </>
         }
       />
+
+      {docResult && (
+        <Alert tone={docResult.tone} className="mb-4">
+          {docResult.text}
+        </Alert>
+      )}
 
       {notice && (
         <Alert tone="warning" className="mb-4">
@@ -360,6 +421,11 @@ export function OrderPage() {
               <InfoRow label={t('orders.fields.driver')}>
                 {order.driver ? byName(order.driver) : <span className="text-stone-400">{t('orders.noDriver')}</span>}
               </InfoRow>
+              {order.print_count > 0 && (
+                <InfoRow label={t('orders.document.title')}>
+                  {t('orders.document.printedCount', { count: order.print_count })}
+                </InfoRow>
+              )}
               {order.note && (
                 <InfoRow label={t('orders.fields.note')}>
                   <span className="whitespace-pre-line">{order.note}</span>

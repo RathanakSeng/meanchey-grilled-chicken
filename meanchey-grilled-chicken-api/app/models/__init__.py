@@ -2,6 +2,7 @@ from app.models.app_setting import AppSetting
 from app.models.audit_log import AuditLog
 from app.models.base import Base, utcnow
 from app.models.bot_pref import BotPref
+from app.models.business import BusinessSettings
 from app.models.enums import Language, Role
 from app.models.inventory import InventoryBalance, InventoryMovement
 from app.models.notification import Notification, TelegramLinkToken
@@ -26,6 +27,7 @@ __all__ = [
     "AuditLog",
     "Base",
     "BotPref",
+    "BusinessSettings",
     "Customer",
     "InventoryBalance",
     "InventoryMovement",

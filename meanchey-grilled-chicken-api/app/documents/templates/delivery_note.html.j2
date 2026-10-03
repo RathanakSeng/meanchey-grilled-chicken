@@ -1,0 +1,169 @@
+{#- Delivery note (later also the invoice) on an 80 mm receipt. Context: delivery_note.build_context.
+    Black and white only: thermal printers can't print colours or greys. -#}
+{% macro label(key) -%}
+<span class="km">{{ labels[key][0] }}</span><span class="en">{{ labels[key][1] }}</span>
+{%- endmacro %}
+{% macro marker(color) -%}
+<span class="marker {{ color }}"></span>
+{%- endmacro %}
+{% macro qty_head(show_prices) -%}
+<tr class="head">
+  <th>{{ label("item") }}</th>
+  {% if show_prices %}<th class="num">{{ label("unit_price") }}</th>{% endif %}
+  <th class="num">{{ label("quantity") }}</th>
+  {% if show_prices %}<th class="num">{{ label("amount") }}</th>{% endif %}
+</tr>
+{%- endmacro %}
+{% macro item_row(line, show_prices) -%}
+<tr>
+  <td><span class="km">{{ line.name_km }}</span><span class="en">{{ line.name_en }}</span></td>
+  {% if show_prices %}<td class="num">{{ line.unit_price if line.unit_price is not none else "" }}</td>{% endif %}
+  <td class="num">{{ line.quantity }}</td>
+  {% if show_prices %}<td class="num">{{ line.amount if line.amount is not none else "" }}</td>{% endif %}
+</tr>
+{%- endmacro %}
+<!doctype html>
+<html lang="km">
+<head>
+<meta charset="utf-8">
+<title>{{ order.code }}</title>
+</head>
+<body>
+
+<header class="business">
+  {% if business.logo %}<img class="logo" src="{{ business.logo }}" alt="">{% endif %}
+  <div class="business-name">{{ business.name_km }}</div>
+  <div class="business-name-en">{{ business.name_en }}</div>
+  {% if business.address_km %}<div class="small lines-kept">{{ business.address_km }}</div>{% endif %}
+  {% if business.address_en %}<div class="small lines-kept">{{ business.address_en }}</div>{% endif %}
+  {% if business.phone %}<div class="small">{{ labels["phone"][0] }} / {{ labels["phone"][1] }}: {{ business.phone }}</div>{% endif %}
+</header>
+
+<div class="rule double"></div>
+<div class="title">
+  <div class="title-km">{{ kind.title_km }}</div>
+  <div class="title-en">{{ kind.title_en }}</div>
+</div>
+{% if order.cancelled %}
+<div class="banner"><span class="km">{{ labels["cancelled"][0] }}</span><span class="en">{{ labels["cancelled"][1] }}</span></div>
+{% endif %}
+{% if copy %}
+<div class="copy">{{ labels["copy"][0] }} / {{ labels["copy"][1] }} #{{ copy }}</div>
+{% endif %}
+{% if sample %}
+<div class="copy">{{ labels["sample"][0] }} / {{ labels["sample"][1] }}</div>
+{% endif %}
+
+<table class="facts">
+  <tr><th>{{ label("order") }}</th><td class="strong">{{ order.code }}</td></tr>
+  <tr><th>{{ label("printed") }}</th><td>{{ printed_at }}</td></tr>
+  <tr><th>{{ label("status") }}</th><td><span class="km">{{ order.status_km }}</span><span class="en">{{ order.status_en }}</span></td></tr>
+  {% if order.cancelled and order.cancel_reason %}
+  <tr><th>{{ label("cancel_reason") }}</th><td class="lines-kept">{{ order.cancel_reason }}</td></tr>
+  {% endif %}
+</table>
+<div class="rule"></div>
+<table class="facts">
+  <tr><th>{{ label("customer") }}</th><td class="strong">{{ order.customer }}</td></tr>
+  {% if order.customer_phone %}<tr><th>{{ label("phone") }}</th><td>{{ order.customer_phone }}</td></tr>{% endif %}
+  {% if order.customer_location %}<tr><th>{{ label("location") }}</th><td>{{ order.customer_location }}</td></tr>{% endif %}
+  <tr><th>{{ label("delivery_date") }}</th><td>{{ order.delivery_date }}</td></tr>
+  <tr><th>{{ label("driver") }}</th><td>{{ order.driver or "—" }}</td></tr>
+</table>
+
+{% for section in colors %}
+<div class="rule"></div>
+<section class="color">
+  <h2>{{ marker(section.color) }} <span class="km">{{ section.label_km }}</span><span class="en">{{ section.label_en }}</span></h2>
+  {% for box in section.boxes %}
+  <div class="box">
+    <div class="box-title">{{ marker(section.color) }} {{ labels["box"][0] }} {{ box.position }} / {{ labels["box"][1] }} {{ box.position }}</div>
+    <table class="items">
+      {% if loop.first %}{{ qty_head(kind.show_prices) }}{% endif %}
+      {% for line in box.lines %}{{ item_row(line, kind.show_prices) }}{% endfor %}
+    </table>
+  </div>
+  {% endfor %}
+  <table class="items subtotal">
+    <tr class="sum-title"><th colspan="{{ 4 if kind.show_prices else 2 }}">{{ label("subtotal") }} <span class="en-inline">— {{ section.label_en }}</span></th></tr>
+    <tr><td>{{ label("boxes") }}</td>{% if kind.show_prices %}<td></td>{% endif %}<td class="num">{{ section.box_count }}</td>{% if kind.show_prices %}<td></td>{% endif %}</tr>
+    {% for line in section.totals %}{{ item_row(line, kind.show_prices) }}{% endfor %}
+  </table>
+</section>
+{% endfor %}
+
+<div class="rule double"></div>
+<section class="grand">
+  <h2>{{ label("grand_total") }}</h2>
+  <table class="items total">
+    <tr><td>{{ label("boxes") }}</td>{% if kind.show_prices %}<td></td>{% endif %}<td class="num">{{ total.boxes }}</td>{% if kind.show_prices %}<td></td>{% endif %}</tr>
+    {% for line in total.lines %}{{ item_row(line, kind.show_prices) }}{% endfor %}
+    {% if kind.show_prices %}
+    <tr class="money"><td colspan="3">{{ label("money_total") }}</td><td class="num">{{ total.amount if total.amount is not none else "" }}</td></tr>
+    {% endif %}
+  </table>
+</section>
+
+{% if returns %}
+<div class="rule double"></div>
+<section class="returns">
+  <h2>{{ label("returned") }}</h2>
+  <table class="items">
+    <tr class="head">
+      <th>{{ label("item") }}</th>
+      <th class="num">{{ label("returned_qty") }}</th>
+      {% if returns_reviewed %}
+      <th class="num">{{ label("to_stock") }}</th>
+      <th class="num">{{ label("to_wasted") }}</th>
+      {% endif %}
+    </tr>
+    {% for r in returns %}
+    <tr>
+      <td><span class="km">{{ r.name_km }}</span><span class="en">{{ r.name_en }}</span></td>
+      <td class="num">{{ r.returned }}</td>
+      {% if returns_reviewed %}
+      <td class="num">{{ r.to_stock or "—" }}</td>
+      <td class="num">{{ r.to_wasted or "—" }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </table>
+  {% if order.return_reason %}
+  <div class="reason">{{ label("reason") }}<div class="lines-kept">{{ order.return_reason }}</div></div>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if order.note %}
+<div class="rule"></div>
+<section class="note">
+  <h3>{{ label("note") }}</h3>
+  <div class="lines-kept">{{ order.note }}</div>
+</section>
+{% endif %}
+
+<div class="rule double"></div>
+<section class="signatures">
+  {% for key, name in [("prepared_by", order.prepared_by), ("driver", order.driver), ("received_by", "")] %}
+  <div class="signature">
+    <div class="signature-head">{{ label(key) }}{% if name %}<span class="signature-name">{{ name }}</span>{% endif %}</div>
+    <div class="sign-line"><span>{{ labels["signature"][0] }} / {{ labels["signature"][1] }}</span></div>
+    <div class="sign-line short"><span>{{ labels["date"][0] }} / {{ labels["date"][1] }}</span></div>
+  </div>
+  {% endfor %}
+</section>
+
+{% if qr or business.footer_note_km or business.footer_note_en %}
+<div class="rule"></div>
+<footer>
+  {% if qr %}
+  <img class="qr" src="{{ qr }}" alt="">
+  <div class="small">{{ labels["scan"][0] }}<br>{{ labels["scan"][1] }}</div>
+  {% endif %}
+  {% if business.footer_note_km %}<div class="footer-note lines-kept">{{ business.footer_note_km }}</div>{% endif %}
+  {% if business.footer_note_en %}<div class="footer-note-en lines-kept">{{ business.footer_note_en }}</div>{% endif %}
+</footer>
+{% endif %}
+<div id="end"></div>
+</body>
+</html>

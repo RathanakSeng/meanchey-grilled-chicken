@@ -1,6 +1,6 @@
 # API Features — Phase 1
 
-What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The business features, **suppliers and customers** (§11), **production** (§14), **inventory** (§18) and **orders** (§19), plug into the permission system described here, as will later ones.
+What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The business features, **suppliers and customers** (§11), **production** (§14), **inventory** (§18), **orders** (§19) with their **delivery notes** (§19.6) and the **business info** printed on them (§20), plug into the permission system described here, as will later ones.
 
 - [1. Authentication](#1-authentication)
 - [2. Password policy](#2-password-policy)
@@ -21,6 +21,7 @@ What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័�
 - [17. Role limits](#17-role-limits)
 - [18. Inventory](#18-inventory)
 - [19. Orders](#19-orders)
+- [20. Business info](#20-business-info)
 
 ---
 
@@ -280,6 +281,14 @@ Staff can't hold either. The alerts go to whoever holds `production_plan.view`, 
 | `orders.cancel` | Cancel a Created order (the customer cancelled) | GM, supervisor | Order management (Full access) |
 | `orders.review_returns` | Put returned items back into stock or wasted; **receive the order alerts** (§16) | GM, supervisor | Order returns (Full access) |
 
+**Module `settings`** (§20)
+
+| Code | Meaning | Assignable to | In feature (level) |
+|---|---|---|---|
+| `settings.business_info` | Edit the business info printed on delivery notes (names, address, phone, logo, footer note) and preview the note | **GM only** | Business info (Full access) |
+
+The superadmin holds it implicitly; a general manager only when the superadmin turns Business info on for it. It's in nobody's defaults and isn't backfilled. Printing delivery notes needs only `orders.view` (§19.6): there is no document permission.
+
 `inventory.adjust` (set stock values) was **removed**: every inventory item comes from production and changes only through it (§18.5). The sync marked it inactive; its rows are kept, so it can come back with manual items.
 
 Cancelling batches is a general-manager decision, like deactivating users: `production.delete` is assignable to the GM only and belongs to no feature level. Supervisors or staff granted it before this change keep the row, but it has no effect (read-time `assignable_to` filter, §5.5), and their Production level still reads as *Full access*.
@@ -289,7 +298,7 @@ Cancelling batches is a general-manager decision, like deactivating users: `prod
 | Role | On creation |
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
-| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions, `inventory.view` (**not** `inventory.history`: the superadmin allows it per GM) and all five `orders.*` permissions (Orders Record, Order management Full, Order returns Full). |
+| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions, `inventory.view` (**not** `inventory.history`: the superadmin allows it per GM) and all five `orders.*` permissions (Orders Record, Order management Full, Order returns Full). **Not** `settings.business_info` (Business info Off: the superadmin allows it per GM). |
 | Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Inventory View only**; **Orders Record**, Order management and Order returns **Off**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
 | Staff | Every feature **Off** (no permissions). |
 
@@ -340,8 +349,8 @@ Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `ta
 | Production | `production.create`, `production.step_finish` (`step`: 1–3), `production.step_reopen` (`step`, `reopened_steps`: e.g. `[1, 2, 3]`), `production.cancel` (`reason`). `details.code` holds the batch code. **Draft saves are not audited.** |
 | Packaging plan | `production_plan.update` (`changes`: field → `[old, new]`, only when something changed), `production_plan.confirm` (`expected_big`, `expected_small`). `entity_type = production_batch`, `details.code` = the batch code. |
 | Inventory | `inventory.adjust` (`item_code`, `name_en`, `name_km`, `from` / `to` = `{count, kg}`, `reason`): only entries from before production items became read-only (§18.5), kept as the record. Production movements are in the inventory history (§18), not the audit log. |
-| Orders | `order.create` (`customer`, `delivery_date`, `white_boxes`, `black_boxes`, `items`), `order.update` (`changes`: field → `{from, to}` for `customer`, `delivery_date`, `driver`, `note`, `boxes` = `{white, black, items}`; only when something changed), `order.cancel` (`reason`), `order.delivering` (`items`: the totals that left stock), `order.delivered` (`outcome`: `accepted` / `returned`, with `reason` and `returned` items), `order.returns_reviewed` (`outcome`: `partly_returned` / `fully_returned`, `to_stock`, `to_wasted`). Items are `[{item_code, name_en, name_km, count, kg}]`. `entity_type = order`, `details.code` = the order code. |
-| Settings | `settings.role_limit_update` (`role`, `from`, `to`; `null` = unlimited). Superadmin only, so hidden from general managers. |
+| Orders | `order.document_printed` (`copy`: 1 = the original, 2+ = copies; `via`: `download` / `telegram`): one per delivery note generated (§19.6); the Business info preview isn't audited. `order.create` (`customer`, `delivery_date`, `white_boxes`, `black_boxes`, `items`), `order.update` (`changes`: field → `{from, to}` for `customer`, `delivery_date`, `driver`, `note`, `boxes` = `{white, black, items}`; only when something changed), `order.cancel` (`reason`), `order.delivering` (`items`: the totals that left stock), `order.delivered` (`outcome`: `accepted` / `returned`, with `reason` and `returned` items), `order.returns_reviewed` (`outcome`: `partly_returned` / `fully_returned`, `to_stock`, `to_wasted`). Items are `[{item_code, name_en, name_km, count, kg}]`. `entity_type = order`, `details.code` = the order code. |
+| Settings | `settings.role_limit_update` (`role`, `from`, `to`; `null` = unlimited). Superadmin only, so hidden from general managers. `settings.business_update` (`changes`: field → `[old, new]` for the text fields; the logo as `"logo": "changed"` / `"removed"`, never its bytes), only when something changed (§20). A GM given Business info sees its own entries; the superadmin's are hidden from it like everything it does. |
 | Profile | `profile.update`; `profile.telegram_link` / `profile.telegram_unlink` (the superadmin's Telegram link, §7.5; hidden from the GM like everything the superadmin does) |
 
 `GET /audit-logs` is available to the **superadmin and general manager only** (§13 for what general managers don't see). This is a role check, not a permission. It supports filters (`action`, `actor_id`, `target_user_id`, `entity_type`, `entity_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references, and `entity: {type, id, name}` for supplier / customer / production batch / order entries (the record's current name, or the batch / order code, falling back to the logged one).
@@ -436,7 +445,7 @@ Every error has the same shape:
 |---|---|
 | Authentication | `NOT_AUTHENTICATED`, `INVALID_TOKEN`, `TOKEN_EXPIRED`, `INVALID_REFRESH_TOKEN`, `INVALID_CREDENTIALS`, `ACCOUNT_LOCKED`, `ACCOUNT_DISABLED`, `PASSWORD_CHANGE_REQUIRED` |
 | Passwords | `WRONG_CURRENT_PASSWORD`, `PASSWORD_TOO_SHORT`, `PASSWORD_EQUALS_USERNAME` |
-| Telegram | `TELEGRAM_NOT_CONFIGURED` (also: linking without a bot token), `INVALID_TELEGRAM_DATA`, `TELEGRAM_DATA_EXPIRED`, `USER_NOT_REGISTERED` |
+| Telegram | `TELEGRAM_NOT_CONFIGURED` (503; also: linking without a bot token, sending a delivery note with the bot off), `INVALID_TELEGRAM_DATA`, `TELEGRAM_DATA_EXPIRED`, `USER_NOT_REGISTERED`, `TELEGRAM_NOT_LINKED` (409: sending a delivery note to your Telegram without a linked account; open the Mini App from the bot once), `TELEGRAM_SEND_FAILED` (502: Telegram refused the document or couldn't be reached; nothing counted) |
 | Authorization | `FORBIDDEN_SCOPE`, `FORBIDDEN_ROLE`, `MISSING_PERMISSION`, `PERMISSION_NOT_HELD` (also: a supervisor setting a staff level above its own access, `details = {feature, level}`), `PERMISSION_NOT_ASSIGNABLE`, `PERMISSION_NOT_FOUND`, `PERMISSION_GRANT_RESTRICTED` (kept; never reachable by non-superadmins today) |
 | Access levels | `FEATURE_NOT_FOUND` (404), `FEATURE_NOT_APPLICABLE` (422) |
 | Users | `USER_NOT_FOUND`, `USER_INACTIVE`, `INVALID_TELEGRAM_USERNAME`, `DUPLICATE_TELEGRAM_USERNAME`, `ROLE_LIMIT_REACHED` (409, `details = {role, limit, active}`), `GM_ALREADY_EXISTS` (kept, no longer raised), `POSITION_REQUIRED`, `POSITION_NOT_ALLOWED` |
@@ -445,9 +454,10 @@ Every error has the same shape:
 | Packaging plan | `PRODUCTION_PLAN_REQUIRED` (409: step 3 save / finish while the plan isn't confirmed), `PRODUCTION_PLAN_LOCKED` (409: plan change after step 3 is finished), `PRODUCTION_PLAN_EXCEEDS_OUTPUT` (422, `details.wings` / `details.thighs`: `{available, planned}`), `PRODUCTION_PLAN_COMMENT_REQUIRED` (422, `details.planned` / `details.actual`: `{big, small}`) |
 | Notifications | `NOTIFICATION_NOT_FOUND` (404: unknown, or someone else's) |
 | Orders | `ORDER_NOT_FOUND` (404), `ORDER_CONFLICT` (409, `details.order`: the current order), `ORDER_INVALID_STATUS` (409, `details.status`: the action isn't allowed in the order's status), `CUSTOMER_INACTIVE` (422: the chosen customer is deactivated), `CUSTOMER_NOT_FOUND` (422 on orders), `DRIVER_NOT_ALLOWED` (422: the driver isn't an active staff member or supervisor) |
+| Documents | `DOCUMENT_UNAVAILABLE` (503: WeasyPrint's system libraries are missing, or rendering took longer than 20 s; nothing counted) |
 | Production guard | `PRODUCTION_STOCK_ALREADY_USED` (409: a reopen / cancel would take back stock that already left in orders; `details = {items: [{item_code, name_en, name_km, remaining_count, remaining_kg, needed_count, needed_kg, orders}], orders}`, §18.10) |
 | Inventory | `INVENTORY_INSUFFICIENT` (409: a balance would go below zero; `details.items` = `[{item_code, name_en, name_km, available_count, available_kg, needed_count, needed_kg}]`; raised by Finish, reopen and cancel as a safeguard, and by **Delivering** an order when its totals are above the stock, §19), `INVENTORY_ITEM_NOT_FOUND` (404), `INVENTORY_ITEM_PRODUCTION_ONLY` (409: setting a production item by hand, for everyone, `details.item_code`) |
-| Generic | `VALIDATION_ERROR` (with `details.fields`), `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `HTTP_ERROR` |
+| Generic | `VALIDATION_ERROR` (with `details.fields`; also a logo that isn't a PNG / JPEG or is over 500 kB, `loc = ["body", "file"]`), `NOT_FOUND` (also: `GET /settings/business/logo` without a logo), `METHOD_NOT_ALLOWED`, `HTTP_ERROR` |
 
 Codes are defined in `app/core/errors.py`. **Never rename a code:** the UI depends on them.
 
@@ -490,6 +500,9 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | GET | `/audit-logs` | role: superadmin or general manager |
 | GET | `/settings/role-limits` | role: superadmin |
 | PUT | `/settings/role-limits/{role}` | role: superadmin |
+| GET, PUT | `/settings/business` | `settings.business_info` (superadmin implicit; a GM with Business info) |
+| GET, PUT, DELETE | `/settings/business/logo` | `settings.business_info` (PUT: multipart `file`) |
+| GET | `/settings/business/preview.pdf` | `settings.business_info` |
 | GET | `/suppliers` | `suppliers.view` |
 | GET | `/suppliers/stats` | `suppliers.view` |
 | POST | `/suppliers` | `suppliers.create` |
@@ -524,6 +537,8 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | POST | `/orders/{id}/cancel` | `orders.cancel` (Created only) |
 | POST | `/orders/{id}/delivering` · `/orders/{id}/delivered` | `orders.create` |
 | POST | `/orders/{id}/returns/review` | `orders.review_returns` |
+| GET | `/orders/{id}/document.pdf` | `orders.view` (any status) |
+| POST | `/orders/{id}/document/send-telegram` | `orders.view` (to the requester's own chat) |
 | GET | `/health` (no prefix) | public |
 | GET | `/docs`, `/redoc`, `/openapi.json` (no prefix) | only when API docs are enabled (development by default, §13) |
 
@@ -600,8 +615,11 @@ How general managers (and, for staff, supervisors with Staff access) give access
 | `order_returns` | workstation | GM, supervisor | — | — | `orders.review_returns` |
 | `staff_management` | settings | GM, supervisor | `users.view` | `users.view/create` | `users.view/create/update` |
 | `staff_access` | settings | supervisor | — | — | `users.manage_access` |
+| `business_info` | settings | **GM** | — | — | `settings.business_info` |
 
 **Staff management:** *View only* = see staff; *Record* = also add staff; *Full access* = also edit their info (name, phone, Telegram username, position, language). Deactivating stays GM-only (`users.delete`). A GM with default permissions still reads as Full access.
+
+**Business info** (GM only, §20): *Full access* = edit the business info printed on delivery notes. It applies only to the general manager, so only the superadmin can turn it on; default Off.
 
 **Staff access** (supervisors only): *Full access* = may set the Suppliers / Customers / Production levels of staff, up to the supervisor's own levels (§12.3); *Off* = no Access tab.
 
@@ -659,6 +677,7 @@ The superadmin can use these endpoints too. Adding and editing staff info stay s
 - **UI:** one build for everyone. The superadmin's role label is "System" / "ប្រព័ន្ធ", like the API's redacted references; its extra screens are runtime checks. Their code is in the bundle (visible in browser dev tools), but they never receive superadmin data because the API redacts it.
 - **Notifications and plans:** a notification stores the actor's id and serializes it as a `UserRef` for the recipient reading it, so a step finished by the superadmin reads as "System" to everyone else; the Telegram texts never name the actor. Plan `confirmed_by` / `updated_by` are `UserRef`s too.
 - **Orders:** every user reference on an order (`created_by`, `driver`, `delivering_by`, `delivered_by`, `returns_reviewed_by`, `cancelled_by`, `updated_by`, each return's `reviewed_by`) is a `UserRef`; the order routes are in the redaction and superset sweeps, with orders the superadmin created and cancelled. Driver options list only active staff and supervisors.
+- **Delivery notes** (§19.6) are rendered from the order as serialized for the requester, so names on them ("Prepared by", "Driver") are redacted like any `UserRef`. The redaction sweep reads them as HTML (`html_documents` fixture) and checks the text.
 - **Linked Telegram id:** the superadmin's (like everyone's) `telegram_user_id` is never serialized; responses only carry `telegram_linked`.
 - **Tests:** `tests/test_redaction.py` calls every GET route (from the OpenAPI schema) plus key mutations as a GM, a supervisor and staff, over data the superadmin created, and fails if a body contains the superadmin's id, name or the word "superadmin". Its data includes a batch whose step 2 the superadmin finished and whose plan it confirmed (alerts for the GM and a supervisor with plan access).
 - **Not covered (known):** five wrong passwords for the login name `superadmin` on the login page return "account locked", which reveals that the account exists.
@@ -1052,7 +1071,7 @@ No step back: a delivering order never returns to Created.
 
 | Table | Columns |
 |---|---|
-| `orders` | `id`, `code` (unique, `OR-YYYYMMDD-NNN`), `customer_id` (FK, RESTRICT), `delivery_date` (default today), `driver_id` (FK users, null), `note` (≤ 1000), `status`, `return_reason`, `cancel_reason` (≤ 500), `version`, `created_by` / `updated_by` / `delivering_by` / `delivered_by` / `returns_reviewed_by` / `cancelled_by`, `created_at`, `updated_at`, `delivering_at`, `delivered_at`, `returns_reviewed_at`, `cancelled_at` |
+| `orders` | `id`, `code` (unique, `OR-YYYYMMDD-NNN`), `customer_id` (FK, RESTRICT), `delivery_date` (default today), `driver_id` (FK users, null), `note` (≤ 1000), `status`, `return_reason`, `cancel_reason` (≤ 500), `version`, `print_count` (delivery notes generated, §19.6; not part of `version`), `created_by` / `updated_by` / `delivering_by` / `delivered_by` / `returns_reviewed_by` / `cancelled_by`, `created_at`, `updated_at`, `delivering_at`, `delivered_at`, `returns_reviewed_at`, `cancelled_at` |
 | `order_boxes` | `id`, `order_id` (cascade), `color` (`white` \| `black`, a code: it can carry meaning later), `position` (1, 2, … unique per order) |
 | `order_box_items` | `id`, `box_id` (cascade), `item_code`, `count` (packs, whole > 0) **xor** `kg` (packed by-products, > 0, 3 decimals), `position`; one line per item per box. **Lines are rows** so `unit_price` / `amount` can be added later without restructuring. |
 | `order_return_items` | `id`, `order_id`, `item_code` (unique per order), `returned_count` / `returned_kg`, `to_stock_count` / `to_stock_kg`, `to_wasted_count` / `to_wasted_kg` (null until reviewed), `reviewed_by`, `reviewed_at` |
@@ -1087,6 +1106,8 @@ CHECKs: the statuses, the colours, `count` xor `kg` > 0 on lines and returns, th
 | `POST /orders/{id}/delivering` | `orders.create` | `{version}`. |
 | `POST /orders/{id}/delivered` | `orders.create` | `{version, outcome: accepted}` or `{version, outcome: returned, reason, items: [{item_code, count? \| kg?}]}`. |
 | `POST /orders/{id}/returns/review` | `orders.review_returns` | `{version, items: [{item_code, to_stock_count?, to_stock_kg?, to_wasted_count?, to_wasted_kg?}]}`. |
+| `GET /orders/{id}/document.pdf` | `orders.view` | The delivery note (§19.6), `application/pdf`, `inline; filename="<code>.pdf"`, `Cache-Control: no-store`. |
+| `POST /orders/{id}/document/send-telegram` | `orders.view` | The bot sends the delivery note to the requester's own chat → `{copy_number}` (§19.6). |
 
 Delivering, Delivered and the review store their alerts in the same transaction and send them to Telegram after the response (§16).
 
@@ -1102,4 +1123,73 @@ Defaults: general managers Orders **Record**, management and returns **Full**; s
 
 ### 19.5 Prices later
 
-Orders have no prices yet. Because each line is its own row (`order_box_items`), adding `unit_price` / `amount` columns (and a total on the order) won't restructure anything; the box colour is stored as a code so a colour can later carry a price list.
+Orders have no prices yet. Because each line is its own row (`order_box_items`), adding `unit_price` / `amount` columns (and a total on the order) won't restructure anything; the box colour is stored as a code so a colour can later carry a price list. The delivery note is already built for it (§19.6): the same document becomes the invoice.
+
+### 19.6 Delivery note (ប័ណ្ណដឹកជញ្ជូន)
+
+Every order can be printed as a **delivery note** on an **80 mm receipt printer**, from **Created** onward (any status, Cancelled included), by anyone with `orders.view`. The API renders the PDF (server-side, so it works the same from a PC browser and from the Telegram Mini App, where printing isn't reliable).
+
+**Page.** 80 mm wide, 3 mm margins (printable ~72 mm), **as tall as the content** (no wasted paper; at least 60 mm). **Black and white only**, for thermal printers: no colours or greys carry meaning; the box colour is text plus a marker (■ filled square = ប្រអប់ខ្មៅ / Black box, □ outlined square = ប្រអប់ស / White box). Base font 9 pt **Kantumruy Pro** (bundled with the API, so Khmer is shaped correctly everywhere); every label in Khmer with the English in smaller text under it; numbers right-aligned; thin rules between sections.
+
+**Content**, top to bottom:
+
+1. Logo (if set), business name (km, en), address (km, en), phone: the business info (§20).
+2. **ប័ណ្ណដឹកជញ្ជូន / DELIVERY NOTE**; a **ច្បាប់ចម្លង / COPY #n** marker on reprints; a **បានលុបចោល / CANCELLED** banner on cancelled orders (with the cancel reason); order code, printed date-time (`BUSINESS_TIMEZONE`, dd/mm/yyyy HH:MM), status.
+3. Customer (name, phone, location), delivery date, driver.
+4. **White boxes**, then **Black boxes** (colours without boxes left out): each box ("ប្រអប់ទី 1 / Box 1", numbered like the order page) with its lines (short item name km + en: "កញ្ចប់ ៤ ដុំ / 4-Piece Packs", "ថ្លើមមាន់ / Liver"; packs as a count, by-products as kg with 3 decimals), then the colour's subtotal: boxes and the total per item. Same structure as the on-screen summary.
+5. **Grand total**: boxes and the total per item.
+6. **Returned**, only when the order has returns: returned quantity per item, after the review also back to stock / wasted, and the reason.
+7. Note.
+8. Signature blocks: **រៀបចំដោយ / Prepared by** (the order's creator), **អ្នកដឹកជញ្ជូន / Driver** (the driver's name), **អ្នកទទួល / Received by**, each with a line for the signature and the date.
+9. A small QR code with the order's app URL (`MINI_APP_URL` + `/workstation/orders/<id>`, only when `MINI_APP_URL` is HTTPS) and the footer note (km, en).
+
+User names follow redaction (§13): an order the superadmin created reads "Prepared by: System".
+
+**Original and copies.** Each generated note (download or Telegram) increments `orders.print_count`; the first is the original, later ones carry **COPY #n** (n = the count). Two prints at the same moment can't both be the original (the increment locks the order row). Printing doesn't change the order's `version` (nobody gets `ORDER_CONFLICT` because someone printed). Each one writes `order.document_printed` (`copy`, `via`: `download` / `telegram`). If rendering or sending fails, nothing is counted or audited.
+
+**Send to my Telegram.** `POST /orders/{id}/document/send-telegram`: the bot sends the PDF (`<code>.pdf`) to the requester's **own** linked chat as a document, captioned "🧾 Delivery note **<code>** · <customer>" in their language (escaped). Checks: bot off (no token, `BOT_MODE=off`, webhook mode without a runtime) → `503 TELEGRAM_NOT_CONFIGURED`; then no linked Telegram account → `409 TELEGRAM_NOT_LINKED` (staff, supervisors and GMs are linked on their first Mini App sign-in; the superadmin links in its profile, §7.5); Telegram refuses or can't be reached → `502 TELEGRAM_SEND_FAILED`. Same bot as the alerts (§16.2): the API's own in webhook mode, a short-lived one in polling mode.
+
+**Rendering.** HTML template (Jinja2) → PDF (WeasyPrint), in a worker thread (at most 2 at once) with a 20 s timeout; WeasyPrint's system libraries missing (e.g. a plain Windows machine) or too slow → `503 DOCUMENT_UNAVAILABLE`. Details in ARCHITECTURE §5 "Documents (delivery notes)".
+
+**Prices later.** The template already has `unit_price` / `amount` columns and a money total behind a `show_prices` flag (off today). One function (`documents/delivery_note.py: kind_for`) decides the document kind: when orders have prices it returns the invoice kind and the same template prints **វិក្កយបត្រ / INVOICE** with the money columns.
+
+---
+
+## 20. Business info
+
+**Settings → Business info (ព័ត៌មានអាជីវកម្ម):** what delivery notes (§19.6) print at the top and bottom.
+
+### 20.1 Data
+
+One row, `business_settings` (`id = 1`, CHECK), migration `0013`:
+
+| Column | Notes |
+|---|---|
+| `name_km`, `name_en` | Required, ≤ 200; whitespace collapsed. Seeded with "មាន់អាំងមានជ័យ" / "Mean Chey Grilled Chicken". |
+| `address_km`, `address_en` | Optional, ≤ 500; line breaks kept (printed as lines). |
+| `phone` | Optional; normalized with `core/phones.py` (`INVALID_PHONE`), shown as `phone_display`. |
+| `footer_note_km`, `footer_note_en` | Optional, ≤ 300 (e.g. "សូមអរគុណ!" / "Thank you!"). |
+| `logo`, `logo_mime` | Optional PNG or JPEG (bytea), both set or both null (CHECK). |
+| `updated_by`, `updated_at` | |
+
+Empty strings mean "not set". If the row is ever missing (e.g. a truncated test database), it's recreated with the default names on first read.
+
+### 20.2 Rules
+
+- **Text** (`PUT /settings/business`): replaces every text field (names required; send the optional ones as `null` or `""` to clear them). Unknown fields → `VALIDATION_ERROR`.
+- **Logo** (`PUT /settings/business/logo`, multipart `file`): checked by decoding it, not by its name or declared type. Not a PNG / JPEG, empty, over **500 kB**, or a bitmap over 25 megapixels → `422 VALIDATION_ERROR` (`loc = ["body", "file"]`). Stored **resized to at most 400 px wide** (same format, proportions kept); smaller images are stored as uploaded. `DELETE` removes it.
+- **Audit:** `settings.business_update` with the changed fields (`[old, new]`), the logo as `"changed"` / `"removed"`; nothing written when nothing changed.
+- **Preview** (`GET /settings/business/preview.pdf`): a delivery note with the current business info, marked **គំរូ / SAMPLE**: the latest order when the requester holds `orders.view`, otherwise made-up data (so Business info alone doesn't show order data). Not counted, not audited.
+
+### 20.3 Endpoints and access
+
+| Endpoint | Notes |
+|---|---|
+| `GET /settings/business` | `name_km`, `name_en`, `address_km`, `address_en`, `phone`, `phone_display`, `footer_note_km`, `footer_note_en`, `has_logo`, `logo_mime`, `updated_by` (`UserRef`), `updated_at`. |
+| `PUT /settings/business` | The text fields → the same. |
+| `GET /settings/business/logo` | The image (`image/png` / `image/jpeg`); `404 NOT_FOUND` without a logo. |
+| `PUT /settings/business/logo` | Multipart upload → the same as `GET /settings/business`. |
+| `DELETE /settings/business/logo` | → the same. |
+| `GET /settings/business/preview.pdf` | The sample delivery note (PDF). |
+
+All guarded by `settings.business_info`: the superadmin implicitly; a **general manager** only when the superadmin sets its **Business info** feature to Full access (§12.1; default Off, not backfilled). Supervisors and staff can't hold it.

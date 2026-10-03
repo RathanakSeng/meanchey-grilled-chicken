@@ -48,6 +48,7 @@ MODULES: list[ModuleDef] = [
     ModuleDef("production_plan", "Packaging plan", "ផែនការវេចខ្ចប់"),
     ModuleDef("inventory", "Inventory", "ស្តុក"),
     ModuleDef("orders", "Orders", "ការបញ្ជាទិញ"),
+    ModuleDef("settings", "Settings", "ការកំណត់"),
 ]
 
 _MANAGERS = (Role.GENERAL_MANAGER, Role.SUPERVISOR)
@@ -348,6 +349,22 @@ PERMISSIONS += [
 
 _ORDER_CODES = frozenset(p.code for p in PERMISSIONS if p.module == "orders")
 
+PERMISSIONS += [
+    PermissionDef(
+        code="settings.business_info",
+        module="settings",
+        name_en="Edit business info",
+        name_km="កែប្រែព័ត៌មានអាជីវកម្ម",
+        description_en=(
+            "Edit the business name, address, phone, logo and footer note printed on delivery "
+            "notes."
+        ),
+        description_km="កែប្រែឈ្មោះ អាសយដ្ឋាន លេខទូរស័ព្ទ ឡូហ្គោ និងកំណត់សម្គាល់ខាងក្រោម ដែលបោះពុម្ពលើប័ណ្ណដឹកជញ្ជូន។",
+        # Given to the general manager by the superadmin only (Business info feature).
+        assignable_to=_GM_ONLY,
+    ),
+]
+
 # --- Feature access levels -------------------------------------------------------------------
 
 Level = Literal["off", "view", "record", "full"]
@@ -565,6 +582,19 @@ FEATURES: list[FeatureDef] = [
         description_km="អាចកំណត់អ្វីដែលបុគ្គលិកអាចប្រើបាន មិនលើសសិទ្ធិរបស់ខ្លួនឡើយ។",
         applies_to=(Role.SUPERVISOR,),
         levels=(("off", ()), ("full", ("users.manage_access",))),
+    ),
+    FeatureDef(
+        code="business_info",
+        menu="settings",
+        name_en="Business info",
+        name_km="ព័ត៌មានអាជីវកម្ម",
+        description_en=(
+            "Edit the business name, address, phone, logo and footer note on delivery notes."
+        ),
+        description_km="កែប្រែឈ្មោះ អាសយដ្ឋាន លេខទូរស័ព្ទ ឡូហ្គោ និងកំណត់សម្គាល់ខាងក្រោម លើប័ណ្ណដឹកជញ្ជូន។",
+        # Only the superadmin manages the GM, so only it can turn this on.
+        applies_to=(Role.GENERAL_MANAGER,),
+        levels=(("off", ()), ("full", ("settings.business_info",))),
     ),
 ]
 
