@@ -71,6 +71,7 @@ from app.schemas.production import (
     CatalogOut,
     ComputedOut,
     ListStatus,
+    MarinadeStockOut,
     MaterialKindCatalogOut,
     PlanOut,
     ProducedDraft,
@@ -952,7 +953,8 @@ CATALOG = CatalogOut(
 async def batch_out(session: AsyncSession, batch: ProductionBatch, viewer: User) -> BatchOut:
     """The batch for `viewer`. Its inventory fields (`inventory_tracked`, `stock_changes`) are
     included only when the viewer holds inventory.history; otherwise they're left out."""
-    history = "inventory.history" in await effective_permissions(session, viewer)
+    perms = await effective_permissions(session, viewer)
+    history = "inventory.history" in perms
     users = await _users(session, _user_ids(batch))
     raw, output, packaging = batch.raw_material, batch.output, batch.packaging
     supplier = await session.get(Supplier, raw.supplier_id) if raw.supplier_id else None
@@ -1020,6 +1022,31 @@ async def batch_out(session: AsyncSession, batch: ProductionBatch, viewer: User)
         catalog=CATALOG,
         inventory_tracked=batch.inventory_tracked if history else None,
         stock_changes=await inventory_service.stock_changes(session, batch) if history else None,
+        marinade_stock=await _marinade_stock(session, batch)
+        if "production.create" in perms
+        else None,
+    )
+
+
+async def _marinade_stock(session: AsyncSession, batch: ProductionBatch) -> MarinadeStockOut | None:
+    """While step 2 of a tracked, active batch is a draft: what its Finish will take from."""
+    output = batch.output
+    if (
+        not batch.inventory_tracked
+        or batch.status != "in_progress"
+        or output is None
+        or output.status == "finished"
+    ):
+        return None
+    stock = await inventory_service.marinade_stock(session)
+    if stock is None:
+        return None
+    unit, amount = stock
+    return MarinadeStockOut(
+        unit=unit,
+        count=int(amount) if unit == "count" else None,
+        kg=amount if unit == "kg" else None,
+        g=amount if unit == "g" else None,
     )
 
 

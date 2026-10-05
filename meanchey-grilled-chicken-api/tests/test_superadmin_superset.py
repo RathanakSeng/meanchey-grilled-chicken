@@ -31,6 +31,10 @@ BODIES: dict[tuple[str, str], dict] = {
     ("PUT", "/settings/role-limits/{role}"): {"max_active": 10},
     ("POST", "/inventory/items/{item_code}/set"): {"count": 1, "reason": "Superset check"},
     ("PUT", "/settings/business"): {"name_km": "ហាង", "name_en": "Shop"},
+    ("POST", "/inventory/materials"): {"name_km": "កាវ", "name_en": "Glue", "unit": "g"},
+    ("PATCH", "/inventory/materials/{material_id}"): {"name_en": "String"},
+    ("POST", "/inventory/materials/{material_id}/add"): {"quantity": "1"},
+    ("POST", "/inventory/materials/{material_id}/remove"): {"quantity": "0.5", "reason": "Test"},
 }
 
 
@@ -62,7 +66,9 @@ async def world(client, session, superadmin, make_user) -> dict:
             headers=h,
         )
     ).json()
+    materials = (await client.get("/inventory/materials", headers=h)).json()
     return {
+        "material_id": next(m["id"] for m in materials if m["name_en"] == "String"),
         "gm": gm,
         "superadmin": superadmin,
         "order_id": order["id"],
@@ -88,6 +94,7 @@ def _fill(path: str, world: dict) -> str:
     url = url.replace("{code}", "suppliers.view").replace("{feature}", "suppliers")
     url = url.replace("{role}", "staff").replace("{item_code}", "packs_big")
     url = url.replace("{order_id}", world["order_id"])
+    url = url.replace("{material_id}", world["material_id"])
     # Someone else's (or no) notification: 404 for both, never 403.
     url = url.replace("{notification_id}", str(uuid.uuid4()))
     if "{partner_id}" in url:
@@ -146,5 +153,15 @@ async def test_superadmin_is_never_forbidden_where_the_gm_is_allowed(
         "PUT /settings/business",
         "PUT /settings/business/logo",
         "GET /settings/business/preview.pdf",
+        "GET /inventory/materials",
+        "POST /inventory/materials",
+        "PATCH /inventory/materials/{material_id}",
+        "POST /inventory/materials/{material_id}/archive",
+        "POST /inventory/materials/{material_id}/restore",
+        "POST /inventory/materials/{material_id}/add",
+        "POST /inventory/materials/{material_id}/remove",
+        "GET /inventory/materials/{material_id}/icon",
+        "PUT /inventory/materials/{material_id}/icon",
+        "DELETE /inventory/materials/{material_id}/icon",
     ):
         assert route in checked, route

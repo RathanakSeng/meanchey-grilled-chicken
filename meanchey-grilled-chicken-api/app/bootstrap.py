@@ -1,6 +1,7 @@
 """Idempotent startup tasks: sync the permission registry (backfilling role defaults for newly
 added permissions), seed the superadmin, make sure every role has a limit row (defaults 2 / 3 / 10;
-existing rows are never changed) and (in webhook mode) register the Telegram webhook.
+existing rows are never changed), seed the default inventory materials (once; Marinade sauce on
+every start if missing) and (in webhook mode) register the Telegram webhook.
 
 Run with `python -m app.bootstrap`; also runs on API startup.
 """
@@ -20,6 +21,7 @@ from app.models.role_limit import DEFAULT_ROLE_LIMITS
 from app.permissions.registry import validate_features
 from app.permissions.sync import backfill_defaults, sync_registry
 from app.services.inventory_service import ensure_balances
+from app.services.material_service import ensure_defaults as ensure_default_materials
 
 if TYPE_CHECKING:
     from app.bot.runtime import TelegramRuntime
@@ -80,6 +82,8 @@ async def bootstrap(session: AsyncSession, telegram: "TelegramRuntime | None" = 
     await backfill_defaults(session, new_codes)
     await seed_superadmin(session)
     await seed_role_limits(session)
+    # Default materials once, Marinade sauce always (step 2 uses it).
+    await ensure_default_materials(session)
     # A zero balance for every inventory item (a new by-product gets its rows here).
     await ensure_balances(session)
     if settings.webhook_enabled and settings.telegram_webhook_auto_set:

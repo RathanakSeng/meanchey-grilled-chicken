@@ -17,9 +17,11 @@ export interface Segment<T extends string> {
  * under each other (e.g. every level on the Access tab). A slot this control has no segment for
  * is drawn as an empty "—" cell, so the same value sits in the same column in every row.
  *
- * Layout: phones: full width, 4 columns as 2×2; tablets: one full-width row of equal columns;
- * desktop: every column the same fixed width (fits the longest Khmer label), so stacked controls
- * line up and never clip their labels.
+ * Layout: always the full width of its container, in equal columns that may shrink (`min-w-0`;
+ * a label too long for its column is cut with "…" and shown in full as a tooltip), so it fits a
+ * phone, the Mini App and a desktop drawer. 4+ columns: 2×2 on phones. `fixedColumns`
+ * (stacked controls, e.g. the Access tab): on desktop every column gets the same fixed width
+ * (fits the longest Khmer label), so the rows line up.
  */
 export function SegmentedControl<T extends string>({
   segments,
@@ -31,6 +33,7 @@ export function SegmentedControl<T extends string>({
   suggestedLabel,
   unavailableLabel,
   label,
+  fixedColumns = false,
 }: {
   segments: Segment<T>[]
   slots?: readonly T[]
@@ -42,6 +45,8 @@ export function SegmentedControl<T extends string>({
   /** Tooltip of an empty slot, e.g. "Not available for this feature". */
   unavailableLabel?: string
   label: string
+  /** Desktop: fixed-width columns instead of the container width (stacked controls line up). */
+  fixedColumns?: boolean
 }) {
   const bySlot = new Map(segments.map((s) => [s.value, s]))
   const columns: (Segment<T> | { empty: T })[] = slots
@@ -55,9 +60,9 @@ export function SegmentedControl<T extends string>({
       className={cx(
         'grid w-full gap-1 rounded-xl bg-stone-100 p-1',
         columns.length > 3
-          ? 'grid-cols-2 sm:auto-cols-fr sm:grid-flow-col sm:grid-cols-none'
-          : 'auto-cols-fr grid-flow-col',
-        'lg:w-auto lg:shrink-0 lg:auto-cols-[9.5rem]',
+          ? 'grid-cols-2 sm:auto-cols-[minmax(0,1fr)] sm:grid-flow-col sm:grid-cols-none'
+          : 'auto-cols-[minmax(0,1fr)] grid-flow-col',
+        fixedColumns && 'lg:w-auto lg:shrink-0 lg:auto-cols-[9.5rem]',
         disabled && 'opacity-60',
       )}
     >
@@ -84,11 +89,11 @@ export function SegmentedControl<T extends string>({
             role="radio"
             aria-checked={selected}
             disabled={off}
-            title={c.disabled ? c.title : isSuggested ? suggestedLabel : undefined}
+            title={c.disabled ? c.title : isSuggested ? suggestedLabel : c.label}
             onClick={() => !selected && onChange(c.value)}
             className={cx(
               // min-h-10: thumb-friendly in the Mini App.
-              'min-h-10 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition',
+              'min-h-10 min-w-0 truncate whitespace-nowrap rounded-lg px-2 py-2 text-center text-sm font-medium transition sm:px-3',
               'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
               selected
                 ? 'bg-white text-brand-700 shadow-sm ring-1 ring-stone-200'

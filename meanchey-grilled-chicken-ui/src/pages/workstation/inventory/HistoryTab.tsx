@@ -98,6 +98,9 @@ export function HistoryTab({ items }: { items: InventoryItem[] }) {
               <option value="production">{t('inventory.sources.production')}</option>
               <option value="order">{t('inventory.sources.order')}</option>
               <option value="order_return">{t('inventory.sources.order_return')}</option>
+              <option value="material_add">{t('inventory.sources.material_add')}</option>
+              <option value="material_remove">{t('inventory.sources.material_remove')}</option>
+              <option value="material_unit_change">{t('inventory.sources.material_unit_change')}</option>
             </Select>
           )}
         </Field>

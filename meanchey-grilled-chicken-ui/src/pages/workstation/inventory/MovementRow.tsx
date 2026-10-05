@@ -51,6 +51,11 @@ export function MovementRow({
           </span>
         )}
       </>
+    ) : m.source === 'material_add' || m.source === 'material_remove' || m.source === 'material_unit_change' ? (
+      <>
+        {t(`inventory.sources.${m.source}`)}
+        {m.source === 'material_remove' && m.reason && <span className="text-stone-500"> — {m.reason}</span>}
+      </>
     ) : m.source === 'adjustment' ? (
       <>
         {t('inventory.sources.adjustment')}
@@ -104,12 +109,16 @@ export function MovementRow({
               {fmt.kg(m.kg_delta, true)}
             </span>
           )}
+          {m.g_delta !== null && m.g_delta !== undefined && (
+            <span className={cx(m.kg_delta !== null && 'ml-2', deltaTone(m.g_delta))}>{fmt.g(m.g_delta, true)}</span>
+          )}
         </span>
         <span className="text-xs text-stone-500">
           {t('inventory.balanceAfter', {
             value: [
               m.balance_count_after !== null && fmt.count(m.balance_count_after),
               m.balance_kg_after !== null && fmt.kg(m.balance_kg_after),
+              m.balance_g_after !== null && m.balance_g_after !== undefined && fmt.g(m.balance_g_after),
             ]
               .filter(Boolean)
               .join(' · '),

@@ -40,6 +40,7 @@ def test_inventory_migration() -> None:
                 "ORDER BY tablename"
             )
         )
-        assert tables == [("inventory_balances",), ("inventory_movements",)]
+        # inventory_materials came later (migration 0014).
+        assert ("inventory_balances",) in tables and ("inventory_movements",) in tables
     finally:
         asyncio.run(_run("DELETE FROM production_batches WHERE code LIKE 'PR-MIG-INV-%'"))

@@ -235,6 +235,15 @@ class CatalogOut(BaseModel):
     material_kinds: list[MaterialKindCatalogOut]
 
 
+class MarinadeStockOut(BaseModel):
+    """The Marinade sauce in stock, in its own unit (the other two are null)."""
+
+    unit: Literal["count", "kg", "g"]
+    count: int | None
+    kg: KgOut | None
+    g: GramsOut | None
+
+
 class BatchOut(BaseModel):
     id: uuid.UUID
     code: str
@@ -265,6 +274,9 @@ class BatchOut(BaseModel):
     inventory_tracked: bool | None = None
     # Net stock changes of the finished steps (reversed ones left out); empty when untracked.
     stock_changes: list[StockChangeOut] | None = None
+    # For the step 2 form: the Marinade sauce in stock (Finish takes `marinade_g` out of it).
+    # Only for viewers with production.create, while step 2 of a tracked batch is a draft.
+    marinade_stock: MarinadeStockOut | None = None
 
     @model_serializer(mode="wrap")
     def _omit_inventory(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:

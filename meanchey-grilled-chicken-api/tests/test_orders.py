@@ -4,6 +4,7 @@ production guard, codes, stats, list, options and audit."""
 
 import asyncio
 import re
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import delete, select, update
@@ -788,8 +789,10 @@ async def test_stats_and_list_filters(client, gm, orders, api, supplier, custome
     await api.completed(supplier)
     other = ok(await client.post("/customers", json={"name": "Bopha Mart"}, headers=auth(gm)), 201)
     driver = await make_user(Role.STAFF)
+    # A delivery date no other order has (they default to today).
+    later = (business_today() + timedelta(days=10)).isoformat()
     created = await orders.create(
-        customer, [box(packs_big=1), box("black", packs_small=1)], delivery_date="2026-10-05"
+        customer, [box(packs_big=1), box("black", packs_small=1)], delivery_date=later
     )
     sent = ok(
         await orders.delivering(
@@ -819,7 +822,7 @@ async def test_stats_and_list_filters(client, gm, orders, api, supplier, custome
     assert await codes(status="cancelled") == [cancelled["code"]]
     assert set(await codes(customer_id=other["id"])) == {sent["code"], cancelled["code"]}
     assert await codes(driver_id=str(driver.id)) == [sent["code"]]
-    assert await codes(date_from="2026-10-05", date_to="2026-10-05") == [created["code"]]
+    assert await codes(date_from=later, date_to=later) == [created["code"]]
     assert set(await codes(q="bopha")) == {sent["code"], cancelled["code"]}
     assert await codes(q=created["code"]) == [created["code"]]
     row = ok(await client.get("/orders", params={"q": created["code"]}, headers=auth(gm)))

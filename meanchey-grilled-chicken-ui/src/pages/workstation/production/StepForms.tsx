@@ -7,10 +7,11 @@ import { Alert, Field, Select, cx } from '@/components/ui'
 import { api } from '@/lib/api'
 import { ClientError, getError } from '@/lib/errors'
 import { useLocalized } from '@/lib/format'
+import { amountIn, scaledOfAmount, useQuantityFormat } from '@/lib/quantity'
 import type { ProductionBatch, StepNumber } from '@/lib/types'
 import { PRODUCTION_COMMENT_MAX_LENGTH } from '@/lib/types'
 import { STEPS, onBatchChanged, productionKeys, slugOf } from './api'
-import { KG_PLACES, formatScaled, parseDecimal, scaledOf, toInput, valueOf } from './numbers'
+import { GRAMS_PLACES, KG_PLACES, formatScaled, parseDecimal, scaledOf, toInput, valueOf } from './numbers'
 import { PlanVsActual, packsDiffer } from './PlanCard'
 import { SupplierPicker } from './SupplierPicker'
 import { LockedValue, NumberField, StepShell } from './StepShell'
@@ -196,6 +197,7 @@ export function RawMaterialForm({ batch, onFinished }: FormProps) {
 
 export function ProducedForm({ batch, onFinished }: FormProps) {
   const { t } = useTranslation()
+  const formatQuantity = useQuantityFormat()
   const name = useByproductNames(batch)
   const { values, set, autosave, finish } = useStep(
     batch,
@@ -219,6 +221,28 @@ export function ProducedForm({ batch, onFinished }: FormProps) {
     )
   }
 
+  // Marinade on hand (Marinade sauce material; Finish takes marinade_g out of it). In grams × 10
+  // like the field; a material kept in kg is converted (kg × 1000 g).
+  const stock = batch.marinade_stock
+  const availableG10 =
+    stock == null
+      ? null
+      : stock.unit === 'kg'
+        ? scaledOfAmount(stock.kg, 'kg') * 10
+        : stock.unit === 'g'
+          ? scaledOfAmount(stock.g, 'g')
+          : null
+  const neededG10 = valueOf(parseDecimal(values.marinade_g, GRAMS_PLACES))
+  const marinadeShort = availableG10 !== null && neededG10 !== null && neededG10 > availableG10
+  const marinadeHint =
+    stock == null ? undefined : (
+      <span className={marinadeShort ? 'font-medium text-red-700' : undefined}>
+        {t('production.marinadeAvailable', {
+          amount: formatQuantity(amountIn(stock, stock.unit) ?? 0, stock.unit),
+        })}
+      </span>
+    )
+
   // Live yield: (wings + thighs) ÷ raw weight.
   const raw = scaledOf(batch.raw_material.weight_kg, KG_PLACES)
   const wings = valueOf(parseDecimal(values.wings_kg, KG_PLACES))
@@ -231,7 +255,10 @@ export function ProducedForm({ batch, onFinished }: FormProps) {
       title={t('production.steps.produced')}
       autosave={autosave}
       fieldLabel={label}
-      blockers={missingBlocker(producedFinishErrors(values), label, t)}
+      blockers={[
+        ...missingBlocker(producedFinishErrors(values), label, t),
+        ...(marinadeShort ? [t('production.blockers.marinade')] : []),
+      ]}
       onFinish={() => finish.mutate()}
       finishing={finish.isPending}
       finishError={finish.error}
@@ -294,6 +321,7 @@ export function ProducedForm({ batch, onFinished }: FormProps) {
           value={values.marinade_g}
           onChange={(marinade_g) => set({ marinade_g })}
           error={errors.marinade_g}
+          hint={marinadeHint}
         />
       </div>
     </StepShell>

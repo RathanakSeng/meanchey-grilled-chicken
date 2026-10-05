@@ -4,7 +4,7 @@ from app.models.base import Base, utcnow
 from app.models.bot_pref import BotPref
 from app.models.business import BusinessSettings
 from app.models.enums import Language, Role
-from app.models.inventory import InventoryBalance, InventoryMovement
+from app.models.inventory import InventoryBalance, InventoryMaterial, InventoryMovement
 from app.models.notification import Notification, TelegramLinkToken
 from app.models.order import Order, OrderBox, OrderBoxItem, OrderCounter, OrderReturnItem
 from app.models.partner import Customer, PartnerMixin, Supplier
@@ -30,6 +30,7 @@ __all__ = [
     "BusinessSettings",
     "Customer",
     "InventoryBalance",
+    "InventoryMaterial",
     "InventoryMovement",
     "Language",
     "Notification",

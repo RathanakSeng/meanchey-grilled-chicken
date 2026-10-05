@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { useCallback } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useQuantityFormat } from '@/lib/quantity'
 
 /** Query keys (see docs/ARCHITECTURE.md). */
 export const inventoryKeys = {
@@ -8,40 +8,32 @@ export const inventoryKeys = {
   movements: ['inventory-movements'] as const,
   /** One item with its per-batch breakdown (`GET /inventory/items/{code}`). */
   item: (code: string) => ['inventory-item', code] as const,
+  /** `GET /inventory/materials` (`{include_archived}`). */
+  materials: (params: { include_archived: boolean }) => ['inventory-materials', params] as const,
 }
 
-/** After a Finish, reopen or cancel: balances, breakdowns and history are refetched. */
+/**
+ * After a Finish, reopen or cancel, and after any material change: balances, breakdowns,
+ * materials and history are refetched.
+ */
 export function invalidateInventory(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: inventoryKeys.overview })
   void queryClient.invalidateQueries({ queryKey: inventoryKeys.movements })
   void queryClient.invalidateQueries({ queryKey: ['inventory-item'] })
+  void queryClient.invalidateQueries({ queryKey: ['inventory-materials'] })
 }
 
 /**
- * Display helpers for stock amounts: counts as whole numbers with thousands separators, kg (API
- * strings like "4.200") always with 3 decimals and the unit ("12.500 kg"). `signed` adds "+" to
- * positive values (movements).
+ * Display helpers for stock amounts (the shared unit rule, lib/quantity.ts): counts as whole
+ * numbers with thousands separators, kg always with 3 decimals ("12.500 kg"), g with 1
+ * ("2,350.0 g"). `signed` adds "+" to positive values (movements).
  */
 export function useStockFormat() {
-  const { t, i18n } = useTranslation()
-  const locale = i18n.language === 'km' ? 'km-KH' : 'en-GB'
-  const count = useCallback(
-    (value: number, signed = false) =>
-      new Intl.NumberFormat(locale, { signDisplay: signed ? 'exceptZero' : 'auto' }).format(value),
-    [locale],
-  )
-  const kg = useCallback(
-    (value: string | number, signed = false) =>
-      t('inventory.kgValue', {
-        value: new Intl.NumberFormat(locale, {
-          minimumFractionDigits: 3,
-          maximumFractionDigits: 3,
-          signDisplay: signed ? 'exceptZero' : 'auto',
-        }).format(Number(value)),
-      }),
-    [locale, t],
-  )
-  return { count, kg }
+  const format = useQuantityFormat()
+  const count = useCallback((value: number, signed = false) => format(value, 'count', signed), [format])
+  const kg = useCallback((value: string | number, signed = false) => format(value, 'kg', signed), [format])
+  const g = useCallback((value: string | number, signed = false) => format(value, 'g', signed), [format])
+  return { count, kg, g }
 }
 
 /** Tone of a signed amount: green when stock goes up, red when it goes down. */

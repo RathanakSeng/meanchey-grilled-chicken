@@ -1,19 +1,25 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { usePermission } from '@/auth/usePermission'
+import { ActionMenu, type ActionMenuItem } from '@/components/ActionMenu'
+import { Icon } from '@/components/icons'
 import { ItemPicture } from '@/components/InventoryItemCard'
 import { Sheet } from '@/components/Sheet'
-import { Alert, Badge, Spinner } from '@/components/ui'
+import { Alert, Badge, Button, ConfirmDialog, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useErrorMessage } from '@/lib/errors'
 import { useRelativeTime } from '@/lib/format'
 import { paths } from '@/lib/paths'
 import type { InventoryItem, InventoryItemDetail, InventoryMovement, ItemSource, Page } from '@/lib/types'
 import { STEPS } from '@/pages/workstation/production/api'
-import { inventoryKeys, useStockFormat } from './api'
+import { invalidateInventory, inventoryKeys, useStockFormat } from './api'
+import { MaterialFormSheet, StockSheet, materialRefOfItem } from './MaterialSheets'
 import { MovementRow } from './MovementRow'
+import { useItemPicture } from './materialIcons'
 import { useItemDisplay } from './useItemDisplay'
+import { itemVisual } from './itemVisuals'
 
 const RECENT = 20
 
@@ -21,13 +27,29 @@ const RECENT = 20
  * One item (tap on its card): big picture, full name, its sub-tab, the balance, and **From
  * production**: what each batch currently contributes (everyone with Inventory). With
  * inventory.history also its last 20 movements and a link to the full, filtered history.
+ *
+ * Materials instead get **Add** / **Remove** (Inventory Record) and ⋮ **Edit** / **Archive**
+ * (Inventory materials; a system material like Marinade sauce can't be archived). Those open in
+ * place of this sheet and come back to it.
  */
 export function ItemSheet({ item, onClose }: { item: InventoryItem | null; onClose(): void }) {
   const { t } = useTranslation()
   const errorMessage = useErrorMessage()
   const relative = useRelativeTime()
   const display = useItemDisplay()
+  const queryClient = useQueryClient()
   const canSeeHistory = usePermission('inventory.history')
+  const canStock = usePermission('inventory.materials_stock')
+  const canManage = usePermission('inventory.materials_manage')
+  const [mode, setMode] = useState<'view' | 'add' | 'remove' | 'edit' | 'archive'>('view')
+  const archive = useMutation({
+    mutationFn: async (id: string) => api.post(`/inventory/materials/${id}/archive`),
+    onSuccess: () => {
+      invalidateInventory(queryClient)
+      setMode('view')
+      onClose()
+    },
+  })
 
   const detail = useQuery({
     queryKey: inventoryKeys.item(item?.code ?? ''),
@@ -42,13 +64,41 @@ export function ItemSheet({ item, onClose }: { item: InventoryItem | null; onClo
     enabled: item !== null && canSeeHistory,
   })
 
+  // The detail is refetched after an edit (a new icon) while the sheet stays open.
+  const picture = useItemPicture(item ? itemVisual(detail.data ?? item) : null)
+
   if (!item) return null
   const d = display(item)
+  const material = materialRefOfItem(item)
+  const back = () => setMode('view')
+  if (material && (mode === 'add' || mode === 'remove')) {
+    return <StockSheet material={material} mode={mode} open onClose={back} />
+  }
+  if (material && mode === 'edit') {
+    return <MaterialFormSheet key={material.id} material={material} open onClose={back} />
+  }
+  const menu: ActionMenuItem[] =
+    material && canManage
+      ? [
+          { key: 'edit', label: t('common.edit'), icon: 'pencil', onSelect: () => setMode('edit') },
+          ...(material.system_code
+            ? []
+            : [
+                {
+                  key: 'archive',
+                  label: t('materials.archive'),
+                  icon: 'archive' as const,
+                  tone: 'danger' as const,
+                  onSelect: () => setMode('archive'),
+                },
+              ]),
+        ]
+      : []
 
   return (
     <Sheet open title={d.fullName} onClose={onClose}>
       <div className="flex items-center gap-4">
-        <ItemPicture src={d.visual.picture} muted={d.visual.wasted} className="h-24 w-24" />
+        <ItemPicture src={picture} icon={d.visual.icon} muted={d.visual.wasted} className="h-24 w-24" />
         <div className="min-w-0">
           <Badge tone={item.section === 'wasted' ? 'red' : 'neutral'}>
             {t(`inventory.groups.${item.group}`)}
@@ -68,21 +118,49 @@ export function ItemSheet({ item, onClose }: { item: InventoryItem | null; onClo
               : t('inventory.neverChanged')}
           </p>
         </div>
+        {menu.length > 0 && (
+          <div className="ml-auto self-start">
+            <ActionMenu items={menu} label={t('materials.actions')} />
+          </div>
+        )}
       </div>
 
-      <h3 className="mt-6 text-sm font-semibold text-stone-900">{t('inventory.fromProduction')}</h3>
-      {detail.isError && (
-        <Alert tone="error" className="mt-2">
-          {errorMessage(detail.error)}
-        </Alert>
+      {material ? (
+        <>
+          {material.system_code && (
+            <p className="mt-4 rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-800 ring-1 ring-inset ring-sky-200">
+              {t('materials.systemNote')}
+            </p>
+          )}
+          {canStock && (
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <Button onClick={() => setMode('add')}>
+                <Icon name="plus" width={18} height={18} />
+                {t('materials.add')}
+              </Button>
+              <Button variant="secondary" onClick={() => setMode('remove')}>
+                {t('materials.remove')}
+              </Button>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <h3 className="mt-6 text-sm font-semibold text-stone-900">{t('inventory.fromProduction')}</h3>
+          {detail.isError && (
+            <Alert tone="error" className="mt-2">
+              {errorMessage(detail.error)}
+            </Alert>
+          )}
+          {detail.isPending ? (
+            <div className="flex justify-center py-6 text-brand-600">
+              <Spinner />
+            </div>
+          ) : detail.data ? (
+            <Sources detail={detail.data} onNavigate={onClose} />
+          ) : null}
+        </>
       )}
-      {detail.isPending ? (
-        <div className="flex justify-center py-6 text-brand-600">
-          <Spinner />
-        </div>
-      ) : detail.data ? (
-        <Sources detail={detail.data} onNavigate={onClose} />
-      ) : null}
 
       {canSeeHistory && (
         <>
@@ -115,6 +193,26 @@ export function ItemSheet({ item, onClose }: { item: InventoryItem | null; onClo
             </ul>
           )}
         </>
+      )}
+      {material && (
+        <ConfirmDialog
+          open={mode === 'archive'}
+          title={t('materials.archiveTitle', { name: d.fullName })}
+          body={
+            Number(item.count ?? item.kg ?? item.g ?? 0) > 0
+              ? t('materials.archiveWithStock', { amount: d.amount })
+              : t('materials.archiveBody')
+          }
+          confirmLabel={t('materials.archive')}
+          tone="danger"
+          loading={archive.isPending}
+          error={archive.isError ? errorMessage(archive.error) : null}
+          onConfirm={() => archive.mutate(material.id)}
+          onClose={() => {
+            archive.reset()
+            back()
+          }}
+        />
       )}
     </Sheet>
   )

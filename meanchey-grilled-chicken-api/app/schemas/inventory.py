@@ -11,11 +11,38 @@ from app.schemas.common import UserRef
 
 # Same wire format as production weights: a string with 3 decimals ("12.500").
 KgOut = Annotated[Decimal, PlainSerializer(lambda v: f"{v:.3f}", return_type=str)]
+# Grams: a string with 1 decimal ("350.0"), like production's marinade_g.
+GOut = Annotated[Decimal, PlainSerializer(lambda v: f"{v:.1f}", return_type=str)]
+InventoryUnit = Literal["count", "kg", "g"]
 
-# order: stock out at Delivering; order_return: returned items (stock or wasted) at the review.
-MovementSource = Literal["production", "adjustment", "order", "order_return"]
+# order: stock out at Delivering; order_return: returned items (stock or wasted) at the review;
+# material_add / material_remove: materials by hand; material_unit_change: kg <-> g switch.
+MovementSource = Literal[
+    "production",
+    "adjustment",
+    "order",
+    "order_return",
+    "material_add",
+    "material_remove",
+    "material_unit_change",
+]
 # Why a reversal movement was written (stored in `reason`).
 ReversalCause = Literal["reopen", "cancel"]
+
+
+class ItemMaterialOut(BaseModel):
+    """Set on materials (origin manual): what the Raw cards and sheets need to act on them."""
+
+    id: uuid.UUID
+    unit: InventoryUnit
+    # e.g. "marinade": used by production; can't be archived or switched to count.
+    system_code: str | None
+    archived: bool
+    # A picture bundled with the UI (`string`, `marinade`...), or null.
+    icon_key: str | None
+    # The uploaded icon (GET, inventory.view), versioned so a new upload changes it; null if none.
+    # Shown before `icon_key`.
+    icon_url: str | None
 
 
 class InventoryItemOut(BaseModel):
@@ -26,13 +53,17 @@ class InventoryItemOut(BaseModel):
     name_km: str
     tracks_count: bool
     tracks_kg: bool
+    # Materials measured in grams.
+    tracks_g: bool = False
     # The kg of this item is estimated (wasted pieces: rejected count x average piece weight).
     kg_estimated: bool
-    # `production`: changes only through production (every item today); `manual`: set by hand.
+    # `production`: changes only through production and orders; `manual`: a material.
     origin: Origin
     count: int | None
     kg: KgOut | None
+    g: GOut | None = None
     updated_at: datetime | None
+    material: ItemMaterialOut | None = None
 
 
 class ItemSourceOut(BaseModel):
@@ -80,6 +111,7 @@ class MovementOut(BaseModel):
     name_km: str
     count_delta: int | None
     kg_delta: KgOut | None
+    g_delta: GOut | None = None
     kg_estimated: bool
     source: MovementSource
     # Production: the batch. Orders: the batch the quantity is attributed to (FIFO).
@@ -89,10 +121,11 @@ class MovementOut(BaseModel):
     step: int | None
     # Set on a reversal: the movement it undoes; `reason` is then "reopen" or "cancel".
     reversal_of: int | None
-    # Adjustment: the reason typed by the user. Reversal: "reopen" / "cancel".
+    # Material removed / adjustment: the reason typed by the user. Reversal: "reopen" / "cancel".
     reason: str | None
     balance_count_after: int | None
     balance_kg_after: KgOut | None
+    balance_g_after: GOut | None = None
     created_by: UserRef | None
     created_at: datetime
 
@@ -130,4 +163,5 @@ class StockChangeOut(BaseModel):
     name_km: str
     count_delta: int | None
     kg_delta: KgOut | None
+    g_delta: GOut | None = None
     kg_estimated: bool

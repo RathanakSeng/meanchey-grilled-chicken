@@ -1,3 +1,5 @@
+import type { QuantityUnit } from './quantity'
+
 export type Role = 'superadmin' | 'general_manager' | 'supervisor' | 'staff'
 export type Language = 'km' | 'en'
 
@@ -292,6 +294,9 @@ export interface ProductionBatch {
   inventory_tracked?: boolean
   /** Only with inventory.history: net stock changes of the finished steps (reversed left out). */
   stock_changes?: StockChange[]
+  /** Step 2 form: the Marinade sauce in stock (Finish takes marinade_g out of it). Only with
+   * production.create while step 2 of a tracked batch is a draft. */
+  marinade_stock?: { unit: QuantityUnit; count: number | null; kg: string | null; g: string | null } | null
 }
 
 export interface ProductionBatchListItem {
@@ -443,7 +448,27 @@ export const ROLE_LIMIT_MAX = 999
 export type InventorySection = 'stock' | 'wasted'
 export type InventoryGroup = 'raw' | 'processed' | 'packed' | 'wasted'
 /** order: stock out at Delivering; order_return: returned items at the review. */
-export type MovementSource = 'production' | 'adjustment' | 'order' | 'order_return'
+export type MovementSource =
+  | 'production'
+  | 'adjustment'
+  | 'order'
+  | 'order_return'
+  | 'material_add'
+  | 'material_remove'
+  | 'material_unit_change'
+
+/** Set on materials (origin manual): what the Raw cards and sheets need. */
+export interface ItemMaterial {
+  id: string
+  unit: QuantityUnit
+  /** e.g. "marinade": used by production; can't be archived or switched to count. */
+  system_code: string | null
+  archived: boolean
+  /** A picture bundled with the UI (`src/assets/inventory/materials/<key>.svg`), or null. */
+  icon_key: string | null
+  /** The uploaded icon (API path, versioned; load with the API client), shown first; or null. */
+  icon_url: string | null
+}
 
 /** An item and its balance. `count` / `kg` are null for a unit the item doesn't track. */
 export interface InventoryItem extends Localized {
@@ -452,15 +477,45 @@ export interface InventoryItem extends Localized {
   group: InventoryGroup
   tracks_count: boolean
   tracks_kg: boolean
+  /** Materials measured in grams. */
+  tracks_g: boolean
   /** Its kg is estimated from the batch's average piece weight (wasted pieces). */
   kg_estimated: boolean
-  /** `production`: changes only through production (every item today). */
+  /** `production`: changes only through production and orders; `manual`: a material. */
   origin: 'production' | 'manual'
   count: number | null
   kg: string | null
+  g: string | null
   /** Time of the latest movement; null if it never changed. */
   updated_at: string | null
+  material: ItemMaterial | null
 }
+
+/** GET /inventory/materials (and every material write). The balance is in `unit`. */
+export interface Material {
+  id: string
+  item_code: string
+  name_km: string
+  name_en: string
+  unit: QuantityUnit
+  system_code: string | null
+  icon_key: string | null
+  icon_url: string | null
+  count: number | null
+  kg: string | null
+  g: string | null
+  /** Any movement yet: switching to / from count is then locked. */
+  has_movements: boolean
+  archived_at: string | null
+  archived_by: UserRef | null
+  created_by: UserRef | null
+  created_at: string
+  updated_by: UserRef | null
+  updated_at: string
+}
+
+export const MATERIAL_NAME_MAX_LENGTH = 100
+export const MATERIAL_REASON_MAX_LENGTH = 500
 
 /** What one batch currently contributes to an item's balance (net of its reversals). */
 export interface ItemSource {
@@ -489,6 +544,7 @@ export interface InventoryMovement extends Localized {
   section: InventorySection | null
   count_delta: number | null
   kg_delta: string | null
+  g_delta: string | null
   kg_estimated: boolean
   source: MovementSource
   /** Production: the batch. Orders: the batch the quantity is attributed to (oldest first). */
@@ -501,6 +557,7 @@ export interface InventoryMovement extends Localized {
   reason: string | null
   balance_count_after: number | null
   balance_kg_after: string | null
+  balance_g_after: string | null
   created_by: UserRef | null
   created_at: string
 }
@@ -511,6 +568,7 @@ export interface StockChange extends Localized {
   section: InventorySection | null
   count_delta: number | null
   kg_delta: string | null
+  g_delta: string | null
   kg_estimated: boolean
 }
 

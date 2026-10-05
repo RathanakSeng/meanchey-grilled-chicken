@@ -1,17 +1,19 @@
 import type { ReactNode } from 'react'
-import { Icon } from './icons'
+import { Icon, type IconName } from './icons'
 import { cx } from './ui'
 
 /**
- * A square item picture: an image file, or the generic box icon when there is none. `muted`
- * draws it desaturated (wasted items reuse the stock picture).
+ * A square item picture: an image file, or an icon when there is none (the generic box, or a
+ * material's unit icon). `muted` draws it desaturated (wasted items reuse the stock picture).
  */
 export function ItemPicture({
   src,
+  icon = 'boxes',
   muted = false,
   className,
 }: {
   src: string | null
+  icon?: IconName
   muted?: boolean
   className?: string
 }) {
@@ -27,16 +29,19 @@ export function ItemPicture({
       {src ? (
         <img src={src} alt="" className="h-4/5 w-4/5 object-contain" draggable={false} />
       ) : (
-        <Icon name="boxes" className="h-1/2 w-1/2 text-stone-400" />
+        <Icon name={icon} className="h-1/2 w-1/2 text-stone-400" />
       )}
     </span>
   )
 }
 
-export type ItemCardBadgeTone = 'wasted'
+export type ItemCardBadgeTone = 'wasted' | 'system' | 'archived'
 
 const BADGE_TONES: Record<ItemCardBadgeTone, string> = {
   wasted: 'bg-red-50 text-red-700 ring-red-200',
+  // A material production uses (Marinade sauce).
+  system: 'bg-sky-50 text-sky-700 ring-sky-200',
+  archived: 'bg-stone-100 text-stone-600 ring-stone-300',
 }
 
 /**
@@ -47,6 +52,7 @@ const BADGE_TONES: Record<ItemCardBadgeTone, string> = {
  */
 export function InventoryItemCard({
   picture,
+  icon,
   mutedPicture = false,
   badge,
   name,
@@ -59,6 +65,8 @@ export function InventoryItemCard({
   action,
 }: {
   picture: string | null
+  /** Drawn when there's no picture (the box, or a material's unit icon). */
+  icon?: IconName
   mutedPicture?: boolean
   badge?: { tone: ItemCardBadgeTone; label: string }
   name: string
@@ -96,6 +104,7 @@ export function InventoryItemCard({
         )}
         <ItemPicture
           src={picture}
+          icon={icon}
           muted={mutedPicture}
           className={cx('h-[72px] w-[72px] sm:h-[88px] sm:w-[88px]', zero && 'opacity-50')}
         />

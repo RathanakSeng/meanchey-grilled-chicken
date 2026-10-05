@@ -268,8 +268,10 @@ Staff can't hold either. The alerts go to whoever holds `production_plan.view`, 
 
 | Code | Meaning | Assignable to | In feature (level) |
 |---|---|---|---|
-| `inventory.view` | See stock, wasted items and, per item, which batches its current stock came from | GM, supervisor, staff | Inventory (View only) |
+| `inventory.view` | See stock, wasted items, materials and, per item, which batches its current stock came from | GM, supervisor, staff | Inventory (View only and up) |
 | `inventory.history` | See every stock movement: the History tab, an item's recent changes, a batch's stock changes | GM, supervisor | Inventory history (View only; **grantor must hold it**, §12.3) |
+| `inventory.materials_stock` | Add stock of materials, and take it out with a reason (§18.11) | GM, supervisor, staff | Inventory (Record) |
+| `inventory.materials_manage` | Create, edit (names, unit), archive and restore materials (§18.11) | GM, supervisor | Inventory materials (Full access) |
 
 **Module `orders`** (§19)
 
@@ -298,8 +300,8 @@ Cancelling batches is a general-manager decision, like deactivating users: `prod
 | Role | On creation |
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
-| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions, `inventory.view` (**not** `inventory.history`: the superadmin allows it per GM) and all five `orders.*` permissions (Orders Record, Order management Full, Order returns Full). **Not** `settings.business_info` (Business info Off: the superadmin allows it per GM). |
-| Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Inventory View only**; **Orders Record**, Order management and Order returns **Off**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
+| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions, `inventory.view` and `inventory.materials_stock` (Inventory **Record**), `inventory.materials_manage` (Inventory materials **Full**; **not** `inventory.history`: the superadmin allows it per GM) and all five `orders.*` permissions (Orders Record, Order management Full, Order returns Full). **Not** `settings.business_info` (Business info Off: the superadmin allows it per GM). |
+| Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Inventory Record** (material stock), Inventory materials **Off**; **Orders Record**, Order management and Order returns **Off**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
 | Staff | Every feature **Off** (no permissions). |
 
 `DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing. The `production_plan.*` permissions were backfilled to existing active general managers only (supervisors' default is Off). `users.manage_access` is backfilled to existing **active supervisors** (Staff access Full). `inventory.view` is backfilled to existing active general managers and supervisors. `inventory.history` is in nobody's defaults, so it isn't backfilled: only the superadmin sees inventory history until it grants it. The `orders.*` permissions are backfilled per the defaults: all five to existing active general managers, `orders.view` and `orders.create` to existing active supervisors, nothing to staff.
@@ -350,6 +352,7 @@ Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `ta
 | Packaging plan | `production_plan.update` (`changes`: field → `[old, new]`, only when something changed), `production_plan.confirm` (`expected_big`, `expected_small`). `entity_type = production_batch`, `details.code` = the batch code. |
 | Inventory | `inventory.adjust` (`item_code`, `name_en`, `name_km`, `from` / `to` = `{count, kg}`, `reason`): only entries from before production items became read-only (§18.5), kept as the record. Production movements are in the inventory history (§18), not the audit log. |
 | Orders | `order.document_printed` (`copy`: 1 = the original, 2+ = copies; `via`: `download` / `telegram`): one per delivery note generated (§19.6); the Business info preview isn't audited. `order.create` (`customer`, `delivery_date`, `white_boxes`, `black_boxes`, `items`), `order.update` (`changes`: field → `{from, to}` for `customer`, `delivery_date`, `driver`, `note`, `boxes` = `{white, black, items}`; only when something changed), `order.cancel` (`reason`), `order.delivering` (`items`: the totals that left stock), `order.delivered` (`outcome`: `accepted` / `returned`, with `reason` and `returned` items), `order.returns_reviewed` (`outcome`: `partly_returned` / `fully_returned`, `to_stock`, `to_wasted`). Items are `[{item_code, name_en, name_km, count, kg}]`. `entity_type = order`, `details.code` = the order code. |
+| Materials | `material.create` (`unit`), `material.update` (`changes`: field → `[old, new]`, incl. `unit` and the converted `balance`), `material.archive` (`balance`), `material.restore`, `material.stock_add` / `material.stock_remove` (`quantity`, `unit`, `balance_after`; `reason` on removals). `entity_type = material`, `details.name_en` / `name_km` / `item_code`. Production's marinade movements are in the inventory history, not the audit log. |
 | Settings | `settings.role_limit_update` (`role`, `from`, `to`; `null` = unlimited). Superadmin only, so hidden from general managers. `settings.business_update` (`changes`: field → `[old, new]` for the text fields; the logo as `"logo": "changed"` / `"removed"`, never its bytes), only when something changed (§20). A GM given Business info sees its own entries; the superadmin's are hidden from it like everything it does. |
 | Profile | `profile.update`; `profile.telegram_link` / `profile.telegram_unlink` (the superadmin's Telegram link, §7.5; hidden from the GM like everything the superadmin does) |
 
@@ -456,7 +459,8 @@ Every error has the same shape:
 | Orders | `ORDER_NOT_FOUND` (404), `ORDER_CONFLICT` (409, `details.order`: the current order), `ORDER_INVALID_STATUS` (409, `details.status`: the action isn't allowed in the order's status), `CUSTOMER_INACTIVE` (422: the chosen customer is deactivated), `CUSTOMER_NOT_FOUND` (422 on orders), `DRIVER_NOT_ALLOWED` (422: the driver isn't an active staff member or supervisor) |
 | Documents | `DOCUMENT_UNAVAILABLE` (503: WeasyPrint's system libraries are missing, or rendering took longer than 20 s; nothing counted) |
 | Production guard | `PRODUCTION_STOCK_ALREADY_USED` (409: a reopen / cancel would take back stock that already left in orders; `details = {items: [{item_code, name_en, name_km, remaining_count, remaining_kg, needed_count, needed_kg, orders}], orders}`, §18.10) |
-| Inventory | `INVENTORY_INSUFFICIENT` (409: a balance would go below zero; `details.items` = `[{item_code, name_en, name_km, available_count, available_kg, needed_count, needed_kg}]`; raised by Finish, reopen and cancel as a safeguard, and by **Delivering** an order when its totals are above the stock, §19), `INVENTORY_ITEM_NOT_FOUND` (404), `INVENTORY_ITEM_PRODUCTION_ONLY` (409: setting a production item by hand, for everyone, `details.item_code`) |
+| Inventory | `INVENTORY_INSUFFICIENT` (409: a balance would go below zero; `details.items` = `[{item_code, name_en, name_km, available_count, available_kg, needed_count, needed_kg}]`; raised by Finish, reopen and cancel as a safeguard, and by **Delivering** an order when its totals are above the stock, §19), `INVENTORY_ITEM_NOT_FOUND` (404), `INVENTORY_ITEM_PRODUCTION_ONLY` (409: setting an item's value directly, for everyone, `details.item_code`; materials also `details.use = "material_add_remove"`) |
+| Materials | `MATERIAL_NOT_FOUND` (404), `MATERIAL_UNIT_LOCKED` (409: to / from count after the first movement), `MATERIAL_ARCHIVED` (409: stock change on an archived material), `MATERIAL_SYSTEM_LOCKED` (409: archiving Marinade sauce or switching it to count), `DUPLICATE_MATERIAL_NAME` (409, `details.fields`) |
 | Generic | `VALIDATION_ERROR` (with `details.fields`; also a logo that isn't a PNG / JPEG or is over 500 kB, `loc = ["body", "file"]`), `NOT_FOUND` (also: `GET /settings/business/logo` without a logo), `METHOD_NOT_ALLOWED`, `HTTP_ERROR` |
 
 Codes are defined in `app/core/errors.py`. **Never rename a code:** the UI depends on them.
@@ -527,7 +531,12 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | GET | `/inventory` | `inventory.view` |
 | GET | `/inventory/items/{item_code}` | `inventory.view` |
 | GET | `/inventory/movements` | `inventory.history` (filters incl. `order_id`) |
-| POST | `/inventory/items/{item_code}/set` | `inventory.view`; production items → `409 INVENTORY_ITEM_PRODUCTION_ONLY` (every item today); manual items need `inventory.adjust` |
+| POST | `/inventory/items/{item_code}/set` | `inventory.view`; every item → `409 INVENTORY_ITEM_PRODUCTION_ONLY` (§18.5) |
+| GET | `/inventory/materials` | `inventory.view` (`include_archived` only with `inventory.materials_manage`) |
+| POST | `/inventory/materials` | `inventory.materials_manage` |
+| PATCH | `/inventory/materials/{id}` | `inventory.materials_manage` |
+| POST | `/inventory/materials/{id}/archive` · `/restore` | `inventory.materials_manage` |
+| POST | `/inventory/materials/{id}/add` · `/remove` | `inventory.materials_stock` |
 | GET | `/orders` | `orders.view` |
 | GET | `/orders/stats` | `orders.view` |
 | GET | `/orders/customer-options` · `/orders/driver-options` · `/orders/available-stock` | `orders.create` or `orders.update` |
@@ -608,8 +617,9 @@ How general managers (and, for staff, supervisors with Staff access) give access
 | `customers` | workstation | GM, supervisor, staff | `customers.view` | — | `customers.view/create/update/delete` |
 | `production` | workstation | GM, supervisor, staff | `production.view` | `production.view/create` | `production.view/create/update` |
 | `production_plan` | workstation | GM, supervisor | `production_plan.view` | — | `production_plan.view/manage` |
-| `inventory` | workstation | GM, supervisor, staff | `inventory.view` | — | — |
+| `inventory` | workstation | GM, supervisor, staff | `inventory.view` | `inventory.view/materials_stock` | — |
 | `inventory_history` | workstation | GM, supervisor | `inventory.history` | — | — |
+| `inventory_materials` | workstation | GM, supervisor | — | — | `inventory.materials_manage` |
 | `orders` | workstation | GM, supervisor, staff | `orders.view` | `orders.view/create` | — |
 | `order_management` | workstation | GM, supervisor | — | — | `orders.update/cancel` |
 | `order_returns` | workstation | GM, supervisor | — | — | `orders.review_returns` |
@@ -630,6 +640,7 @@ How general managers (and, for staff, supervisors with Staff access) give access
 - `users.delete`, `users.reset_password` and `permissions.grant` belong to **no** feature: they stay general-manager-only and are managed as detailed permissions by the superadmin.
 - **Startup validation** (`validate_features`, at import and in bootstrap): every code a feature uses exists, is assignable to every role in `applies_to`, and has no `grantable_by`; the first level is `off` with no codes; levels are unique and follow the order `off` → `view` → `record` → `full` (`LEVELS`), where any after `off` may be omitted (production and staff management use `record`; staff access has only `off` and `full`). A mismatch stops the API from starting.
 - **Orders:** *View only* = see orders; *Record* = also create them, start delivery, mark them delivered and record returns (Orders has no Full access level). **Order management** *Full access* = edit and cancel Created orders. **Order returns** *Full access* = review returns and **receive the order alerts**. A GM with default permissions reads as Orders *Record*, management and returns *Full access*. A supervisor with Staff access can give staff Orders only up to its own Orders level.
+- **Inventory:** *View only* = see stock, wasted items and materials; *Record* = also add and remove the stock of materials (with a reason to remove). **Inventory materials** *Full access* = create, edit, archive and restore materials. Defaults: GM Record + Full; supervisors Record + Off; staff Off (a supervisor with Staff access can give staff up to its own Inventory level).
 - **Production plan:** *View only* = see plans and receive the production alerts; *Full access* = also set and confirm plans. Supervisors start at *Off*; the GM starts at *Full access*.
 
 ### 12.2 Current level
@@ -733,7 +744,7 @@ Weights are exact decimals (`NUMERIC`, `Decimal` in Python), accepted as JSON nu
 | `wings_kg`, `thighs_kg` | kg | Finish: required, > 0 |
 | `wings_count`, `thighs_count` | pieces | **Computed by the server** = quantity × pieces per chicken (2 each for `chicken`). Never accepted from the client (sending them is a `VALIDATION_ERROR`). Recomputed whenever the step 1 quantity changes (e.g. after reopening step 1) and at Finish. |
 | By-products: gizzard (កោះមាន់), liver (ថ្លើមមាន់), heart (បេះដូងមាន់), head (ក្បាលមាន់) | kg | Finish: required, ≥ 0 (0 allowed) |
-| `marinade_g` (ទឹកប្រឡាក់) | g | Finish: required, ≥ 0 |
+| `marinade_g` (ទឹកប្រឡាក់) | g | Finish: required, ≥ 0. On a tracked batch, **Finish takes it out of the Marinade sauce material** (§18.11): not enough → `409 INVENTORY_INSUFFICIENT` and step 2 stays a draft; reopen / cancel put it back. `0` moves nothing. |
 
 **Step 3: Standardize**
 
@@ -946,7 +957,7 @@ How many **active** general managers, supervisors and staff there may be. The su
 
 ## 18. Inventory
 
-**Inventory (ស្តុក)** totals what production has made and used and what orders took, across all batches: a **ledger of movements** (`inventory_movements`, append-only) plus a **balance per item** (`inventory_balances`). Every production Finish writes movements; reopen and cancel write reversing movements; an order leaving for delivery takes its packs and packed by-products out, and its return review puts them back (stock or wasted). **Every item changes only through production and orders**: nobody, not even the superadmin, changes it by hand. **A balance can never go below zero.** The production process itself doesn't change: each batch still uses only its own chickens.
+**Inventory (ស្តុក)** totals what production has made and used and what orders took, across all batches: a **ledger of movements** (`inventory_movements`, append-only) plus a **balance per item** (`inventory_balances`). Every production Finish writes movements; reopen and cancel write reversing movements; an order leaving for delivery takes its packs and packed by-products out, and its return review puts them back (stock or wasted). **Every production item changes only through production and orders**: nobody, not even the superadmin, changes it by hand. **Materials** (§18.11: string, skewers, sauces, bags…) are the exception: their stock is added and removed by hand, and step 2 uses the marinade. **A balance can never go below zero.** The production process itself doesn't change: each batch still uses only its own chickens.
 
 ### 18.1 Items
 
@@ -964,8 +975,9 @@ Defined in `app/inventory/catalog.py`, in two **sections**: **stock** and **wast
 | wasted | 4-Piece Packs (`wasted.packs_big`), 2-Piece Packs (`wasted.packs_small`) | count | packs returned damaged (§19) |
 
 - The by-product items are generated from the production by-product catalog (§14.1), so a new by-product gets its three inventory items automatically; its balance rows are created at startup and on demand (no migration).
-- Marinade is **not** tracked.
+- Raw also lists the **materials** (§18.11), after Chicken; they are not in the catalog but in the `inventory_materials` table.
 - A unit an item doesn't track is `null` everywhere (balance, movements, responses).
+- **Units and precision, one rule everywhere** (`app/inventory/units.py`, mirrored by the UI's `lib/quantity.ts`): **count** = whole number; **kg** = 3 decimals (`"1.250"`); **g** = 1 decimal (`"350.0"`). Production items use count and / or kg; a material uses exactly one of count, kg or g (grams in their own `g` / `g_delta` / `balance_g_after` columns).
 
 ### 18.2 Movements from production
 
@@ -974,7 +986,7 @@ Only for batches with `inventory_tracked = true` (§18.4). All quantities come f
 | Event | Movements |
 |---|---|
 | **Finish step 1** | Chicken +quantity, +weight_kg |
-| **Finish step 2** | Chicken −quantity, −weight_kg · Wings +wings_count, +wings_kg · Thighs +thighs_count, +thighs_kg · each By-product (processed) +produced_kg |
+| **Finish step 2** | Chicken −quantity, −weight_kg · Wings +wings_count, +wings_kg · Thighs +thighs_count, +thighs_kg · each By-product (processed) +produced_kg · **Marinade sauce −marinade_g** (in the material's unit: g, or kg = g ÷ 1000 rounded to 3 decimals) |
 | **Finish step 3** | Wings −wings_count, −wings_kg · Thighs −thighs_count, −thighs_kg · 4-Piece Packs +big_packages · 2-Piece Packs +small_packages · Wasted Wings +rejected_wings, +estimated kg · Wasted Thighs +rejected_thighs, +estimated kg · each By-product (processed) −(carry_kg + rejected_kg) · By-product (packed) +carry_kg · Wasted by-product +rejected_kg |
 
 - **Estimated waste kg** = rejected count × (step 2 kg ÷ step 2 count), rounded to 3 decimals, with `kg_estimated = true` on the movement (and `kg_estimated` on the wasted Wings / Thighs items).
@@ -982,6 +994,7 @@ Only for batches with `inventory_tracked = true` (§18.4). All quantities come f
 - **Reopen** step N: the movements of every step sent back to draft are reversed, **latest step first**, each as a new movement with `reversal_of` = the original and `reason = "reopen"`. Finishing again writes fresh movements.
 - **Cancel:** every un-reversed movement of the batch is reversed (`reason = "cancel"`). (A completed batch can't be cancelled, so that's at most steps 1 and 2.)
 - A movement is reversed **at most once** (unique index on `reversal_of`). Draft saves never write movements.
+- **Marinade reversal:** written in the material's **current** unit (it may have switched kg ↔ g since). Materials are left out of the "stock already used in orders" guard (§18.10): the marinade isn't attributed to batches.
 - All in the same transaction as the action; the batch row is locked first, then the balances (§18.3).
 
 ### 18.3 No negative balances
@@ -989,10 +1002,10 @@ Only for batches with `inventory_tracked = true` (§18.4). All quantities come f
 Every change goes through one function (`inventory_service.apply_movements`):
 
 1. lock the affected `inventory_balances` rows `FOR UPDATE`, **in `item_code` order** (a fixed order, so concurrent writers can't deadlock);
-2. add up the deltas per item; if any balance would go below zero → `409 INVENTORY_INSUFFICIENT` with `details = {items: [{item_code, name_en, name_km, available_count, available_kg, needed_count, needed_kg}]}` (needed = the net amount being removed, per unit; names included because whoever records production may not see the inventory). The **whole action** (Finish, reopen or cancel) is rolled back;
+2. add up the deltas per item; if any balance would go below zero → `409 INVENTORY_INSUFFICIENT` with `details = {items: [{item_code, name_en, name_km, available_count, available_kg, available_g, needed_count, needed_kg, needed_g}]}` (needed = the net amount being removed, per unit; names included because whoever records production may not see the inventory). The **whole action** (Finish, reopen or cancel) is rolled back;
 3. otherwise update the balances and insert the movements with `balance_count_after` / `balance_kg_after`.
 
-So a Finish of step 2 needs the chickens in stock, a reopen needs the later products still in stock (e.g. packs not yet gone), and a cancel needs the batch's processed products still there. Concurrent Finishes touching the same items take turns on the row locks and both succeed with correct totals.
+So a Finish of step 2 needs the chickens and the marinade in stock, a reopen needs the later products still in stock (e.g. packs not yet gone), and a cancel needs the batch's processed products still there. Concurrent Finishes touching the same items take turns on the row locks and both succeed with correct totals.
 
 ### 18.4 Batches from before inventory
 
@@ -1000,9 +1013,9 @@ Migration `0010` added `production_batches.inventory_tracked`: **false for every
 
 ### 18.5 Production items are read-only
 
-Each catalog item has an **`origin`**: `production` (changes only through production — Finish, reopen, cancel — and orders — Delivering, return review) or `manual` (set by hand). **Every item today is `production`.**
+Each item has an **`origin`**: `production` (every catalog item: changes only through production — Finish, reopen, cancel — and orders — Delivering, return review) or `manual` (the materials, §18.11).
 
-- `POST /inventory/items/{item_code}/set` (guard `inventory.view`) answers `409 INVENTORY_ITEM_PRODUCTION_ONLY` (`details.item_code`) for a production item, **for everyone, the superadmin included**; an unknown item → `404`. The endpoint stays for future `manual` items, which will need `inventory.adjust` (`MISSING_PERMISSION` otherwise), `{count?, kg?, reason}` (only units the item tracks, ≥ 0, reason 1–500 characters) and write one adjustment movement of the difference plus an `inventory.adjust` audit entry. The body is validated before the item is looked at, so an invalid body is `422` first.
+- `POST /inventory/items/{item_code}/set` (guard `inventory.view`) answers `409 INVENTORY_ITEM_PRODUCTION_ONLY` (`details.item_code`) for **every** item, **for everyone, the superadmin included**: production items change only through production; materials through add / remove (`details.use = "material_add_remove"`). An unknown item → `404`. The body is validated first (`422`). The `inventory.adjust` permission stays inactive.
 - **One-time reset (migration `0011`):** every `source = adjustment` movement was deleted; each remaining movement's `balance_count_after` / `balance_kg_after` was recomputed as a running total per item (by `created_at`, `id`), and `inventory_balances` set to the per-item totals. Inventory therefore reflects production only. The `inventory.adjust` audit entries stay as the record. Running it again changes nothing; it stops with an error instead of writing a negative balance (only possible if an adjustment had covered more by-product than the batches produced).
 
 ### 18.6 Where the stock came from (per batch)
@@ -1024,24 +1037,26 @@ The movement history is behind **one** permission, `inventory.history` (feature 
 
 | Endpoint | Guard | Notes |
 |---|---|---|
-| `GET /inventory` | `inventory.view` | `{sections: [{section, items: [{code, section, group, name_en, name_km, tracks_count, tracks_kg, kg_estimated, origin, count, kg, updated_at}]}]}`, stock first. `updated_at` = the latest movement, `null` if it never changed. Every catalog item is listed (0 until it moves). |
+| `GET /inventory` | `inventory.view` | `{sections: [{section, items: [{code, section, group, name_en, name_km, tracks_count, tracks_kg, tracks_g, kg_estimated, origin, count, kg, g, updated_at, material}]}]}`, stock first. `updated_at` = the latest movement, `null` if it never changed. Every catalog item is listed (0 until it moves), and every **active material** in Raw right after Chicken (by English name; the UI sorts by the shown language) with `material = {id, unit, system_code, archived, icon_key, icon_url}` (`null` for catalog items). |
 | `GET /inventory/items/{item_code}` | `inventory.view` | §18.6. |
-| `GET /inventory/movements` | `inventory.history` | Newest first. Filters: `item_code`, `section`, `source` (`production` / `adjustment` / `order` / `order_return`), `batch_id`, `batch_code` (part of the code), `order_id`, `date_from` / `date_to` (business days, `BUSINESS_TIMEZONE`); `page`, `page_size` (default 50, max 100). Each row: item and names, section, `count_delta`, `kg_delta`, `kg_estimated`, `source`, `batch {id, code}` (for order movements: the batch the quantity is attributed to), `order {id, code}` (order movements, else `null`), `step`, `reversal_of`, `reason`, `balance_count_after`, `balance_kg_after`, `created_by` (`UserRef`), `created_at`. |
-| `POST /inventory/items/{item_code}/set` | `inventory.view` | §18.5: `409 INVENTORY_ITEM_PRODUCTION_ONLY` for every item today. |
-| `GET /production/{id}` | `production.view` | With `inventory.history`: `inventory_tracked` and `stock_changes`, the batch's un-reversed movements `[{step, item_code, section, name_en, name_km, count_delta, kg_delta, kg_estimated}]`, by step then item order (empty when untracked). Without it both keys are absent. |
+| `GET /inventory/movements` | `inventory.history` | Newest first. Filters: `item_code`, `section` (materials count as stock), `source` (`production` / `adjustment` / `order` / `order_return` / `material_add` / `material_remove` / `material_unit_change`), `batch_id`, `batch_code` (part of the code), `order_id`, `date_from` / `date_to` (business days, `BUSINESS_TIMEZONE`); `page`, `page_size` (default 50, max 100). Each row: item and names, section, `count_delta`, `kg_delta`, `g_delta`, `kg_estimated`, `source`, `batch {id, code}` (for order movements: the batch the quantity is attributed to), `order {id, code}` (order movements, else `null`), `step`, `reversal_of`, `reason` (a material removal's reason; "reopen" / "cancel" on reversals), `balance_count_after`, `balance_kg_after`, `balance_g_after`, `created_by` (`UserRef`), `created_at`. History rows keep the unit they were written in (a kg ↔ g switch doesn't rewrite them). |
+| `POST /inventory/items/{item_code}/set` | `inventory.view` | §18.5: `409 INVENTORY_ITEM_PRODUCTION_ONLY` for every item. |
+| `/inventory/materials…` | see §18.11 | Materials: list, create, edit, archive, restore, add, remove; icon upload / delete / serve. |
+| `GET /production/{id}` | `production.view` | With `inventory.history`: `inventory_tracked` and `stock_changes`, the batch's un-reversed movements `[{step, item_code, section, name_en, name_km, count_delta, kg_delta, g_delta, kg_estimated}]`, by step then item order (empty when untracked; step 2 includes the marinade). Without it both keys are absent. With `production.create`, while step 2 of a tracked, in-progress batch is a draft: `marinade_stock = {unit, count, kg, g}` (the Marinade sauce on hand, for the step 2 form); `null` otherwise. |
 
-Weights are strings with 3 decimals (`"4.200"`), like production.
+Weights are strings: kg with 3 decimals (`"4.200"`), g with 1 (`"350.0"`), like production.
 
 ### 18.9 Access
 
 | Feature | Applies to | Levels |
 |---|---|---|
-| `inventory` (Inventory) | GM, supervisor, staff | Off · View only (`inventory.view`: stock, wasted, per-batch breakdown) |
-| `inventory_history` (Inventory history) | GM, supervisor (grantor must hold it) | Off · View only (`inventory.history`: movements) |
+| `inventory` (Inventory) | GM, supervisor, staff | Off · View only (`inventory.view`: stock, wasted, materials, per-batch breakdown) · Record (`+ inventory.materials_stock`: add / remove material stock) |
+| `inventory_history` (Inventory history) | GM, supervisor (grantor must hold it) | Off · View only (`inventory.history`: movements, materials' too) |
+| `inventory_materials` (Inventory materials) | GM, supervisor | Off · Full access (`inventory.materials_manage`: create, edit, archive, restore materials) |
 
-- Defaults: general managers and supervisors Inventory **View**, Inventory history **Off**; staff Off. The superadmin holds everything implicitly.
+- Defaults: general managers Inventory **Record** and Inventory materials **Full**; supervisors Inventory **Record** and Inventory materials **Off**; Inventory history **Off** for both; staff Off. The superadmin holds everything implicitly. The two material permissions were backfilled per these defaults when they were added.
 - When `inventory.view` was added, the one-time backfill gave it to existing active general managers and supervisors; `inventory.history` is backfilled to nobody.
-- A supervisor with Staff access can give staff Inventory View only while it holds it itself (§12.3).
+- A supervisor with Staff access can give staff Inventory View or Record, only up to its own level (§12.3).
 - Redaction (§13): movements made by the superadmin (steps it finished) show "System" in `created_by`.
 
 ### 18.10 Orders and batches (FIFO)
@@ -1052,6 +1067,59 @@ Orders (§19) move only orderable items (the packs and the packed by-products). 
 - **Return review** (`source = order_return`, `return_from_order`): what goes **back to stock** returns to the batches the order took from, **newest first**, up to what each gave; what is **wasted** continues the same split into the item's wasted item (`wasted.packs_big` / `wasted.packs_small` / `wasted.byproduct.<code>`) **linked to the same batches**. Example (continued): 5 returned, 3 to stock and 2 wasted → B +3 (back to 7), 2 wasted 4-Piece Packs attributed to A.
 - **Production guard** (`reverse`): a reopen (of step 3, or an earlier step that cascades to it) or a cancel takes back what the batch made; it needs the batch's **own** remaining contribution of each item to cover that. If part of it already left in orders → `409 PRODUCTION_STOCK_ALREADY_USED` (`details.items`: `remaining_*` / `needed_*` per unit and the order codes that took it; `details.orders`: all of them), nothing changes. Returned to stock, the packs count again (the reopen is then allowed); returned as wasted, they don't.
 - **Locking:** the balance rows are locked (`FOR UPDATE`, `item_code` order) **before** the contributions are read, so a Delivering and a reversal on the same items take turns and each sees the other's movements. Lock order stays: the batch or order row, then the balances.
+
+### 18.11 Materials
+
+**Materials** are inventory items that don't come from production: string, skewers, stickers, sauces, bags… They appear in the **Raw** group after Chicken. Their stock is added and removed by hand; **Marinade sauce** is also taken by production step 2.
+
+**Data** (`inventory_materials`, migration `0014`): `id`, `item_code` (`material_<8 hex>`, unique; the inventory item code used by balances and movements), `name_km`, `name_en` (both required, 1–100, whitespace collapsed), `unit` (`kg` | `g` | `count`), `system_code` (unique, null; `marinade` for Marinade sauce), `icon_key` (null; a picture bundled with the UI, migration `0015`), `icon` / `icon_mime` (an uploaded icon, both set or both null), `archived_at` / `archived_by`, `created_by` / `updated_by`, `created_at` / `updated_at`. Names are **unique among active materials, per language, case-insensitive** (partial unique indexes on `lower(name_km)` / `lower(name_en)` where not archived). Each material has one balance row in its unit and uses the same ledger (§18.3), `origin = manual`.
+
+**Defaults** (seeded once at startup, then never re-created: an archived default stays archived), all at 0:
+
+| `system_code` | km | en | unit | `icon_key` |
+|---|---|---|---|---|
+| — | ខ្សែ | String | kg | `string` |
+| — | ចង្កាក់ | Skewer | kg | `skewer` |
+| — | ស្ទីកគ័រ (កញ្ចប់ ២ ដុំ) | Sticker (2-piece packs) | kg | `sticker_2` |
+| — | ស្ទីកគ័រ (កញ្ចប់ ៤ ដុំ) | Sticker (4-piece packs) | kg | `sticker_4` |
+| `marinade` | ទឹកប្រឡាក់ | Marinade sauce | g | `marinade` |
+| — | សាតេ | Satay sauce | g | `satay` |
+| — | ថង់ Zip 7 (កញ្ចប់ ២ ដុំ) | Zip bag 7 (2-piece packs) | kg | `zip_bag_2` |
+| — | ថង់ Zip 7 (កញ្ចប់ ៤ ដុំ) | Zip bag 7 (4-piece packs) | kg | `zip_bag_4` |
+| — | ថង់បឺតខ្យល់ | Vacuum bag | kg | `vacuum_bag` |
+
+Marinade sauce is re-created on every start if it's missing (step 2 needs it). Migration `0015` backfilled `icon_key` on databases seeded before it (by English name; Marinade sauce by its system code). Materials created in the app have no `icon_key`.
+
+**Rules**
+
+- **Add stock** (`inventory.materials_stock`): `quantity` > 0 in the material's unit and precision (count whole, kg ≤ 3 decimals, g ≤ 1 decimal); otherwise `422 VALIDATION_ERROR` (`details.unit`). No note. Movement `source = material_add`.
+- **Remove stock** (`inventory.materials_stock`): `quantity` as above and a **reason** (1–500 characters, trimmed). Never below zero → `409 INVENTORY_INSUFFICIENT`. Movement `source = material_remove`, `reason` kept.
+- **Create / edit** (`inventory.materials_manage`): names and unit. Duplicate active name → `409 DUPLICATE_MATERIAL_NAME` (`details.fields`: `name_km` / `name_en`).
+- **Unit change:**
+  - **kg ↔ g: always allowed.** The balance is converted (× 1000 / ÷ 1000, rounded half-up to the new unit's precision) and one `material_unit_change` movement records the old unit out and the new unit in (e.g. `kg_delta −1.250`, `g_delta +1250.0`). Earlier history rows keep their own unit.
+  - **weight ↔ count: only while the material has no movements at all** → otherwise `409 MATERIAL_UNIT_LOCKED`.
+- **Archive** (instead of delete): hides the material from Raw and the pickers; its balance and history stay. Archiving with stock is allowed (the UI warns). Adding or removing stock of an archived material → `409 MATERIAL_ARCHIVED`. **Restore** brings it back (its names must be free among active materials). Its archived name can be reused meanwhile.
+- **System materials** (`system_code`, i.e. Marinade sauce): can be renamed and switched kg ↔ g; never archived or switched to count → `409 MATERIAL_SYSTEM_LOCKED`.
+- **Icon** (`inventory.materials_manage`): upload a **PNG, JPEG or WebP of at most 1 MB**, checked by decoding it (not by its name or declared type; at most 25 megapixels). It's rotated per its EXIF, **center-cropped to a square and resized to 256 × 256**, and stored as a PNG (transparency kept) in the row. A new upload replaces the old one; deleting it brings back `icon_key` / the unit icon. Not an image, another format, empty or over 1 MB → `422 VALIDATION_ERROR` (`details.fields[0].loc = ["body", "file"]`). The UI shows, in order: the uploaded icon, the `icon_key` picture, the unit icon.
+- Every write locks the material row; step 2 reads Marinade sauce with a share lock, so a unit change and a step 2 Finish take turns.
+
+**Marinade used by production:** see §14.1 and §18.2. The step 2 form shows what's on hand (`marinade_stock`, §18.8).
+
+**Endpoints**
+
+| Method | Path | Guard | Notes |
+|---|---|---|---|
+| GET | `/inventory/materials?include_archived=` | `inventory.view` | Active materials by English name; with `include_archived=true` the archived ones after them, **only for holders of `inventory.materials_manage`** (ignored for anyone else). Each: `id`, `item_code`, `name_km`, `name_en`, `unit`, `system_code`, `icon_key`, `icon_url` (the uploaded icon, below; `null` without one), `count` / `kg` / `g` (the balance in its unit, others null), `has_movements`, `archived_at`, `archived_by`, `created_by`, `created_at`, `updated_by`, `updated_at` (`UserRef`s). |
+| POST | `/inventory/materials` | `inventory.materials_manage` | `{name_km, name_en, unit}` → `201`. |
+| PATCH | `/inventory/materials/{id}` | `inventory.materials_manage` | Partial `{name_km?, name_en?, unit?}`. |
+| POST | `/inventory/materials/{id}/archive` · `/restore` | `inventory.materials_manage` | Idempotent. |
+| POST | `/inventory/materials/{id}/add` | `inventory.materials_stock` | `{quantity}`. |
+| POST | `/inventory/materials/{id}/remove` | `inventory.materials_stock` | `{quantity, reason}`. |
+| GET | `/inventory/materials/{id}/icon` | `inventory.view` | The uploaded icon (`image/png`); `404 NOT_FOUND` without one. Clients use `icon_url`: `/inventory/materials/{id}/icon?v=<hash of updated_at>`, which changes with every upload, so the response is cacheable (`Cache-Control: private, max-age=31536000, immutable`). |
+| PUT | `/inventory/materials/{id}/icon` | `inventory.materials_manage` | Multipart, field `file` (PNG / JPEG / WebP, ≤ 1 MB) → the material with its new `icon_url`. |
+| DELETE | `/inventory/materials/{id}/icon` | `inventory.materials_manage` | Removes the upload (no-op without one) → the material. |
+
+Unknown material → `404 MATERIAL_NOT_FOUND`. Every write returns the material. Audit (§6): `material.create`, `material.update` (`changes`, incl. `unit` and the converted `balance`; an icon change is `changes.icon = "changed"` / `"removed"`, never the image), `material.archive` (`balance`), `material.restore`, `material.stock_add` / `material.stock_remove` (`quantity`, `unit`, `balance_after`; `reason` on removals), `entity_type = material` (the audit log names it by its English name).
 
 ---
 

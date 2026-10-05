@@ -229,7 +229,8 @@
       "supplier": "Supplier",
       "customer": "Customer",
       "production_batch": "Production batch",
-      "order": "Order"
+      "order": "Order",
+      "material": "Material"
     },
     "defaultBackfill": "Granted automatically (role default)",
     "actions": {
@@ -275,7 +276,13 @@
       "order_delivered": "Order delivered",
       "order_returns_reviewed": "Order return reviewed",
       "order_document_printed": "Delivery note printed",
-      "settings_business_update": "Changed business info"
+      "settings_business_update": "Changed business info",
+      "material_create": "Material added",
+      "material_update": "Material edited",
+      "material_archive": "Material archived",
+      "material_restore": "Material restored",
+      "material_stock_add": "Material stock added",
+      "material_stock_remove": "Material stock removed"
     },
     "featureChange": "{{feature}}: {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
@@ -476,7 +483,14 @@
     "TELEGRAM_SEND_FAILED": "Telegram couldn't deliver the delivery note. Check that you haven't blocked the bot, then try again.",
     "DOCUMENT_UNAVAILABLE": "The delivery note can't be created right now. Please try again later.",
     "LOGO_WRONG_TYPE": "The logo must be a PNG or JPEG image.",
-    "LOGO_TOO_LARGE": "The logo must be at most 500 kB."
+    "LOGO_TOO_LARGE": "The logo must be at most 500 kB.",
+    "MATERIAL_NOT_FOUND": "Material not found.",
+    "MATERIAL_UNIT_LOCKED": "Switching to or from count is only possible before the first stock entry.",
+    "MATERIAL_ARCHIVED": "This material is archived. Restore it first.",
+    "MATERIAL_SYSTEM_LOCKED": "Production uses this material: it can’t be archived or counted in pieces.",
+    "DUPLICATE_MATERIAL_NAME": "Another material already has this name.",
+    "ICON_WRONG_TYPE": "The icon must be a PNG, JPEG or WebP image.",
+    "ICON_TOO_LARGE": "The icon must be at most 1 MB."
   },
   "permissions": {
     "readOnlyNotice": "You can view these permissions, but you can't change them here.",
@@ -599,7 +613,8 @@
       "wings": "Wings don't add up yet.",
       "thighs": "Thighs don't add up yet.",
       "byproduct": "{{name}}: carry forward + rejected must equal the produced weight.",
-      "planComment": "Comment required: packs differ from the plan."
+      "planComment": "Comment required: packs differ from the plan.",
+      "marinade": "Not enough marinade sauce in stock"
     },
     "supplierInactive": "Deactivated",
     "chooseSupplier": "Choose supplier",
@@ -651,7 +666,8 @@
       "packing": "Packing"
     },
     "dateOnFinish": "{{date}} will be recorded when you finish this step.",
-    "started": "Started {{date}}"
+    "started": "Started {{date}}",
+    "marinadeAvailable": "Available: {{amount}}"
   },
   "plans": {
     "title": "Production plan",
@@ -774,8 +790,8 @@
   },
   "inventory": {
     "title": "Inventory",
-    "subtitle": "Updated automatically by production and orders.",
-    "description": "Stock and wasted items, from production and orders.",
+    "subtitle": "Updated by production and orders; materials are added by hand.",
+    "description": "Stock, wasted items and materials (string, skewers, sauces…).",
     "tabs": {
       "stock": "Stock",
       "history": "History"
@@ -807,7 +823,10 @@
       "production": "Production",
       "adjustment": "Adjustment",
       "order": "Order",
-      "order_return": "Return"
+      "order_return": "Return",
+      "material_add": "Added",
+      "material_remove": "Removed",
+      "material_unit_change": "Unit changed"
     },
     "reversedReopen": "Reversed: reopen",
     "reversedCancel": "Reversed: cancelled",
@@ -840,7 +859,8 @@
     "total": "Total",
     "noProductionStock": "No stock from production right now.",
     "fromBatch": "from",
-    "toBatch": "to"
+    "toBatch": "to",
+    "gValue": "{{value}} g"
   },
   "orders": {
     "title": "Orders",
@@ -1038,5 +1058,68 @@
       "footer_note_km": "Footer note (Khmer)",
       "footer_note_en": "Footer note (English)"
     }
+  },
+  "materials": {
+    "add": "Add",
+    "remove": "Remove",
+    "addTitle": "Add stock — {{name}}",
+    "removeTitle": "Remove stock — {{name}}",
+    "inStock": "In stock: {{amount}}",
+    "quantity": "Quantity ({{unit}})",
+    "units": {
+      "count": "Count",
+      "kg": "kg",
+      "g": "g"
+    },
+    "precision": {
+      "count": "Whole numbers.",
+      "kg": "Up to 3 decimals (e.g. 1.25).",
+      "g": "Up to 1 decimal (e.g. 250.5)."
+    },
+    "invalid": {
+      "count": "Enter a whole number above 0.",
+      "kg": "Enter a number above 0 with at most 3 decimals.",
+      "g": "Enter a number above 0 with at most 1 decimal."
+    },
+    "newBalance": "New balance: {{amount}}",
+    "notEnough": "Only {{amount}} in stock.",
+    "reason": "Reason",
+    "reasonHint": "Required, e.g. \"Used for a test batch\" or \"Damaged\".",
+    "newTitle": "Add material",
+    "editTitle": "Edit material",
+    "nameKm": "Name (Khmer)",
+    "nameEn": "Name (English)",
+    "unit": "Unit",
+    "unitHint": "Counted in pieces, or weighed in kg or g.",
+    "unitChangeHint": "kg ↔ g converts the stock automatically. Switching to or from count is only possible before the first stock entry.",
+    "unitConvertPreview": "The stock will be converted from {{from}} to {{to}}.",
+    "unitLocked": "Only possible before the first stock entry",
+    "systemNoCount": "Used by production: it can’t be counted in pieces",
+    "showArchived": "Show archived",
+    "archivedTitle": "Archived materials",
+    "restore": "Restore",
+    "archive": "Archive",
+    "archiveTitle": "Archive {{name}}?",
+    "archiveBody": "It disappears from Raw and the pickers. Its history is kept and you can restore it later.",
+    "archiveWithStock": "There is still {{amount}} in stock. Archiving keeps that balance and the history, but nobody can add or remove stock until it’s restored.",
+    "usedByProduction": "Used by production",
+    "systemNote": "Production step 2 takes its marinade from this material. It can be renamed, but not archived.",
+    "actions": "Material actions",
+    "auditFields": {
+      "name_km": "Name (Khmer)",
+      "name_en": "Name (English)",
+      "unit": "Unit",
+      "balance": "Stock"
+    },
+    "optional": "optional",
+    "icon": "Icon",
+    "iconUpload": "Upload",
+    "iconChange": "Change",
+    "iconRemove": "Remove",
+    "iconHint": "PNG, JPEG or WebP, up to 1 MB; shown as a square. Without one, the default picture is used.",
+    "iconUploadFailed": "The material was saved, but its icon wasn’t uploaded.",
+    "iconChangedAudit": "Icon changed",
+    "iconRemovedAudit": "Icon removed",
+    "archivedBadge": "Archived"
   }
 }

@@ -9,9 +9,14 @@ applies the deltas, refuses with `409 INVENTORY_INSUFFICIENT` if any balance wou
 (the caller's whole action is then rolled back), and inserts the movements with the balances
 after. It never commits.
 
-Every catalog item today has `origin = production`: it changes only through production and
-orders, and `set_value` refuses it for everyone (INVENTORY_ITEM_PRODUCTION_ONLY). Adjustments
-remain for future `manual` items. Migration 0011 removed the adjustments made before this rule.
+Every catalog item has `origin = production`: it changes only through production and orders,
+and `set_value` refuses it for everyone (INVENTORY_ITEM_PRODUCTION_ONLY). Migration 0011 removed
+the adjustments made before this rule.
+
+**Materials** (`inventory_materials`, `origin = manual`, group raw) are items resolved from the
+database (`resolve`): their stock changes by hand (`material_service`: add / remove, through
+`apply_movements` like everything else) and, for Marinade sauce, by step 2. A material has one
+unit: count, kg or g (grams in the `g` / `g_delta` columns, app/inventory/units.py).
 
 Per-batch attribution: every movement of a production item carries the batch its quantity
 belongs to, so a batch's current contribution to an item is the sum of its movements (any
@@ -27,29 +32,37 @@ The contributions are read after the balance rows are locked, so a concurrent or
 on the same items waits and then sees the other's movements.
 
 Production rules (tracked batches only, `production_batches.inventory_tracked`):
-- Finish step 1/2/3 writes the movements of `step_deltas`.
+- Finish step 1/2/3 writes the movements of `step_deltas`; step 2 also takes its `marinade_g`
+  out of the Marinade sauce material (converted when that material is in kg), in the same
+  transaction: not enough → INVENTORY_INSUFFICIENT and the Finish is refused.
 - Reopen reverses the un-reversed movements of the steps sent back to draft, latest step first;
   cancel reverses every un-reversed movement of the batch. A reversal is a new movement with
   `reversal_of` set (unique: a movement is reversed at most once) and `reason` "reopen" / "cancel".
+  A material's reversal is written in the material's current unit (it may have switched kg <-> g
+  since), and materials are left out of the "stock already used in orders" guard.
 """
 
+import hashlib
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, case, exists, func, select
+from sqlalchemy import Select, and_, case, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.config import get_settings
 from app.core.errors import AppError, ErrorCode
+from app.inventory import units
 from app.inventory.catalog import (
     CHICKEN,
     ITEMS,
     ITEMS_BY_CODE,
+    MARINADE,
+    MATERIAL_PREFIX,
     PACKS_BIG,
     PACKS_SMALL,
     SECTIONS,
@@ -61,18 +74,19 @@ from app.inventory.catalog import (
     Section,
     byproduct_packed,
     byproduct_processed,
+    is_material,
     wasted_byproduct,
     wasted_for,
 )
 from app.models import (
     InventoryBalance,
+    InventoryMaterial,
     InventoryMovement,
     Order,
     ProductionBatch,
     User,
     utcnow,
 )
-from app.permissions.service import effective_permissions
 from app.production.catalog import BYPRODUCT_CODES
 from app.schemas.common import UserRef
 from app.schemas.inventory import (
@@ -80,6 +94,8 @@ from app.schemas.inventory import (
     InventoryItemOut,
     InventoryOut,
     InventorySectionOut,
+    InventoryUnit,
+    ItemMaterialOut,
     ItemSourceOut,
     MovementBatch,
     MovementOrder,
@@ -89,7 +105,6 @@ from app.schemas.inventory import (
     SetValueIn,
     StockChangeOut,
 )
-from app.services.audit_service import record
 
 KG_QUANT = Decimal("0.001")
 MOVEMENTS_PAGE_SIZE = 50
@@ -97,11 +112,13 @@ MOVEMENTS_PAGE_SIZE = 50
 
 @dataclass
 class Delta:
-    """One movement to write. `count` / `kg` are signed; None for a unit the item doesn't track."""
+    """One movement to write. `count` / `kg` / `g` are signed; None for a unit the item doesn't
+    track."""
 
     item_code: str
     count: int | None = None
     kg: Decimal | None = None
+    g: Decimal | None = None
     kg_estimated: bool = False
     step: int | None = None
     reversal_of: int | None = None
@@ -115,8 +132,56 @@ def _kg(value: Decimal | None) -> Decimal:
     return (value or Decimal(0)).quantize(KG_QUANT, rounding=ROUND_HALF_UP)
 
 
-def _item(code: str) -> ItemDef:
-    item = ITEMS_BY_CODE.get(code)
+def _g(value: Decimal | None) -> Decimal:
+    return units.quantize("g", value or Decimal(0))
+
+
+def material_def(m: InventoryMaterial) -> ItemDef:
+    """A material as an inventory item: Raw group, origin manual, exactly one unit."""
+    return ItemDef(
+        m.item_code,
+        m.name_en,
+        m.name_km,
+        "stock",
+        "raw",
+        tracks_count=m.unit == "count",
+        tracks_kg=m.unit == "kg",
+        order=15,  # after Chicken (10), before the processed items
+        origin="manual",
+        tracks_g=m.unit == "g",
+    )
+
+
+def unit_of(item: ItemDef) -> InventoryUnit:
+    """A material's single unit; production items report their main unit (count first)."""
+    if item.tracks_g:
+        return "g"
+    return "count" if item.tracks_count else "kg"
+
+
+async def materials_by_code(
+    session: AsyncSession, codes: list[str] | set[str] | None = None
+) -> dict[str, InventoryMaterial]:
+    """Materials (archived included) by item code; every one when `codes` is None."""
+    stmt = select(InventoryMaterial)
+    if codes is not None:
+        wanted = [c for c in codes if is_material(c)]
+        if not wanted:
+            return {}
+        stmt = stmt.where(InventoryMaterial.item_code.in_(wanted))
+    return {m.item_code: m for m in await session.scalars(stmt)}
+
+
+async def resolve(session: AsyncSession, codes: list[str] | set[str]) -> dict[str, ItemDef]:
+    """Catalog items and materials for `codes` (unknown codes are left out)."""
+    result = {c: ITEMS_BY_CODE[c] for c in codes if c in ITEMS_BY_CODE}
+    for code, m in (await materials_by_code(session, codes)).items():
+        result[code] = material_def(m)
+    return result
+
+
+async def _item(session: AsyncSession, code: str) -> ItemDef:
+    item = (await resolve(session, [code])).get(code)
     if item is None:
         raise AppError(404, ErrorCode.INVENTORY_ITEM_NOT_FOUND, "Unknown inventory item")
     return item
@@ -127,12 +192,18 @@ def _blank(item: ItemDef) -> dict[str, Any]:
         "item_code": item.code,
         "count": 0 if item.tracks_count else None,
         "kg": Decimal(0) if item.tracks_kg else None,
+        "g": Decimal(0) if item.tracks_g else None,
     }
 
 
 async def ensure_balances(session: AsyncSession, codes: list[str] | None = None) -> None:
-    """A zero balance row for every catalog item (or `codes`) that has none. Idempotent."""
-    items = ITEMS if codes is None else [ITEMS_BY_CODE[c] for c in codes]
+    """A zero balance row for every catalog item and material (or `codes`) that has none.
+    Idempotent."""
+    if codes is None:
+        items = [*ITEMS, *(material_def(m) for m in (await materials_by_code(session)).values())]
+    else:
+        resolved = await resolve(session, codes)
+        items = [resolved[c] for c in codes if c in resolved]
     if not items:
         return
     await session.execute(
@@ -161,17 +232,23 @@ async def lock_balances(session: AsyncSession, codes: list[str]) -> dict[str, In
 
 
 def _short_entry(
-    code: str, bal: InventoryBalance, needed_count: int | None, needed_kg: Decimal | None
+    item: ItemDef,
+    bal: InventoryBalance,
+    needed_count: int | None,
+    needed_kg: Decimal | None,
+    needed_g: Decimal | None = None,
 ) -> dict[str, Any]:
     return {
-        "item_code": code,
+        "item_code": item.code,
         # Names included: whoever records production or orders may not see the inventory.
-        "name_en": _names(code)[0],
-        "name_km": _names(code)[1],
+        "name_en": item.name_en,
+        "name_km": item.name_km,
         "available_count": bal.count,
         "available_kg": str(bal.kg) if bal.kg is not None else None,
+        "available_g": str(bal.g) if bal.g is not None else None,
         "needed_count": needed_count,
         "needed_kg": str(needed_kg) if needed_kg is not None else None,
+        "needed_g": str(needed_g) if needed_g is not None else None,
     }
 
 
@@ -181,14 +258,14 @@ def _insufficient(short: list[dict[str, Any]]) -> AppError:
     )
 
 
-def _normalized(delta: Delta) -> Delta | None:
+def _normalized(delta: Delta, item: ItemDef) -> Delta | None:
     """Keep only tracked units (a unit not given stays None); None when nothing changes."""
-    item = ITEMS_BY_CODE[delta.item_code]
     count = delta.count if item.tracks_count else None
     kg = _kg(delta.kg) if item.tracks_kg and delta.kg is not None else None
-    if not count and not kg:
+    g = _g(delta.g) if item.tracks_g and delta.g is not None else None
+    if not count and not kg and not g:
         return None
-    delta.count, delta.kg = count, kg
+    delta.count, delta.kg, delta.g = count, kg, g
     return delta
 
 
@@ -201,29 +278,32 @@ async def apply_movements(
     batch_id: uuid.UUID | None = None,
 ) -> list[InventoryMovement]:
     """Lock, check, apply and record. Raises INVENTORY_INSUFFICIENT; never commits."""
-    rows = [d for d in (_normalized(d) for d in deltas) if d is not None]
+    items = await resolve(session, {d.item_code for d in deltas})
+    rows = [d for d in (_normalized(d, items[d.item_code]) for d in deltas) if d is not None]
     if not rows:
         return []
     codes = sorted({d.item_code for d in rows})
     balances = await lock_balances(session, codes)
 
     # Net change per item: refuse before writing anything if one would go below zero.
-    net: dict[str, tuple[int, Decimal]] = {}
+    net: dict[str, tuple[int, Decimal, Decimal]] = {}
     for d in rows:
-        c, k = net.get(d.item_code, (0, Decimal(0)))
-        net[d.item_code] = (c + (d.count or 0), k + (d.kg or Decimal(0)))
+        c, k, g = net.get(d.item_code, (0, Decimal(0), Decimal(0)))
+        net[d.item_code] = (c + (d.count or 0), k + (d.kg or Decimal(0)), g + (d.g or Decimal(0)))
     short = []
     for code in codes:
-        bal, (dc, dk) = balances[code], net[code]
+        bal, (dc, dk, dg) = balances[code], net[code]
         count_short = bal.count is not None and bal.count + dc < 0
         kg_short = bal.kg is not None and bal.kg + dk < 0
-        if count_short or kg_short:
+        g_short = bal.g is not None and bal.g + dg < 0
+        if count_short or kg_short or g_short:
             short.append(
                 _short_entry(
-                    code,
+                    items[code],
                     bal,
                     -dc if bal.count is not None and dc < 0 else None,
                     -dk if bal.kg is not None and dk < 0 else None,
+                    -dg if bal.g is not None and dg < 0 else None,
                 )
             )
     if short:
@@ -237,11 +317,14 @@ async def apply_movements(
             bal.count = (bal.count or 0) + d.count
         if d.kg is not None:
             bal.kg = (bal.kg or Decimal(0)) + d.kg
+        if d.g is not None:
+            bal.g = (bal.g or Decimal(0)) + d.g
         bal.updated_at = now
         movement = InventoryMovement(
             item_code=d.item_code,
             count_delta=d.count,
             kg_delta=d.kg,
+            g_delta=d.g,
             kg_estimated=d.kg_estimated,
             source=source,
             batch_id=d.batch_id or batch_id,
@@ -251,6 +334,7 @@ async def apply_movements(
             reason=d.reason,
             balance_count_after=bal.count,
             balance_kg_after=bal.kg,
+            balance_g_after=bal.g,
             created_by=actor.id if actor else None,
             created_at=now,
         )
@@ -325,13 +409,47 @@ def step_deltas(batch: ProductionBatch, step: int) -> list[Delta]:
     return deltas
 
 
+async def marinade_material(
+    session: AsyncSession, *, lock: bool = False
+) -> InventoryMaterial | None:
+    """The Marinade sauce material. `lock`: a share lock, so a unit change waits for us."""
+    stmt = select(InventoryMaterial).where(InventoryMaterial.system_code == MARINADE)
+    if lock:
+        stmt = stmt.with_for_update(read=True)
+    return await session.scalar(stmt.execution_options(populate_existing=True))
+
+
+def _marinade_delta(material: InventoryMaterial, grams: Decimal) -> Delta:
+    """Take `grams` of marinade out, in the material's unit (g, or kg rounded to 3 decimals)."""
+    if material.unit == "kg":
+        return Delta(material.item_code, kg=-units.convert(grams, "g", "kg"), step=2)
+    return Delta(material.item_code, g=-units.quantize("g", grams), step=2)
+
+
 async def finish_step(
     session: AsyncSession, actor: User, batch: ProductionBatch, step: int
 ) -> None:
-    if batch.inventory_tracked:
-        await apply_movements(
-            session, actor, step_deltas(batch, step), source="production", batch_id=batch.id
-        )
+    if not batch.inventory_tracked:
+        return
+    deltas = step_deltas(batch, step)
+    if step == 2 and batch.output is not None and batch.output.marinade_g:
+        material = await marinade_material(session, lock=True)
+        if material is not None:
+            deltas.append(_marinade_delta(material, batch.output.marinade_g))
+    await apply_movements(session, actor, deltas, source="production", batch_id=batch.id)
+
+
+async def marinade_stock(session: AsyncSession) -> tuple[InventoryUnit, Decimal] | None:
+    """The Marinade sauce balance in its own unit (for the step 2 form)."""
+    material = await marinade_material(session)
+    if material is None:
+        return None
+    bal = await session.get(InventoryBalance, material.item_code)
+    item = material_def(material)
+    unit = unit_of(item)
+    if bal is None:
+        return unit, Decimal(0)
+    return unit, Decimal({"count": bal.count, "kg": bal.kg, "g": bal.g}[unit] or 0)
 
 
 def _open_movements(batch_id: uuid.UUID) -> Select[tuple[InventoryMovement]]:
@@ -363,20 +481,37 @@ async def reverse(
             stmt.order_by(InventoryMovement.step.desc(), InventoryMovement.id.desc())
         )
     )
+    materials = await materials_by_code(session, {m.item_code for m in originals})
     deltas = [
-        Delta(
-            m.item_code,
-            -m.count_delta if m.count_delta is not None else None,
-            -m.kg_delta if m.kg_delta is not None else None,
-            kg_estimated=m.kg_estimated,
-            step=m.step,
-            reversal_of=m.id,
-            reason=cause,
+        _in_current_unit(
+            Delta(
+                m.item_code,
+                -m.count_delta if m.count_delta is not None else None,
+                -m.kg_delta if m.kg_delta is not None else None,
+                -m.g_delta if m.g_delta is not None else None,
+                kg_estimated=m.kg_estimated,
+                step=m.step,
+                reversal_of=m.id,
+                reason=cause,
+            ),
+            materials.get(m.item_code),
         )
         for m in originals
     ]
-    await _guard_reversal(session, batch, deltas)
+    # Materials (the marinade) aren't attributed to batches: only production items are guarded.
+    await _guard_reversal(session, batch, [d for d in deltas if d.item_code in ITEMS_BY_CODE])
     await apply_movements(session, actor, deltas, source="production", batch_id=batch.id)
+
+
+def _in_current_unit(delta: Delta, material: InventoryMaterial | None) -> Delta:
+    """A material's movement may predate a kg <-> g switch: express it in today's unit."""
+    if material is None or material.unit == "count":
+        return delta
+    if material.unit == "g" and delta.kg is not None:
+        delta.g, delta.kg = units.convert(delta.kg, "kg", "g"), None
+    elif material.unit == "kg" and delta.g is not None:
+        delta.kg, delta.g = units.convert(delta.g, "g", "kg"), None
+    return delta
 
 
 async def batch_contributions(
@@ -527,7 +662,7 @@ async def take_for_order(
         if _amount(item, bal.count, bal.kg) < need:
             short.append(
                 _short_entry(
-                    code,
+                    item,
                     bal,
                     int(need) if item.tracks_count else None,
                     None if item.tracks_count else _kg(need),
@@ -623,111 +758,86 @@ async def stock_changes(session: AsyncSession, batch: ProductionBatch) -> list[S
     order = {i.code: i.order for i in ITEMS}
     rows = sorted(
         await session.scalars(_open_movements(batch.id)),
-        key=lambda m: (m.step or 0, order.get(m.item_code, 999), m.id),
+        key=lambda m: (m.step or 0, order.get(m.item_code, 15), m.id),
     )
+    items = await resolve(session, {m.item_code for m in rows})
     return [
         StockChangeOut(
             step=m.step or 0,
             item_code=m.item_code,
-            section=_section(m.item_code),
-            name_en=_names(m.item_code)[0],
-            name_km=_names(m.item_code)[1],
+            section=_section(items, m.item_code),
+            name_en=_names(items, m.item_code)[0],
+            name_km=_names(items, m.item_code)[1],
             count_delta=m.count_delta,
             kg_delta=m.kg_delta,
+            g_delta=m.g_delta,
             kg_estimated=m.kg_estimated,
         )
         for m in rows
     ]
 
 
-# --- Adjustments ---------------------------------------------------------------------------------
-
-
-def _field_error(loc: list[str], msg: str) -> dict[str, Any]:
-    return {"loc": loc, "type": "value_error", "msg": msg}
+# --- Setting a value -----------------------------------------------------------------------------
 
 
 async def set_value(session: AsyncSession, actor: User, item_code: str, data: SetValueIn) -> None:
-    """Set an item's balance to the given value(s): one adjustment movement of the difference.
-
-    Only for `manual` items, with inventory.adjust (no item is manual today). Production items
-    change only through production: refused for everyone, the superadmin included.
-    """
-    item = _item(item_code)
-    if item.origin == "production":
-        raise AppError(
-            409,
-            ErrorCode.INVENTORY_ITEM_PRODUCTION_ONLY,
-            "This item changes only through production",
-            {"item_code": item.code},
-        )
-    if "inventory.adjust" not in await effective_permissions(session, actor):
-        raise AppError(
-            403,
-            ErrorCode.MISSING_PERMISSION,
-            "Missing permission",
-            {"required": ["inventory.adjust"]},
-        )
-    errors = []
-    if data.count is None and data.kg is None:
-        errors.append(_field_error(["body"], "Give a count or a kg value"))
-    if data.count is not None and not item.tracks_count:
-        errors.append(_field_error(["body", "count"], "This item has no count"))
-    if data.kg is not None and not item.tracks_kg:
-        errors.append(_field_error(["body", "kg"], "This item has no weight"))
-    if errors:
-        raise AppError(422, ErrorCode.VALIDATION_ERROR, "Invalid values", {"fields": errors})
-
-    await ensure_balances(session, [item.code])
-    bal = await session.scalar(
-        select(InventoryBalance)
-        .where(InventoryBalance.item_code == item.code)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    assert bal is not None
-    before = {"count": bal.count, "kg": str(bal.kg) if bal.kg is not None else None}
-    delta = Delta(
-        item.code,
-        (data.count - (bal.count or 0)) if data.count is not None else None,
-        (_kg(data.kg) - (bal.kg or Decimal(0))) if data.kg is not None else None,
-        reason=data.reason,
-    )
-    written = await apply_movements(session, actor, [delta], source="adjustment")
-    if not written:
-        return  # already at that value
-    after = {"count": bal.count, "kg": str(bal.kg) if bal.kg is not None else None}
-    record(
-        session,
-        "inventory.adjust",
-        actor_id=actor.id,
-        details={
-            "item_code": item.code,
-            # Names kept with the entry: the audit log shows them even if the catalog changes.
-            "name_en": item.name_en,
-            "name_km": item.name_km,
-            "from": before,
-            "to": after,
-            "reason": data.reason,
-        },
+    """Refused for every item, for everyone (the superadmin included): production items change
+    only through production, materials through add / remove (`/inventory/materials/{id}/...`).
+    Kept so old clients get a clear error instead of a 404."""
+    item = await _item(session, item_code)
+    details: dict[str, Any] = {"item_code": item.code}
+    if item.origin == "manual":
+        details["use"] = "material_add_remove"
+    raise AppError(
+        409,
+        ErrorCode.INVENTORY_ITEM_PRODUCTION_ONLY,
+        "This item's stock can't be set directly",
+        details,
     )
 
 
 # --- Reading -------------------------------------------------------------------------------------
 
 
-def _section(code: str) -> Section | None:
-    item = ITEMS_BY_CODE.get(code)
+def _section(items: dict[str, ItemDef], code: str) -> Section | None:
+    item = items.get(code)
     return item.section if item else None
 
 
-def _names(code: str) -> tuple[str, str]:
-    item = ITEMS_BY_CODE.get(code)
+def _names(items: dict[str, ItemDef], code: str) -> tuple[str, str]:
+    item = items.get(code)
     # An item removed from the catalog keeps its history under its code.
     return (item.name_en, item.name_km) if item else (code, code)
 
 
-def _item_out(item: ItemDef, bal: InventoryBalance | None, last_change: datetime | None):
+def material_icon_url(m: InventoryMaterial) -> str | None:
+    """The uploaded icon's path, versioned by `updated_at` (an upload touches it), so clients can
+    cache it by URL. None without an uploaded icon."""
+    if m.icon_mime is None:
+        return None
+    version = hashlib.sha1(m.updated_at.isoformat().encode()).hexdigest()[:10]
+    return f"/inventory/materials/{m.id}/icon?v={version}"
+
+
+def _material_out(m: InventoryMaterial | None) -> ItemMaterialOut | None:
+    if m is None:
+        return None
+    return ItemMaterialOut(
+        id=m.id,
+        unit=m.unit,  # type: ignore[arg-type]
+        system_code=m.system_code,
+        archived=m.archived_at is not None,
+        icon_key=m.icon_key,
+        icon_url=material_icon_url(m),
+    )
+
+
+def _item_out(
+    item: ItemDef,
+    bal: InventoryBalance | None,
+    last_change: datetime | None,
+    material: InventoryMaterial | None = None,
+) -> InventoryItemOut:
     return InventoryItemOut(
         code=item.code,
         section=item.section,
@@ -736,12 +846,15 @@ def _item_out(item: ItemDef, bal: InventoryBalance | None, last_change: datetime
         name_km=item.name_km,
         tracks_count=item.tracks_count,
         tracks_kg=item.tracks_kg,
+        tracks_g=item.tracks_g,
         kg_estimated=item.kg_estimated,
         origin=item.origin,
-        count=(bal.count if bal else 0) if item.tracks_count else None,
-        kg=(bal.kg if bal else Decimal(0)) if item.tracks_kg else None,
+        count=(bal.count if bal and bal.count is not None else 0) if item.tracks_count else None,
+        kg=(bal.kg if bal and bal.kg is not None else Decimal(0)) if item.tracks_kg else None,
+        g=(bal.g if bal and bal.g is not None else Decimal(0)) if item.tracks_g else None,
         # None: never changed.
         updated_at=last_change,
+        material=_material_out(material),
     )
 
 
@@ -750,15 +863,20 @@ async def item_detail(session: AsyncSession, item_code: str) -> InventoryItemDet
 
     A batch's contribution is the sum of all its movements for the item, every source: production
     (reversals included), orders taken from it (oldest batch first) and returns given back to it.
-    So the contributions add up to the balance.
+    So the contributions add up to the balance. Materials have no per-batch breakdown.
     """
-    item = _item(item_code)
+    item = await _item(session, item_code)
+    material = (await materials_by_code(session, [item.code])).get(item.code)
     bal = await session.get(InventoryBalance, item.code)
     last = await session.scalar(
         select(func.max(InventoryMovement.created_at)).where(
             InventoryMovement.item_code == item.code
         )
     )
+    if material is not None:
+        return InventoryItemDetailOut(
+            **_item_out(item, bal, last, material).model_dump(), sources=[]
+        )
     reversal = aliased(InventoryMovement)
     still_open = and_(
         InventoryMovement.reversal_of.is_(None),
@@ -797,6 +915,7 @@ async def item_detail(session: AsyncSession, item_code: str) -> InventoryItemDet
 
 
 async def overview(session: AsyncSession) -> InventoryOut:
+    """Every catalog item and every active material (Raw, after Chicken), by section."""
     balances = {b.item_code: b for b in await session.scalars(select(InventoryBalance))}
     # Last change = the latest movement (a balance row alone may just have been created).
     last = {
@@ -807,12 +926,20 @@ async def overview(session: AsyncSession) -> InventoryOut:
             )
         )
     }
+    materials = sorted(
+        (m for m in (await materials_by_code(session)).values() if m.archived_at is None),
+        key=lambda m: m.name_en.lower(),
+    )
     sections = []
     for section in SECTIONS:
         items = []
         for item in (i for i in ITEMS if i.section == section):
-            bal = balances.get(item.code)
-            items.append(_item_out(item, bal, last.get(item.code)))
+            items.append(_item_out(item, balances.get(item.code), last.get(item.code)))
+            if item.code == CHICKEN:
+                items += [
+                    _item_out(material_def(m), balances.get(m.item_code), last.get(m.item_code), m)
+                    for m in materials
+                ]
         sections.append(InventorySectionOut(section=section, items=items))
     return InventoryOut(sections=sections)
 
@@ -840,9 +967,13 @@ async def movements(
     if item_code:
         conditions.append(InventoryMovement.item_code == item_code)
     if section:
-        conditions.append(
-            InventoryMovement.item_code.in_([i.code for i in ITEMS if i.section == section])
+        in_section = InventoryMovement.item_code.in_(
+            [i.code for i in ITEMS if i.section == section]
         )
+        # Materials are all in stock (Raw).
+        if section == "stock":
+            in_section = or_(in_section, InventoryMovement.item_code.like(f"{MATERIAL_PREFIX}%"))
+        conditions.append(in_section)
     if source:
         conditions.append(InventoryMovement.source == source)
     if batch_id:
@@ -901,6 +1032,7 @@ async def movements(
         if order_ids
         else {}
     )
+    items = await resolve(session, {m.item_code for m in rows})
     user_ids = {m.created_by for m in rows if m.created_by}
     users = (
         {u.id: u for u in await session.scalars(select(User).where(User.id.in_(user_ids)))}
@@ -912,11 +1044,12 @@ async def movements(
             MovementOut(
                 id=m.id,
                 item_code=m.item_code,
-                section=_section(m.item_code),
-                name_en=_names(m.item_code)[0],
-                name_km=_names(m.item_code)[1],
+                section=_section(items, m.item_code),
+                name_en=_names(items, m.item_code)[0],
+                name_km=_names(items, m.item_code)[1],
                 count_delta=m.count_delta,
                 kg_delta=m.kg_delta,
+                g_delta=m.g_delta,
                 kg_estimated=m.kg_estimated,
                 source=m.source,  # type: ignore[arg-type]
                 batch=MovementBatch(id=m.batch_id, code=codes[m.batch_id])
@@ -930,6 +1063,7 @@ async def movements(
                 reason=m.reason,
                 balance_count_after=m.balance_count_after,
                 balance_kg_after=m.balance_kg_after,
+                balance_g_after=m.balance_g_after,
                 created_by=UserRef.model_validate(users[m.created_by])
                 if m.created_by in users
                 else None,

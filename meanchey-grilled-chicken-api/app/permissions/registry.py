@@ -287,8 +287,29 @@ PERMISSIONS += [
         description_km="មើលការកែប្រែស្តុកទាំងអស់៖ ផ្ទាំងប្រវត្តិ ការកែប្រែថ្មីៗរបស់ទំនិញ និងការកែប្រែស្តុករបស់បាច់។",
         assignable_to=_MANAGERS,
     ),
-    # `inventory.adjust` (set stock values) was removed: every item comes from production and
-    # changes only through it. The sync marks it inactive; it can return with manual items.
+    PermissionDef(
+        code="inventory.materials_stock",
+        module="inventory",
+        name_en="Add and remove material stock",
+        name_km="បន្ថែម និងដកស្តុកសម្ភារៈ",
+        description_en=(
+            "Add stock of materials (string, skewers, sauces, bags...) and take it out with a "
+            "reason."
+        ),
+        description_km="បន្ថែមស្តុកសម្ភារៈ (ខ្សែ ចង្កាក់ ទឹកជ្រលក់ ថង់...) និងដកចេញដោយបញ្ជាក់មូលហេតុ។",
+        assignable_to=_EVERYONE,
+    ),
+    PermissionDef(
+        code="inventory.materials_manage",
+        module="inventory",
+        name_en="Manage materials",
+        name_km="គ្រប់គ្រងសម្ភារៈ",
+        description_en="Create, rename and archive materials, and change their unit.",
+        description_km="បង្កើត ប្តូរឈ្មោះ និងទុកសម្ភារៈក្នុងបណ្ណសារ ព្រមទាំងប្តូរខ្នាត។",
+        assignable_to=_MANAGERS,
+    ),
+    # `inventory.adjust` (set stock values) was removed: production items change only through
+    # production, materials through add / remove. The sync keeps it inactive.
 ]
 
 PERMISSIONS += [
@@ -491,11 +512,19 @@ FEATURES: list[FeatureDef] = [
         name_en="Inventory",
         name_km="ស្តុក",
         description_en=(
-            "Stock and wasted items, updated automatically by production, and their history."
+            "Stock and wasted items, updated by production and orders. Record also adds and "
+            "removes the stock of materials (string, skewers, sauces...)."
         ),
-        description_km="ស្តុក និងទំនិញខូចខាត ដែលធ្វើបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិពីផលិតកម្ម ព្រមទាំងប្រវត្តិ។",
+        description_km=(
+            "ស្តុក និងទំនិញខូចខាត ដែលធ្វើបច្ចុប្បន្នភាពដោយផលិតកម្ម និងការបញ្ជាទិញ។ "
+            "កម្រិតកត់ត្រាអាចបន្ថែម និងដកស្តុកសម្ភារៈ (ខ្សែ ចង្កាក់ ទឹកជ្រលក់...) បានផងដែរ។"
+        ),
         applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF),
-        levels=(("off", ()), ("view", ("inventory.view",))),
+        levels=(
+            ("off", ()),
+            ("view", ("inventory.view",)),
+            ("record", ("inventory.view", "inventory.materials_stock")),
+        ),
     ),
     FeatureDef(
         code="inventory_history",
@@ -510,6 +539,16 @@ FEATURES: list[FeatureDef] = [
         levels=(("off", ()), ("view", ("inventory.history",))),
         # Given by the superadmin, or by a GM who has it: invisible to anyone else.
         grantor_must_hold=True,
+    ),
+    FeatureDef(
+        code="inventory_materials",
+        menu="workstation",
+        name_en="Inventory materials",
+        name_km="សម្ភារៈក្នុងស្តុក",
+        description_en="Create, rename, archive and restore materials, and change their unit.",
+        description_km="បង្កើត ប្តូរឈ្មោះ ទុកក្នុងបណ្ណសារ និងស្តារសម្ភារៈ ព្រមទាំងប្តូរខ្នាត។",
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
+        levels=(("off", ()), ("full", ("inventory.materials_manage",))),
     ),
     FeatureDef(
         code="orders",
@@ -620,8 +659,9 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
     | _PARTNER_CODES
     | _PRODUCTION_CODES
     | _PLAN_CODES
-    # Inventory View; Inventory history is Off until the superadmin allows it.
-    | {"inventory.view"}
+    # Inventory Record and Inventory materials Full; Inventory history is Off until the
+    # superadmin allows it.
+    | {"inventory.view", "inventory.materials_stock", "inventory.materials_manage"}
     # Orders Record, management Full, returns Full.
     | _ORDER_CODES,
     # Workstation features at full access, except the production plan (off: the GM decides who
@@ -633,8 +673,11 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
             "customers": "full",
             "production": "full",
             "production_plan": "off",
-            "inventory": "view",
+            # Record: add and remove material stock; creating / archiving materials is the GM's
+            # to allow.
+            "inventory": "record",
             "inventory_history": "off",
+            "inventory_materials": "off",
             # Orders Record; editing, cancelling and reviewing returns are the GM's to allow.
             "orders": "record",
             "order_management": "off",

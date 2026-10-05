@@ -15,10 +15,12 @@ export function cx(...classes: (string | false | null | undefined)[]): string {
   return classes.filter(Boolean).join(' ')
 }
 
-type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
+type ButtonVariant = 'primary' | 'soft' | 'secondary' | 'danger' | 'ghost'
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary: 'bg-brand-600 text-white hover:bg-brand-700 focus-visible:ring-brand-500',
+  // A lighter brand action, for buttons repeated across a list (e.g. Add on every material card).
+  soft: 'bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-300 hover:bg-brand-100 hover:text-brand-800 focus-visible:ring-brand-500',
   secondary:
     'bg-white text-stone-800 ring-1 ring-inset ring-stone-300 hover:bg-stone-50 focus-visible:ring-brand-500',
   danger: 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500',

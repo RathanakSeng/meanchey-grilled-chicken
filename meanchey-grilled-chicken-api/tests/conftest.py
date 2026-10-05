@@ -34,12 +34,13 @@ os.environ.update(
 import asyncio  # noqa: E402
 import uuid  # noqa: E402
 from collections.abc import AsyncIterator, Awaitable, Callable  # noqa: E402
+from decimal import Decimal  # noqa: E402
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
-from sqlalchemy import select, text  # noqa: E402
+from sqlalchemy import select, text, update  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: E402
 from sqlalchemy.pool import NullPool  # noqa: E402
 
@@ -47,7 +48,7 @@ from app.bootstrap import bootstrap  # noqa: E402
 from app.core.security import create_access_token, hash_password  # noqa: E402
 from app.db import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import Role, User, UserPermission  # noqa: E402
+from app.models import InventoryBalance, Role, User, UserPermission  # noqa: E402
 from app.permissions.registry import DEFAULT_PERMISSIONS  # noqa: E402
 
 DEFAULT_PASSWORD = "correct-horse-1"
@@ -79,12 +80,36 @@ async def _clean_database() -> None:
                 "TRUNCATE audit_logs, refresh_tokens, user_permissions, permissions, users, "
                 "bot_prefs, app_settings, production_batches, production_batch_counters, "
                 "suppliers, customers, role_limits, inventory_movements, inventory_balances, "
-                "orders, order_counters, business_settings "
+                "orders, order_counters, business_settings, inventory_materials "
                 "RESTART IDENTITY CASCADE"
             )
         )
     async with SessionLocal() as session:
         await bootstrap(session)
+        await set_marinade_stock(session, MARINADE_TEST_STOCK_G)
+
+
+# Step 2 Finish takes its marinade_g out of the Marinade sauce material: every test starts with
+# plenty on hand (set on the balance directly, so no history row appears). Marinade tests set
+# their own amounts with set_marinade_stock.
+MARINADE_TEST_STOCK_G = Decimal("1000000.0")
+
+
+async def set_marinade_stock(session: AsyncSession, grams: Decimal) -> None:
+    from app.services.inventory_service import ensure_balances, marinade_material
+
+    material = await marinade_material(session)
+    assert material is not None
+    await ensure_balances(session, [material.item_code])
+    await session.execute(
+        update(InventoryBalance)
+        .where(InventoryBalance.item_code == material.item_code)
+        .values(
+            g=grams if material.unit == "g" else None,
+            kg=None if material.unit == "g" else grams / 1000,
+        )
+    )
+    await session.commit()
 
 
 @pytest.fixture

@@ -45,7 +45,8 @@ async def test_gm_gets_all_phase1_partner_and_production_permissions(client, sup
         | PARTNERS
         | PRODUCTION
         | PLAN
-        | {"inventory.view"}  # not inventory.history (Off)
+        # Inventory Record, Inventory materials Full; not inventory.history (Off).
+        | {"inventory.view", "inventory.materials_stock", "inventory.materials_manage"}
         | ORDERS  # Orders Record, management Full, returns Full
     )
 
@@ -62,7 +63,9 @@ async def test_supervisor_defaults(client, superadmin, make_user) -> None:
         *PARTNERS,
         *(PRODUCTION - {"production.delete"}),  # cancelling batches is GM-only
         # No production plan: Off by default, the GM decides who plans and gets the alerts.
+        # Inventory Record (material stock); managing materials is Off.
         "inventory.view",
+        "inventory.materials_stock",
         # Orders Record; editing, cancelling and reviewing returns are Off.
         "orders.view",
         "orders.create",

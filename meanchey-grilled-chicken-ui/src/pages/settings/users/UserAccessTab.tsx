@@ -120,6 +120,7 @@ export function UserAccessTab({
                     <p className="text-sm text-stone-500">{localized(f, 'description')}</p>
                   </div>
                   <SegmentedControl<FeatureLevel>
+                    fixedColumns
                     slots={slots}
                     unavailableLabel={t('access.levelNotAvailable')}
                     label={localized(f)}

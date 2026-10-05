@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 from app.main import app
 from app.models import AuditLog, Role, User
 from tests.conftest import auth
+from tests.test_business_info import image
 
 SWEEP_PREFIX = "/api/v1"
 
@@ -95,6 +96,23 @@ async def world(client, session, superadmin, make_user) -> dict:
         "/settings/role-limits/staff", json={"max_active": 12}, headers=auth(superadmin)
     )
     assert r.status_code == 200, r.text
+    # A material the superadmin created, stocked and archived; and stock it added to another.
+    glue = await post("/inventory/materials", {"name_km": "កាវ", "name_en": "Glue", "unit": "g"})
+    await post(f"/inventory/materials/{glue['id']}/add", {"quantity": "10"})
+    await post(f"/inventory/materials/{glue['id']}/archive")
+    string = next(
+        m
+        for m in (await client.get("/inventory/materials", headers=auth(superadmin))).json()
+        if m["name_en"] == "String"
+    )
+    await post(f"/inventory/materials/{string['id']}/add", {"quantity": "1"})
+    # An icon the superadmin uploaded (material.update, updated_by).
+    r = await client.put(
+        f"/inventory/materials/{string['id']}/icon",
+        files={"file": ("icon.png", image("PNG", 40, 40), "image/png")},
+        headers=auth(superadmin),
+    )
+    assert r.status_code == 200, r.text
     # Orders the superadmin created (one cancelled by it), with the staff member as driver.
     order_body = {
         "customer_id": customer["id"],
@@ -127,6 +145,7 @@ async def world(client, session, superadmin, make_user) -> dict:
         "planned": planned["id"],
         "planned_version": plan["version"],
         "orders": [order["id"], cancelled["id"]],
+        "string": string,
     }
 
 
@@ -163,6 +182,8 @@ def _fill(path: str, world: dict) -> list[str]:
         return [path.replace("{order_id}", o) for o in world["orders"]]
     if "{item_code}" in path:
         return [path.replace("{item_code}", "chicken")]
+    if "{material_id}" in path:
+        return [path.replace("{material_id}", world["string"]["id"])]
     if "{batch_id}" in path:
         return [path.replace("{batch_id}", world[k]) for k in ("batch", "planned")]
     assert not re.search(r"\{\w+\}", path), f"sweep doesn't know how to fill {path}"
@@ -185,6 +206,9 @@ EXTRA_QUERIES = [
     "/orders?status=cancelled",
     "/orders?q=OR-",
     "/audit-logs?action=order.cancel",
+    "/inventory/materials?include_archived=true",
+    "/inventory/movements?source=material_add",
+    "/audit-logs?action=material.create",
 ]
 
 
@@ -223,6 +247,21 @@ async def test_no_response_reveals_the_superadmin(
             headers=auth(viewer),
         ),
         client.post("/notifications/read-all", headers=auth(viewer)),
+        client.post(
+            f"/inventory/materials/{world['string']['id']}/add",
+            json={"quantity": "1"},
+            headers=auth(viewer),
+        ),
+        client.patch(
+            f"/inventory/materials/{world['string']['id']}",
+            json={"name_en": "String"},
+            headers=auth(viewer),
+        ),
+        client.put(
+            f"/inventory/materials/{world['string']['id']}/icon",
+            files={"file": ("icon.png", image("PNG", 30, 30), "image/png")},
+            headers=auth(viewer),
+        ),
         client.post(f"/orders/{world['orders'][0]}/document/send-telegram", headers=auth(viewer)),
         client.patch(f"/users/{world['staff'].id}", json={"phone": "012"}, headers=auth(viewer)),
         client.patch(f"/users/{sa.id}", json={"full_name": "x"}, headers=auth(viewer)),

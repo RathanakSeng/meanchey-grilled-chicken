@@ -57,6 +57,10 @@ export function StockChangesCard({ batch }: { batch: ProductionBatch }) {
                           {fmt.kg(c.kg_delta, true)}
                         </span>
                       )}
+                      {/* Grams: the marinade step 2 took from Marinade sauce. */}
+                      {c.g_delta !== null && c.g_delta !== undefined && (
+                        <span className={deltaTone(c.g_delta)}>{fmt.g(c.g_delta, true)}</span>
+                      )}
                     </span>
                   </li>
                 ))}

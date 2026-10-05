@@ -1,19 +1,21 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { usePermission } from '@/auth/usePermission'
 import { Icon } from '@/components/icons'
 import { InventoryCardSkeleton, InventoryItemCard } from '@/components/InventoryItemCard'
-import { Alert, PageHeader, cx } from '@/components/ui'
+import { Alert, Button, PageHeader, cx } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useErrorMessage } from '@/lib/errors'
-import { useRelativeTime } from '@/lib/format'
+import { useLocalized, useRelativeTime } from '@/lib/format'
 import { paths } from '@/lib/paths'
-import type { InventoryGroup, InventoryItem, InventoryOverview } from '@/lib/types'
-import { inventoryKeys } from './api'
+import type { InventoryGroup, InventoryItem, InventoryOverview, Material } from '@/lib/types'
+import { inventoryKeys, invalidateInventory } from './api'
 import { HistoryTab } from './HistoryTab'
 import { ItemSheet } from './ItemSheet'
+import { MaterialFormSheet, StockSheet, materialRefOfItem, type MaterialRef } from './MaterialSheets'
+import { useItemPicture } from './materialIcons'
 import { useItemDisplay } from './useItemDisplay'
 
 type Tab = 'stock' | 'history'
@@ -22,8 +24,9 @@ const SECTIONS: InventoryGroup[] = ['raw', 'processed', 'packed', 'wasted']
 const GRID = 'grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-6'
 
 /**
- * Inventory (Workstation): balances updated automatically by production (no manual changes).
- * Tabs: Stock (`?tab=stock&section=raw|processed|packed|wasted`: sub-tabs of item cards; tap a
+ * Inventory (Workstation): balances updated by production and orders, plus **materials** in Raw
+ * (string, skewers, sauces…: stock added / removed by hand with Inventory Record; created, edited
+ * and archived with Inventory materials). Tabs: Stock (`?tab=stock&section=raw|processed|packed|wasted`: sub-tabs of item cards; tap a
  * card for its sheet) and History (`?tab=history`, with its filters; only with inventory.history:
  * without it there is no tab bar and Stock shows directly). The section is kept when switching
  * tabs, so Back and refresh return to the same sub-tab.
@@ -38,6 +41,9 @@ export function InventoryPage() {
   const section: InventoryGroup =
     sectionParam && SECTIONS.includes(sectionParam) ? sectionParam : 'raw'
   const [opened, setOpened] = useState<string | null>(null)
+  // A material's Add sheet straight from its card.
+  const [adding, setAdding] = useState<MaterialRef | null>(null)
+  const [creating, setCreating] = useState(false)
 
   const overview = useQuery({
     queryKey: inventoryKeys.overview,
@@ -82,16 +88,49 @@ export function InventoryPage() {
           section={section}
           onSection={(next) => setSearchParams({ tab: 'stock', section: next }, { replace: true })}
           onOpen={(item) => setOpened(item.code)}
+          onAdd={(item) => setAdding(materialRefOfItem(item))}
+          onCreate={() => setCreating(true)}
         />
       )}
 
       <ItemSheet item={openedItem} onClose={() => setOpened(null)} />
+      <StockSheet material={adding} mode="add" open={adding !== null} onClose={() => setAdding(null)} />
+      {creating && <MaterialFormSheet material={null} open onClose={() => setCreating(false)} />}
     </>
   )
 }
 
 function hasStock(item: InventoryItem): boolean {
-  return (item.count ?? 0) > 0 || Number(item.kg ?? 0) > 0
+  return (item.count ?? 0) > 0 || Number(item.kg ?? 0) > 0 || Number(item.g ?? 0) > 0
+}
+
+/** An archived material as a card item (it isn't in the overview). */
+function archivedItem(m: Material): InventoryItem {
+  return {
+    code: m.item_code,
+    section: 'stock',
+    group: 'raw',
+    name_km: m.name_km,
+    name_en: m.name_en,
+    tracks_count: m.unit === 'count',
+    tracks_kg: m.unit === 'kg',
+    tracks_g: m.unit === 'g',
+    kg_estimated: false,
+    origin: 'manual',
+    count: m.count,
+    kg: m.kg,
+    g: m.g,
+    // When it was archived (its last change).
+    updated_at: m.archived_at ?? m.updated_at,
+    material: {
+      id: m.id,
+      unit: m.unit,
+      system_code: m.system_code,
+      archived: true,
+      icon_key: m.icon_key,
+      icon_url: m.icon_url,
+    },
+  }
 }
 
 /** The four sub-tabs (Raw · Processed · Packed · Wasted) and the selected one's card grid. */
@@ -101,16 +140,45 @@ function StockTab({
   section,
   onSection,
   onOpen,
+  onAdd,
+  onCreate,
 }: {
   items: InventoryItem[]
   loading: boolean
   section: InventoryGroup
   onSection(section: InventoryGroup): void
   onOpen(item: InventoryItem): void
+  onAdd(item: InventoryItem): void
+  onCreate(): void
 }) {
   const { t } = useTranslation()
+  const localized = useLocalized()
+  const errorMessage = useErrorMessage()
+  const queryClient = useQueryClient()
+  const canStock = usePermission('inventory.materials_stock')
+  const canManage = usePermission('inventory.materials_manage')
+  const [showArchived, setShowArchived] = useState(false)
   const allZero = !loading && items.every((i) => !hasStock(i))
-  const shown = items.filter((i) => i.group === section)
+  // Raw: Chicken first, then the materials by name in the UI language.
+  const shown = items
+    .filter((i) => i.group === section)
+    .sort((a, b) =>
+      a.material && b.material ? localized(a).localeCompare(localized(b)) : a.material ? 1 : b.material ? -1 : 0,
+    )
+  const archived = useQuery({
+    queryKey: inventoryKeys.materials({ include_archived: true }),
+    queryFn: async () =>
+      (await api.get<Material[]>('/inventory/materials', { params: { include_archived: true } })).data,
+    enabled: canManage && showArchived && section === 'raw',
+  })
+  const archivedItems = (archived.data ?? [])
+    .filter((m) => m.archived_at !== null)
+    .map(archivedItem)
+    .sort((a, b) => localized(a).localeCompare(localized(b)))
+  const restore = useMutation({
+    mutationFn: async (id: string) => api.post(`/inventory/materials/${id}/restore`),
+    onSuccess: () => invalidateInventory(queryClient),
+  })
 
   return (
     <>
@@ -171,6 +239,29 @@ function StockTab({
         </div>
       </div>
 
+      {section === 'raw' && canManage && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <label className="inline-flex items-center gap-2 text-sm text-stone-700">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+              className="h-4 w-4 rounded border-stone-300 text-brand-600 focus:ring-brand-500"
+            />
+            {t('materials.showArchived')}
+          </label>
+          <Button onClick={onCreate}>
+            <Icon name="plus" width={18} height={18} />
+            {t('materials.newTitle')}
+          </Button>
+        </div>
+      )}
+      {restore.isError && (
+        <Alert tone="error" className="mb-3">
+          {errorMessage(restore.error)}
+        </Alert>
+      )}
+
       <div role="tabpanel">
         {loading ? (
           <ul className={GRID} aria-busy>
@@ -188,27 +279,83 @@ function StockTab({
           <ul className={GRID}>
             {shown.map((item) => (
               <li key={item.code}>
-                <ItemCard item={item} onOpen={onOpen} />
+                <ItemCard item={item} onOpen={onOpen} onAdd={item.material && canStock ? onAdd : undefined} />
               </li>
             ))}
           </ul>
+        )}
+        {section === 'raw' && showArchived && archivedItems.length > 0 && (
+          <>
+            <h3 className="mb-2 mt-6 text-sm font-semibold text-stone-500">{t('materials.archivedTitle')}</h3>
+            <ul className={cx(GRID, 'opacity-60')}>
+              {archivedItems.map((item) => (
+                <li key={item.code}>
+                  <ItemCard
+                    item={item}
+                    onOpen={() => undefined}
+                    action={
+                      <Button
+                        variant="secondary"
+                        block
+                        loading={restore.isPending && restore.variables === item.material?.id}
+                        onClick={() => item.material && restore.mutate(item.material.id)}
+                      >
+                        {t('materials.restore')}
+                      </Button>
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </div>
     </>
   )
 }
 
-function ItemCard({ item, onOpen }: { item: InventoryItem; onOpen(item: InventoryItem): void }) {
+function ItemCard({
+  item,
+  onOpen,
+  onAdd,
+  action,
+}: {
+  item: InventoryItem
+  onOpen(item: InventoryItem): void
+  /** Materials with Inventory Record: a "+ Add" button on the card. */
+  onAdd?(item: InventoryItem): void
+  action?: React.ReactNode
+}) {
   const { t } = useTranslation()
   const relative = useRelativeTime()
   const display = useItemDisplay()
   const d = display(item)
+  const picture = useItemPicture(d.visual)
+  const system = item.material?.system_code
+  const badge =
+    d.visual.badge && d.badgeLabel
+      ? { tone: d.visual.badge, label: d.badgeLabel }
+      : item.material?.archived
+        ? { tone: 'archived' as const, label: t('materials.archivedBadge') }
+        : system
+          ? { tone: 'system' as const, label: t('materials.usedByProduction') }
+          : undefined
 
   return (
     <InventoryItemCard
-      picture={d.visual.picture}
+      picture={picture}
+      icon={d.visual.icon}
       mutedPicture={d.visual.wasted}
-      badge={d.visual.badge && d.badgeLabel ? { tone: d.visual.badge, label: d.badgeLabel } : undefined}
+      badge={badge}
+      action={
+        action ??
+        (onAdd && (
+          <Button variant="soft" block onClick={() => onAdd(item)}>
+            <Icon name="plus" width={16} height={16} />
+            {t('materials.add')}
+          </Button>
+        ))
+      }
       name={d.shortName}
       amount={d.amount}
       secondary={

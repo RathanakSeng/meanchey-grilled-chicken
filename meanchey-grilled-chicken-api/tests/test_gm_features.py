@@ -49,6 +49,7 @@ async def test_superadmin_sees_the_gm_at_full_access(client, superadmin, make_us
                 "production_plan",
                 "inventory",
                 "inventory_history",
+                "inventory_materials",
                 "orders",
                 "order_management",
                 "order_returns",
@@ -58,11 +59,10 @@ async def test_superadmin_sees_the_gm_at_full_access(client, superadmin, make_us
         ("settings", ["staff_management", "business_info"]),
     ]
     features = await _features(client, superadmin, gm)
-    # Full access everywhere, except Inventory (View only: it has no other level), Inventory
-    # history and Business info (Off until the superadmin allows them) and Orders (Record: its
-    # highest level).
+    # Full access everywhere, except Inventory and Orders (Record: their highest level), Inventory
+    # history and Business info (Off until the superadmin allows them).
     assert features.pop("business_info")["current_level"] == "off"
-    assert features.pop("inventory")["current_level"] == "view"
+    assert features.pop("inventory")["current_level"] == "record"
     assert features.pop("inventory_history")["current_level"] == "off"
     assert features.pop("orders")["current_level"] == "record"
     assert {f["current_level"] for f in features.values()} == {"full"}
@@ -146,5 +146,6 @@ async def test_gm_still_manages_supervisors_and_staff(client, make_user) -> None
         "staff_management",
         "staff_access",
         "inventory",
+        "inventory_materials",
     }
     assert (await _set(client, gm, sup, "production", "record")).status_code == 200

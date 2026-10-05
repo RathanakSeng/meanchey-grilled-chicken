@@ -6,7 +6,12 @@ three per by-product: processed (step 2), packed / carried forward (step 3) and 
 The packs and packed by-products are what orders deliver (`ORDERABLE`); packs that come back
 damaged go to the wasted packs, packed by-products to their wasted by-product item.
 A new by-product therefore gets its inventory items automatically; its balance row is created on
-demand (and at startup), so no migration is needed. Marinade is not tracked.
+demand (and at startup), so no migration is needed.
+
+**Materials** (string, skewers, sauces, bags...) are not in this catalog: they live in the
+`inventory_materials` table (created and archived in the app) and become `ItemDef`s at runtime
+(`inventory_service.resolve`), with `origin = manual`, group `raw` and one unit (count, kg or g).
+The Marinade sauce material (`system_code = marinade`) is what step 2's marinade comes from.
 """
 
 from dataclasses import dataclass
@@ -16,8 +21,8 @@ from app.production.catalog import BYPRODUCTS
 
 Section = Literal["stock", "wasted"]
 # `production`: changes only through production (finish / reopen / cancel) and orders (delivery,
-# returns); no manual changes for anyone. `manual`: set by hand
-# (`POST /inventory/items/{code}/set`); none exist yet.
+# returns); no manual changes for anyone. `manual`: materials, whose stock is added and removed
+# by hand (`/inventory/materials/{id}/add|remove`).
 Origin = Literal["production", "manual"]
 # Display groups: stock is raw / processed / packed; wasted is its own group.
 Group = Literal["raw", "processed", "packed", "wasted"]
@@ -33,6 +38,16 @@ WASTED_WINGS = "wasted.wings"
 WASTED_THIGHS = "wasted.thighs"
 WASTED_PACKS_BIG = "wasted.packs_big"
 WASTED_PACKS_SMALL = "wasted.packs_small"
+
+
+# Materials (inventory_materials, by hand): item codes are MATERIAL_PREFIX + 8 hex characters.
+MATERIAL_PREFIX = "material_"
+# The material step 2 uses (its marinade_g), found by its system code.
+MARINADE = "marinade"
+
+
+def is_material(code: str) -> bool:
+    return code.startswith(MATERIAL_PREFIX)
 
 
 def byproduct_processed(code: str) -> str:
@@ -61,6 +76,8 @@ class ItemDef:
     # average piece weight).
     kg_estimated: bool = False
     origin: Origin = "production"
+    # Materials measured in grams (app/inventory/units.py); production items never.
+    tracks_g: bool = False
 
 
 def _items() -> list[ItemDef]:

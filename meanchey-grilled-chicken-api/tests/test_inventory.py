@@ -147,9 +147,12 @@ async def test_each_finish_writes_exactly_its_movements(client, api, supplier, g
     assert set(by_step[1]) == {"chicken"}
     assert delta(1, "chicken") == (10, "25.500")
 
-    assert set(by_step[2]) == {"chicken", "wings", "thighs"} | {
+    marinade = next(code for code in by_step[2] if code.startswith("material_"))
+    assert set(by_step[2]) == {"chicken", "wings", "thighs", marinade} | {
         f"byproduct_processed.{c}" for c in BYPRODUCTS
     }
+    # Step 2 also takes its marinade (350.0 g) out of Marinade sauce (test_materials.py).
+    assert by_step[2][marinade]["g_delta"] == "-350.0"
     assert delta(2, "chicken") == (-10, "-25.500")
     assert delta(2, "wings") == (20, "4.200")
     assert delta(2, "thighs") == (20, "6.800")
@@ -289,8 +292,10 @@ async def test_negative_guard_refuses_finish_reopen_and_cancel(
             "name_km": "មាន់",
             "available_count": 5,
             "available_kg": "25.500",
+            "available_g": None,
             "needed_count": 10,
             "needed_kg": "25.500",  # both units are reported; only the count is short
+            "needed_g": None,
         }
     ]
     assert_error(await api.reopen(batch, "raw-material"), 409, "INVENTORY_INSUFFICIENT")
@@ -347,8 +352,11 @@ async def test_production_items_are_never_set_by_hand(
     )
 
 
-async def test_every_item_comes_from_production(client, gm) -> None:
-    assert {i["origin"] for i in (await stock(client, gm)).values()} == {"production"}
+async def test_every_catalog_item_comes_from_production(client, gm) -> None:
+    """Catalog items are production items; the manual ones are the materials (Raw)."""
+    items = (await stock(client, gm)).values()
+    assert {i["origin"] for i in items if not i["code"].startswith("material_")} == {"production"}
+    assert {i["origin"] for i in items if i["code"].startswith("material_")} == {"manual"}
 
 
 async def test_adjust_permission_and_feature_are_gone(client, superadmin, gm, session) -> None:
@@ -475,14 +483,19 @@ def test_registry() -> None:
     inv = registry.FEATURES_BY_CODE["inventory"]
     hist = registry.FEATURES_BY_CODE["inventory_history"]
     assert inv.menu == hist.menu == "workstation"
-    assert inv.level_map == {"off": frozenset(), "view": {"inventory.view"}}
+    assert inv.level_map == {
+        "off": frozenset(),
+        "view": {"inventory.view"},
+        "record": {"inventory.view", "inventory.materials_stock"},
+    }
     assert hist.applies_to == (Role.GENERAL_MANAGER, Role.SUPERVISOR)
     assert hist.level_map == {"off": frozenset(), "view": {"inventory.history"}}
     assert hist.grantor_must_hold is True
     d = registry.DEFAULT_PERMISSIONS
-    assert "inventory.view" in d[Role.GENERAL_MANAGER]
+    assert {"inventory.view", "inventory.materials_stock"} <= d[Role.GENERAL_MANAGER]
     assert "inventory.history" not in d[Role.GENERAL_MANAGER]  # Off by default
     assert d[Role.SUPERVISOR] & {"inventory.view", "inventory.history"} == {"inventory.view"}
+    assert "inventory.materials_stock" in d[Role.SUPERVISOR]
     assert not d[Role.STAFF]
 
 
@@ -498,7 +511,7 @@ async def test_access_levels(client, superadmin, make_user) -> None:
         for m in ok(await client.get(f"/users/{gm.id}/features", headers=auth(superadmin)))["menus"]
         for f in m["features"]
     }
-    assert features["inventory"]["current_level"] == "view"
+    assert features["inventory"]["current_level"] == "record"
     assert features["inventory_history"]["current_level"] == "off"
 
     # A supervisor (Staff access) gives staff Inventory View, within its own access.

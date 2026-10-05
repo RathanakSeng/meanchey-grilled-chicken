@@ -6,6 +6,7 @@ import { Alert, Badge, Button, Card, EmptyState, PageHeader, Select, Spinner } f
 import { Icon } from '@/components/icons'
 import { api } from '@/lib/api'
 import { paths } from '@/lib/paths'
+import { useQuantityFormat, type QuantityUnit } from '@/lib/quantity'
 import { useErrorMessage } from '@/lib/errors'
 import { useFormatDate, useLocalized } from '@/lib/format'
 import { useAuth } from '@/auth/AuthProvider'
@@ -48,6 +49,12 @@ const ACTIONS = [
   'order.delivered',
   'order.returns_reviewed',
   'order.document_printed',
+  'material.create',
+  'material.update',
+  'material.archive',
+  'material.restore',
+  'material.stock_add',
+  'material.stock_remove',
   // A GM given Business info sees its own changes.
   'settings.business_update',
 ]
@@ -55,7 +62,7 @@ const ACTIONS = [
 const SUPERADMIN_ACTIONS = ['settings.role_limit_update']
 // Detailed permission entries are listed by the API for the superadmin only.
 const PERMISSION_ACTIONS = ['permission.grant', 'permission.revoke']
-const ENTITY_TYPES = ['supplier', 'customer', 'production_batch', 'order'] as const
+const ENTITY_TYPES = ['supplier', 'customer', 'production_batch', 'order', 'material'] as const
 const STEP_LABELS = ['production.steps.rawMaterial', 'production.steps.produced', 'production.steps.standardize']
 const PAGE_SIZE = 50
 
@@ -158,6 +165,27 @@ function InventoryAdjust({ details }: { details: Record<string, unknown> }) {
   )
 }
 
+/** "+1.000 kg" / "−0.250 kg — Broken", with the balance after. */
+function MaterialStock({ details, removed }: { details: Record<string, unknown>; removed: boolean }) {
+  const { t } = useTranslation()
+  const format = useQuantityFormat()
+  const unit = (details.unit as QuantityUnit | undefined) ?? 'count'
+  const quantity = Number(details.quantity ?? 0)
+  return (
+    <span className="block text-sm text-stone-700">
+      <span className={removed ? 'font-medium text-red-700' : 'font-medium text-green-700'}>
+        {format(removed ? -quantity : quantity, unit, true)}
+      </span>
+      {typeof details.reason === 'string' && <span className="text-stone-500"> — {details.reason}</span>}
+      {details.balance_after !== undefined && (
+        <span className="block text-xs text-stone-500">
+          {t('inventory.balanceAfter', { value: format(String(details.balance_after), unit) })}
+        </span>
+      )}
+    </span>
+  )
+}
+
 function Details({ log }: { log: AuditLog }) {
   const { t } = useTranslation()
   const d = log.details
@@ -214,6 +242,24 @@ function Details({ log }: { log: AuditLog }) {
         {typeof d.reason === 'string' && (
           <span className="block text-xs text-stone-500">{t('audit.cancelReason', { reason: d.reason })}</span>
         )}
+      </span>
+    )
+  }
+  if (log.action === 'material.stock_add' || log.action === 'material.stock_remove') {
+    return <MaterialStock details={d} removed={log.action === 'material.stock_remove'} />
+  }
+  if (log.action === 'material.update') {
+    // {field: [old, new]}, or icon: "changed" / "removed".
+    const changes = (d.changes ?? {}) as Record<string, [unknown, unknown] | string>
+    return (
+      <span className="block text-sm text-stone-700">
+        {Object.entries(changes).map(([field, value]) => (
+          <span key={field} className="block">
+            {typeof value === 'string'
+              ? t(value === 'removed' ? 'materials.iconRemovedAudit' : 'materials.iconChangedAudit')
+              : `${t(`materials.auditFields.${field}`, { defaultValue: field })}: ${String(value[0] ?? '—')} → ${String(value[1] ?? '—')}`}
+          </span>
+        ))}
       </span>
     )
   }

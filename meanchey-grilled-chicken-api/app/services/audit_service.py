@@ -6,7 +6,16 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, aliased
 
-from app.models import AuditLog, Customer, Order, ProductionBatch, Role, Supplier, User
+from app.models import (
+    AuditLog,
+    Customer,
+    InventoryMaterial,
+    Order,
+    ProductionBatch,
+    Role,
+    Supplier,
+    User,
+)
 
 # entity_type -> the column naming records of that type (the entity name in listings).
 ENTITY_LABELS: dict[str, InstrumentedAttribute[str]] = {
@@ -14,6 +23,7 @@ ENTITY_LABELS: dict[str, InstrumentedAttribute[str]] = {
     "customer": Customer.name,
     "production_batch": ProductionBatch.code,
     "order": Order.code,
+    "material": InventoryMaterial.name_en,
 }
 
 

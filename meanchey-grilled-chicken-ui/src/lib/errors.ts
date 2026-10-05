@@ -33,8 +33,10 @@ interface InventoryShort {
   name_km: string
   available_count: number | null
   available_kg: string | null
+  available_g?: string | null
   needed_count: number | null
   needed_kg: string | null
+  needed_g?: string | null
 }
 
 /** The unit that is short (count first), e.g. "Chicken: 0 available, 50 needed". */
@@ -42,12 +44,19 @@ function shortLine(t: TFunction, item: InventoryShort, lang: 'km' | 'en'): strin
   const name = (lang === 'km' ? item.name_km : item.name_en) || item.name_en
   const countShort =
     item.needed_count !== null && (item.available_count ?? 0) < item.needed_count
+  // Materials measured in grams (e.g. Marinade sauce at step 2).
+  const gramsShort = item.needed_g !== null && item.needed_g !== undefined
   const [available, needed] = countShort
     ? [String(item.available_count ?? 0), String(item.needed_count)]
-    : [
-        t('inventory.kgValue', { value: Number(item.available_kg ?? 0) }),
-        t('inventory.kgValue', { value: Number(item.needed_kg ?? 0) }),
-      ]
+    : gramsShort
+      ? [
+          t('inventory.gValue', { value: Number(item.available_g ?? 0).toFixed(1) }),
+          t('inventory.gValue', { value: Number(item.needed_g ?? 0).toFixed(1) }),
+        ]
+      : [
+          t('inventory.kgValue', { value: Number(item.available_kg ?? 0) }),
+          t('inventory.kgValue', { value: Number(item.needed_kg ?? 0) }),
+        ]
   return t('errors.inventoryShortItem', { name, available, needed })
 }
 
