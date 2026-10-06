@@ -263,6 +263,25 @@ function Details({ log }: { log: AuditLog }) {
       </span>
     )
   }
+  if (log.action === 'order.update') {
+    // {field: {from, to}}; boxes are listed by name only.
+    const changes = (d.changes ?? {}) as Record<string, { from: unknown; to: unknown }>
+    const value = (field: string, v: unknown) => {
+      if (v === null || v === undefined || v === '') return '—'
+      if (field === 'customer_type') return t(`orders.customerTypes.${String(v)}`)
+      return String(v)
+    }
+    return (
+      <span className="block text-sm text-stone-700">
+        {Object.entries(changes).map(([field, change]) => (
+          <span key={field} className="block">
+            {t(`orders.auditFields.${field}`, { defaultValue: field })}
+            {field !== 'boxes' && `: ${value(field, change?.from)} → ${value(field, change?.to)}`}
+          </span>
+        ))}
+      </span>
+    )
+  }
   if (log.action === 'order.document_printed') {
     const copy = Number(d.copy)
     return (

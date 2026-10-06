@@ -128,6 +128,11 @@ TEXTS: dict[str, dict[Language, str]] = {
         Language.KM: "🧾 បើកការបញ្ជាទិញ",
         Language.EN: "🧾 Open order",
     },
+    # The customer of a direct order (no saved customer, so no name).
+    "direct_order": {
+        Language.KM: "ការបញ្ជាទិញផ្ទាល់ · {phone}",
+        Language.EN: "Direct order · {phone}",
+    },
     # Caption of a delivery note sent from the order page ("Send to my Telegram").
     "document_caption": {
         Language.KM: "🧾 ប័ណ្ណដឹកជញ្ជូន <b>{code}</b> · {customer}",

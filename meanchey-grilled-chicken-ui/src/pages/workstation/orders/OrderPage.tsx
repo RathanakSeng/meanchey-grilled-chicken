@@ -15,7 +15,7 @@ import { fetchPdf, printPdf, tabForPdf } from '@/lib/pdf'
 import { isTelegramMiniApp } from '@/lib/telegram'
 import { ORDER_REASON_MAX_LENGTH, type DocumentSent, type Order, type UserRef } from '@/lib/types'
 import { amountOf, invalidateOrders, orderKeys, useAmountFormat, useQuantityFormat } from './api'
-import { BoxColorLabel, OrderStatusBadge } from './badges'
+import { BoxColorLabel, DirectOrderBadge, OrderCustomerName, OrderStatusBadge, customerText, telHref } from './badges'
 import { DeliveredSheet, ReviewSheet, type DeliveredBody, type ReviewBody } from './OrderSheets'
 import { OrderSummaryView, fromApi } from './OrderSummaryView'
 
@@ -333,7 +333,7 @@ export function OrderPage() {
         subtitle={
           <span className="flex flex-wrap items-center gap-1.5">
             <OrderStatusBadge status={order.status} />
-            <span>{order.customer.name}</span>
+            <OrderCustomerName customer={order.customer} />
           </span>
         }
         actions={
@@ -409,9 +409,13 @@ export function OrderPage() {
           <Card>
             <dl className="space-y-2">
               <InfoRow label={t('orders.fields.customer')}>
-                <span className="font-medium">{order.customer.name}</span>
+                {order.customer.type === 'direct' ? (
+                  <DirectOrderBadge />
+                ) : (
+                  <span className="font-medium">{order.customer.name}</span>
+                )}
                 {order.customer.phone_display && (
-                  <a href={`tel:${order.customer.phone_display.replace(/\s+/g, '')}`} className="ml-2 tabular-nums text-brand-700 hover:underline">
+                  <a href={telHref(order.customer.phone_display)} className="ml-2 tabular-nums text-brand-700 hover:underline">
                     {order.customer.phone_display}
                   </a>
                 )}
@@ -473,7 +477,7 @@ export function OrderPage() {
       <ConfirmDialog
         open={sheet === 'delivering'}
         title={t('orders.startDeliveryTitle', { code: order.code })}
-        body={t('orders.startDeliveryBody', { boxes: order.boxes.length, customer: order.customer.name })}
+        body={t('orders.startDeliveryBody', { boxes: order.boxes.length, customer: customerText(t, order.customer) })}
         confirmLabel={t('orders.startDelivery')}
         loading={action.isPending}
         error={sheetError}

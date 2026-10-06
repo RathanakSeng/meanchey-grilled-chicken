@@ -112,7 +112,8 @@ src/
 │   │   └── orders/        # OrderListPage, OrderPage, OrderFormPage (lazy: one chunk each), OrderSheets
 │   │                      #   (Mark delivered, Review return), OrderSummaryView (per colour + total, stock
 │   │                      #   warnings; shared by the form's live summary and the page), CustomerPicker,
-│   │                      #   badges (status, box swatch / counts), api.ts (orderKeys, invalidateOrders,
+│   │                      #   badges (status, box swatch / counts, OrderCustomerName / DirectOrderBadge /
+│   │                      #   customerText / telHref), api.ts (orderKeys, invalidateOrders,
 │   │                      #   integer amounts: parseAmount / amountOf / toApi, formatting)
 │   │   └── production-plans/ # PlanListPage, PlanPage (lazy), PlanBadge, api.ts (planKeys, pending count:
 │   │                      #   outside the lazy chunk because the nav badge uses it)
@@ -239,7 +240,7 @@ sequenceDiagram
         :batchId                     PlanPage (lazy)
       inventory                      RequireAccess inventory.view → InventoryPage           (lazy, ?tab=stock&section=raw|processed|packed|wasted · ?tab=history&item&area&source&from&to&batch&page; `area` = the stock / wasted filter, `section` stays the Stock sub-tab)
       orders                         RequireAccess orders.view
-        index                        OrderListPage (lazy, ?status=&customer=&from=&to=&q=&page=)
+        index                        OrderListPage (lazy, ?status=&type=&customer=&from=&to=&q=&page=)
         new                          RequireAccess orders.create → OrderFormPage(create) (lazy)
         :orderId                     OrderPage (lazy)
         :orderId/edit                RequireAccess orders.update → OrderFormPage(edit) (lazy)
@@ -376,7 +377,7 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 | `['orders', params]` | `GET /orders` (`keepPreviousData`) |
 | `['orders-stats']` | `GET /orders/stats` (KPI cards) |
 | `['order', id]` | `GET /orders/{id}`; written with `setQueryData` by every save and action (and from `details.order` on `ORDER_CONFLICT`) |
-| `['orders-customer-options', q]` | `GET /orders/customer-options` (customer picker while open; the list's customer filter with `''`) |
+| `['orders-customer-options', q]` | `GET /orders/customer-options` (`{id, name, phone_display, location}`; customer picker while open; the list's customer filter with `''`) |
 | `['orders-driver-options']` | `GET /orders/driver-options` (form) |
 | `['orders-available-stock']` | `GET /orders/available-stock` (form: item options, live summary warnings) |
 | `['business-settings']` | `GET /settings/business` (Business info page); written with `setQueryData` by Save, logo upload and remove |
@@ -588,6 +589,7 @@ The page brings the KPI cards (`KpiGrid`), URL-driven filters (`?q&deactivated=1
 | Delivery notes as API-made PDFs, printed or sent to Telegram | Inside Telegram's WebView `window.print()` and downloads don't work reliably, and browser printing of a web page gives A4 with headers. The API renders an 80 mm receipt PDF; the PC prints it from a hidden frame, phones open it in a tab, and the Mini App has the bot send it to the person's chat, from where it can be printed or forwarded. |
 | PDFs through the API client, not links | The routes need the bearer token (tokens live in `localStorage`, not cookies), so a plain `<a href>` can't open them; fetching a blob keeps auth, refresh and error translation in one place. |
 | One quantity rule shared with the API | Count, kg (3 decimals) and g (1 decimal) are parsed, previewed and formatted by one module (`lib/quantity.ts`) that mirrors the API's `units.py`, so a value the form accepts is a value the API accepts, and every screen shows a unit the same way. |
+| Order customer from the API's snapshot, both types in one shape | `Order.customer` is `{type: saved \| direct, id, name, phone, phone_display, location, is_active}` (`id` / `name` null for direct orders), the order's own copy (API FEATURES §19.2). Every screen renders it through `badges.tsx`: `OrderCustomerName` (name, or the **Direct order** badge + phone) in the list, cards and header, `customerText(t, customer)` for one-line texts (Start delivery confirmation), `telHref` for call links; the bell uses the alert payload (`customer` null → `orders.directOrderWithPhone` with `customer_phone`). The order form keeps `customerType`, the picked customer **and** the direct `phone` / `location` in its state, so switching the type loses nothing; `customerBody(form)` sends only the selected one (`{customer_type: saved, customer_id}` / `{customer_type: direct, phone, location}`). The phone check reuses `partners/validation.compactPhone` and the API's limits (`PHONE_MIN_DIGITS` / `PHONE_MAX_DIGITS`); a server `INVALID_PHONE` is shown under the field instead of the form-level alert. |
 | Uploaded material icons fetched as blobs, cached by URL | The icon route is guarded like the rest of the inventory (bearer token), so `<img src>` can't load it directly. A versioned `icon_url` lets the blob be cached for the session without any invalidation logic: a new upload is a new URL. Default materials ship their own SVGs so a fresh install looks finished without uploads. |
 | Material actions on the card and in the sheet | Adding stock is the frequent action (deliveries of string, bags, sauce), so it's one tap on the card with quick chips; removing needs a reason and editing / archiving is rare, so they live in the item sheet and its ⋮ menu. |
 | Back = parent route, not history | Mini App sessions often start from a deep link with no history. The route structure always gives a meaningful "up". |

@@ -393,7 +393,8 @@ export interface AppNotification {
   entity_id: string
   /** processing_finished: {code, quantity, wings, thighs, repeat};
    * completed: {code, matches, planned_big, planned_small, actual_big, actual_small, comment, repeat};
-   * order.*: {code, customer, white, black (delivering), returned + reason (return_pending),
+   * order.*: {code, customer (null for a direct order), customer_type, customer_phone (readable),
+   * white, black (delivering), returned + reason (return_pending),
    * outcome + to_stock + to_wasted (returns_reviewed)}; items are OrderAlertItem[]. */
   payload: Record<string, unknown>
   actor: UserRef | null
@@ -636,12 +637,21 @@ export interface StockWarning extends OrderItemRef {
   needed_kg: string | null
 }
 
+/** saved: a customer from Customers; direct: no saved customer, a phone (+ location) for this order. */
+export type OrderCustomerType = 'saved' | 'direct'
+
+/** The order's customer, from its snapshot (frozen from Delivering on). A direct order has no id
+ * and no name (shown as "Direct order") but always a phone. */
 export interface CustomerBrief {
-  id: string
-  name: string
+  type: OrderCustomerType
+  id: string | null
+  name: string | null
+  /** Normalized: digits with an optional leading +. */
+  phone: string | null
   phone_display: string | null
   location: string | null
-  is_active: boolean
+  /** The saved customer's current status; null for direct orders. */
+  is_active: boolean | null
 }
 
 export interface Order {
@@ -701,6 +711,7 @@ export interface CustomerOption {
   id: string
   name: string
   phone_display: string | null
+  location: string | null
 }
 
 export interface DriverOption {

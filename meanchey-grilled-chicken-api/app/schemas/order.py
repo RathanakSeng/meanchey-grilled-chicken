@@ -12,6 +12,7 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.models.order import ORDER_NOTE_MAX_LENGTH, ORDER_REASON_MAX_LENGTH
+from app.models.partner import PARTNER_LOCATION_MAX_LENGTH
 from app.schemas.common import UserRef
 from app.schemas.inventory import KgOut
 
@@ -41,6 +42,10 @@ OrderListStatus = Literal[
     "cancelled",
 ]
 BoxColor = Literal["white", "black"]
+CustomerType = Literal["saved", "direct"]
+# Raw input: normalized (phone) / trimmed (location) by the service.
+Phone = Annotated[str, Field(max_length=40)]
+Location = Annotated[str, Field(max_length=PARTNER_LOCATION_MAX_LENGTH)]
 Unit = Literal["count", "kg"]
 Version = Annotated[int, Field(ge=1)]
 CountIn = Annotated[int, Field(ge=0, le=MAX_ORDER_COUNT)]
@@ -80,7 +85,13 @@ class OrderBoxIn(_Body):
 
 
 class OrderFields(_Body):
-    customer_id: uuid.UUID
+    """The customer: `{customer_type: "saved", customer_id}` or
+    `{customer_type: "direct", phone, location?}` (services/order_service.py checks the pairs)."""
+
+    customer_type: CustomerType = "saved"
+    customer_id: uuid.UUID | None = None
+    phone: Phone | None = None
+    location: Location | None = None
     # Default: today (BUSINESS_TIMEZONE).
     delivery_date: date | None = None
     driver_id: uuid.UUID | None = None
@@ -93,10 +104,16 @@ class OrderCreate(OrderFields):
 
 
 class OrderUpdate(_Body):
-    """Partial: only the fields present are changed; `boxes` replaces every box and line."""
+    """Partial: only the fields present are changed; `boxes` replaces every box and line.
+
+    The customer is replaced as a whole when `customer_type` or `customer_id` is sent (like
+    create; the type defaults to saved); `phone` / `location` alone edit a direct order."""
 
     version: Version
+    customer_type: CustomerType | None = None
     customer_id: uuid.UUID | None = None
+    phone: Phone | None = None
+    location: Location | None = None
     delivery_date: date | None = None
     driver_id: uuid.UUID | None = None
     note: Annotated[str, Field(max_length=ORDER_NOTE_MAX_LENGTH)] | None = None
@@ -143,11 +160,18 @@ class ReviewIn(_Body):
 
 
 class CustomerBrief(BaseModel):
-    id: uuid.UUID
-    name: str
+    """The order's customer, from its snapshot (frozen from Delivering on). Direct orders have no
+    `id` and no `name` ("Direct order") but always a phone."""
+
+    type: CustomerType
+    id: uuid.UUID | None
+    name: str | None
+    # Normalized (digits, optional leading +), and readable.
+    phone: str | None
     phone_display: str | None
     location: str | None
-    is_active: bool
+    # The saved customer's current status (null for direct orders).
+    is_active: bool | None
 
 
 class _ItemRef(BaseModel):
@@ -280,6 +304,7 @@ class CustomerOption(BaseModel):
     id: uuid.UUID
     name: str
     phone_display: str | None
+    location: str | None
 
 
 class DriverOption(BaseModel):

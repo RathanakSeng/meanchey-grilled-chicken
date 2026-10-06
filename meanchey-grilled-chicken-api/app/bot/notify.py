@@ -67,10 +67,17 @@ def _items_text(lang: Language, items: list[dict[str, Any]] | None) -> str:
     return ", ".join(parts) if parts else t(lang, "order_nothing")
 
 
+def customer_text(lang: Language, name: str | None, phone: str | None) -> str:
+    """The order's customer, escaped: the name, or "Direct order · 012 345 678" without one."""
+    if name:
+        return escape(name)
+    return t(lang, "direct_order", phone=escape(phone or "—"))
+
+
 def _order_message(row: Notification, lang: Language) -> str:
     p: dict[str, Any] = row.payload
     code = escape(str(p.get("code", "")))
-    customer = escape(str(p.get("customer", "")))
+    customer = customer_text(lang, p.get("customer"), p.get("customer_phone"))
     if row.type == ORDER_DELIVERING:
         return t(
             lang,
@@ -223,11 +230,24 @@ async def deliver(ids: list[uuid.UUID], runtime: TelegramRuntime | None) -> None
 
 
 async def send_document(
-    bot: Bot, user: User, data: bytes, filename: str, code: str, customer: str
+    bot: Bot,
+    user: User,
+    data: bytes,
+    filename: str,
+    code: str,
+    customer: str | None,
+    phone: str | None,
 ) -> None:
-    """Send a PDF to `user`'s linked chat, captioned in their language. Raises on failure."""
+    """Send a PDF to `user`'s linked chat, captioned in their language. Raises on failure.
+
+    `customer` / `phone`: the order's snapshot (no name for a direct order)."""
     assert user.telegram_user_id is not None
-    caption = t(user.language, "document_caption", code=escape(code), customer=escape(customer))
+    caption = t(
+        user.language,
+        "document_caption",
+        code=escape(code),
+        customer=customer_text(user.language, customer, phone),
+    )
     await bot.send_document(
         user.telegram_user_id,
         BufferedInputFile(data, filename=filename),

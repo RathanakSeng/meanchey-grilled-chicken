@@ -37,6 +37,8 @@ def kind_for(order: dict[str, Any]) -> DocumentKind:
 # Every label of the document: Khmer, with the English under it.
 LABELS: dict[str, tuple[str, str]] = {
     "customer": ("អតិថិជន", "Customer"),
+    # A direct order has no saved customer (no name): this stands in for it.
+    "direct_order": ("ការបញ្ជាទិញផ្ទាល់", "Direct order"),
     "phone": ("ទូរស័ព្ទ", "Phone"),
     "location": ("ទីតាំង", "Location"),
     "delivery_date": ("ថ្ងៃដឹកជញ្ជូន", "Delivery date"),

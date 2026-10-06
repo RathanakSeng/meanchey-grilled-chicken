@@ -12,10 +12,10 @@ import { api } from '@/lib/api'
 import { useErrorMessage } from '@/lib/errors'
 import { useFormatDay } from '@/lib/format'
 import { paths } from '@/lib/paths'
-import type { CustomerOption, OrderListItem, OrderStats, Page } from '@/lib/types'
+import type { CustomerOption, OrderCustomerType, OrderListItem, OrderStats, Page } from '@/lib/types'
 import { useDebounced } from '@/lib/useDebounced'
 import { orderKeys } from './api'
-import { BoxCounts, OrderStatusBadge } from './badges'
+import { BoxCounts, OrderCustomerName, OrderStatusBadge } from './badges'
 
 // Chips; "completed" = success, partly or fully returned.
 const STATUSES = ['all', 'created', 'delivering', 'return_pending', 'completed', 'cancelled'] as const
@@ -71,10 +71,27 @@ function CustomerFilter({ value, onChange }: { value: string; onChange(id: strin
   )
 }
 
+const CUSTOMER_TYPES: OrderCustomerType[] = ['saved', 'direct']
+
+/** All · Saved customers · Direct orders. */
+function CustomerTypeFilter({ value, onChange }: { value: string; onChange(type: string | null): void }) {
+  const { t } = useTranslation()
+  return (
+    <Select aria-label={t('orders.filters.customerType')} value={value} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">{t('orders.filters.allCustomerTypes')}</option>
+      {CUSTOMER_TYPES.map((type) => (
+        <option key={type} value={type}>
+          {t(`orders.filters.customerTypes.${type}`)}
+        </option>
+      ))}
+    </Select>
+  )
+}
+
 /**
  * Orders: figures (Created · Delivering · Return pending · Delivered this month), status chips,
  * customer and delivery-date filters and search, all in the URL
- * (?status=&customer=&from=&to=&q=&page=). Cards on phones, a table on desktop.
+ * (?status=&type=&customer=&from=&to=&q=&page=). Cards on phones, a table on desktop.
  */
 export function OrderListPage() {
   const { t } = useTranslation()
@@ -90,6 +107,8 @@ export function OrderListPage() {
   const statusParam = searchParams.get('status') as ListStatus | null
   const status: ListStatus = statusParam && STATUSES.includes(statusParam) ? statusParam : 'all'
   const customer = searchParams.get('customer') ?? ''
+  const typeParam = searchParams.get('type') as OrderCustomerType | null
+  const customerType = typeParam && CUSTOMER_TYPES.includes(typeParam) ? typeParam : ''
   const dateFrom = searchParams.get('from') ?? ''
   const dateTo = searchParams.get('to') ?? ''
   const page = Math.max(1, Number(searchParams.get('page')) || 1)
@@ -118,7 +137,7 @@ export function OrderListPage() {
     if (urlQ.trim() !== search) setQ(urlQ)
   }, [urlQ])
 
-  const filtersActive = Boolean(status !== 'all' || customer || dateFrom || dateTo || urlQ.trim())
+  const filtersActive = Boolean(status !== 'all' || customer || customerType || dateFrom || dateTo || urlQ.trim())
   const clearFilters = () => {
     setQ('')
     setSearchParams({}, { replace: true })
@@ -126,6 +145,7 @@ export function OrderListPage() {
 
   const params = {
     status,
+    customer_type: customerType || undefined,
     customer_id: customer || undefined,
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
@@ -184,8 +204,10 @@ export function OrderListPage() {
         ))}
       </div>
 
-      <div className={cx('mb-4 grid gap-2', canPickCustomers ? 'xl:grid-cols-[1fr_16rem_auto]' : 'xl:grid-cols-[1fr_auto]')}>
-        <div className="relative">
+      <div className={cx('mb-4 grid gap-2', canPickCustomers && customerType !== 'direct'
+            ? 'sm:grid-cols-2 xl:grid-cols-[1fr_12rem_16rem_auto]'
+            : 'sm:grid-cols-2 xl:grid-cols-[1fr_12rem_auto]')}>
+        <div className="relative sm:col-span-2 xl:col-span-1">
           <Icon
             name="search"
             width={16}
@@ -201,7 +223,14 @@ export function OrderListPage() {
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
-        {canPickCustomers && <CustomerFilter value={customer} onChange={(id) => update({ customer: id })} />}
+        {/* Direct orders have no saved customer: picking them clears the customer filter. */}
+        <CustomerTypeFilter
+          value={customerType}
+          onChange={(type) => update(type === 'direct' ? { type, customer: null } : { type })}
+        />
+        {canPickCustomers && customerType !== 'direct' && (
+          <CustomerFilter value={customer} onChange={(id) => update({ customer: id })} />
+        )}
         <div
           role="group"
           aria-label={t('orders.filters.deliveryDate')}
@@ -275,7 +304,9 @@ export function OrderListPage() {
                   <span className="flex items-start justify-between gap-2">
                     <span className="min-w-0">
                       <span className="block font-semibold tabular-nums text-stone-900">{item.code}</span>
-                      <span className="block truncate text-sm text-stone-700">{item.customer.name}</span>
+                      <span className="block truncate text-sm text-stone-700">
+                        <OrderCustomerName customer={item.customer} />
+                      </span>
                     </span>
                     <OrderStatusBadge status={item.status} />
                   </span>
@@ -320,7 +351,9 @@ export function OrderListPage() {
                         {item.code}
                       </Link>
                     </td>
-                    <td className="px-4 py-3">{item.customer.name}</td>
+                    <td className="px-4 py-3">
+                      <OrderCustomerName customer={item.customer} />
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums">{formatDay(item.delivery_date)}</td>
                     <td className="px-4 py-3">{driverName(item) ?? <span className="text-stone-400">—</span>}</td>
                     <td className="px-4 py-3">

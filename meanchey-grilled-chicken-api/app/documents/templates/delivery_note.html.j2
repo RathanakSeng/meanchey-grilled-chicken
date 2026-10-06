@@ -64,7 +64,7 @@
 </table>
 <div class="rule"></div>
 <table class="facts">
-  <tr><th>{{ label("customer") }}</th><td class="strong">{{ order.customer }}</td></tr>
+  <tr><th>{{ label("customer") }}</th><td class="strong">{% if order.customer %}{{ order.customer }}{% else %}{{ label("direct_order") }}{% endif %}</td></tr>
   {% if order.customer_phone %}<tr><th>{{ label("phone") }}</th><td>{{ order.customer_phone }}</td></tr>{% endif %}
   {% if order.customer_location %}<tr><th>{{ label("location") }}</th><td>{{ order.customer_location }}</td></tr>{% endif %}
   <tr><th>{{ label("delivery_date") }}</th><td>{{ order.delivery_date }}</td></tr>

@@ -11,11 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.notify import api_bot, deliver, send_document
 from app.core.errors import AppError, ErrorCode
+from app.core.phones import format_phone
 from app.deps import SessionDep, require_any_permission, require_permission
-from app.models import Customer, Order, User
+from app.models import Order, User
 from app.schemas.order import (
     AvailableItem,
     CustomerOption,
+    CustomerType,
     DeliveredIn,
     DocumentSentOut,
     DriverOption,
@@ -64,6 +66,7 @@ async def list_orders(
     _: CanView,
     session: SessionDep,
     status: OrderListStatus = "all",
+    customer_type: CustomerType | None = None,
     customer_id: uuid.UUID | None = None,
     driver_id: uuid.UUID | None = None,
     date_from: date | None = None,
@@ -73,10 +76,13 @@ async def list_orders(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> OrderPage:
     """Newest delivery date first. `status=completed`: success, partly and fully returned.
-    `date_from` / `date_to` filter the delivery date; `q` matches the code and the customer."""
+    `customer_type`: saved or direct orders; `customer_id`: one saved customer. `date_from` /
+    `date_to` filter the delivery date; `q` matches the code and the order's customer name,
+    location and phone digits ("012 345" finds 012345678)."""
     items, total = await svc.list_orders(
         session,
         status=status,
+        customer_type=customer_type,
         customer_id=customer_id,
         driver_id=driver_id,
         date_from=date_from,
@@ -238,11 +244,10 @@ async def send_document_to_telegram(
         order, pdf, number = await document_service.print_order(
             session, actor, order_id, "telegram"
         )
-        customer = await session.get(Customer, order.customer_id)
         code, actor_id = order.code, actor.id
+        name, phone = order.customer_name, format_phone(order.customer_phone)
         try:
-            name = customer.name if customer else ""
-            await send_document(bot, actor, pdf, f"{code}.pdf", code, name)
+            await send_document(bot, actor, pdf, f"{code}.pdf", code, name, phone)
         except Exception as e:
             await session.rollback()  # nothing counted or audited
             log.warning("Sending delivery note %s to user %s failed: %s", code, actor_id, e)

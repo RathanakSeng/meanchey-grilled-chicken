@@ -1,6 +1,7 @@
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Badge, cx } from '@/components/ui'
-import type { BoxColor, OrderStatus } from '@/lib/types'
+import type { BoxColor, CustomerBrief, OrderStatus } from '@/lib/types'
 import { STATUS_TONES } from './api'
 
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
@@ -46,6 +47,44 @@ export function BoxCounts({ white, black }: { white: number; black: number }) {
         <BoxSwatch color="black" />
         {black}
       </span>
+    </span>
+  )
+}
+
+/** The order's customer as one line of text: the name, or "Direct order · 012 345 678". */
+export function customerText(t: TFunction, customer: Pick<CustomerBrief, 'name' | 'phone_display'>) {
+  return customer.name ?? t('orders.directOrderWithPhone', { phone: customer.phone_display ?? '—' })
+}
+
+/** `tel:` link of a readable phone ("012 345 678" → "tel:012345678"). */
+export function telHref(phone: string) {
+  return `tel:${phone.replace(/[^\d+]/g, '')}`
+}
+
+export function DirectOrderBadge() {
+  const { t } = useTranslation()
+  return <Badge tone="blue">{t('orders.directOrder')}</Badge>
+}
+
+/**
+ * The customer in lists: the saved customer's name, or the Direct order badge with the phone.
+ * `withPhone` also shows a saved customer's phone.
+ */
+export function OrderCustomerName({ customer, withPhone = false }: { customer: CustomerBrief; withPhone?: boolean }) {
+  if (customer.type === 'direct' || !customer.name) {
+    return (
+      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+        <DirectOrderBadge />
+        {customer.phone_display && <span className="tabular-nums">{customer.phone_display}</span>}
+      </span>
+    )
+  }
+  return (
+    <span className="min-w-0">
+      {customer.name}
+      {withPhone && customer.phone_display && (
+        <span className="ml-1.5 tabular-nums text-stone-500">{customer.phone_display}</span>
+      )}
     </span>
   )
 }

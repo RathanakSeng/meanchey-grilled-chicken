@@ -869,7 +869,7 @@
     "newTitle": "New order",
     "editTitle": "Edit order",
     "actions": "Order actions",
-    "searchPlaceholder": "Search order code or customer",
+    "searchPlaceholder": "Search code, customer, phone or location",
     "noResults": "No orders match these filters.",
     "emptyTitle": "No orders yet",
     "emptyBody": "Create the first order: pick the customer and fill the boxes.",
@@ -909,7 +909,13 @@
       "allCustomers": "All customers",
       "deliveryDate": "Delivery",
       "from": "From",
-      "to": "To"
+      "to": "To",
+      "customerType": "Customer type",
+      "allCustomerTypes": "Saved and direct",
+      "customerTypes": {
+        "saved": "Saved customers",
+        "direct": "Direct orders"
+      }
     },
     "columns": {
       "code": "Code",
@@ -920,7 +926,9 @@
       "customer": "Customer",
       "deliveryDate": "Delivery date",
       "driver": "Driver",
-      "note": "Note"
+      "note": "Note",
+      "phone": "Phone",
+      "locationOptional": "Location (optional)"
     },
     "summary": "Summary",
     "summaryEmpty": "Add a box to see the summary.",
@@ -940,7 +948,8 @@
       "itemTwice": "Already in this box.",
       "countInvalid": "A whole number above 0.",
       "kgInvalid": "A weight above 0 (up to 3 decimals).",
-      "fixHighlighted": "Check the highlighted fields."
+      "fixHighlighted": "Check the highlighted fields.",
+      "phoneRequired": "Enter the phone number."
     },
     "boxes": "Boxes",
     "boxTitle": "Box {{n}}",
@@ -1019,6 +1028,24 @@
       "sendTelegramShort": "Send to Telegram",
       "sent": "Sent to your Telegram chat.",
       "printedCount": "Printed {{count}}× (the next one says COPY)"
+    },
+    "customerTypes": {
+      "saved": "Saved customer",
+      "direct": "Direct order"
+    },
+    "directOrder": "Direct order",
+    "directOrderWithPhone": "Direct order · {{phone}}",
+    "directOrderHint": "For this order only: nothing is added to Customers.",
+    "locationPlaceholder": "e.g. Toul Kork, near the market",
+    "auditFields": {
+      "customer": "Customer",
+      "customer_type": "Customer type",
+      "customer_phone": "Phone",
+      "customer_location": "Location",
+      "delivery_date": "Delivery date",
+      "driver": "Driver",
+      "note": "Note",
+      "boxes": "Boxes"
     }
   },
   "business": {

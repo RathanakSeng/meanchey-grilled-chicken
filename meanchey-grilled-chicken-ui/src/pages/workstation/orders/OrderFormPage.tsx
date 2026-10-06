@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Icon } from '@/components/icons'
+import { SegmentedControl } from '@/components/SegmentedControl'
 import { Alert, Button, Card, Field, Input, PageHeader, Select, Spinner, cx } from '@/components/ui'
 import { useIsMobileLayout } from '@/layouts/useIsMobileLayout'
 import { api } from '@/lib/api'
@@ -11,11 +12,16 @@ import { useLocalized } from '@/lib/format'
 import { paths } from '@/lib/paths'
 import {
   ORDER_NOTE_MAX_LENGTH,
+  PARTNER_LOCATION_MAX_LENGTH,
+  PHONE_MAX_DIGITS,
+  PHONE_MIN_DIGITS,
   type AvailableItem,
   type BoxColor,
   type DriverOption,
   type Order,
+  type OrderCustomerType,
 } from '@/lib/types'
+import { compactPhone } from '../partners/validation'
 import { amountOf, invalidateOrders, orderKeys, parseAmount, toApi, useAmountFormat } from './api'
 import { BoxSwatch } from './badges'
 import { CustomerPicker, type PickedCustomer } from './CustomerPicker'
@@ -34,7 +40,13 @@ interface BoxState {
 }
 
 interface FormState {
+  customerType: OrderCustomerType
+  /** Saved customer. Kept while the direct fields are shown (and the other way round), so
+   * switching the type loses nothing until the order is saved. */
   customer: PickedCustomer | null
+  /** Direct order: phone (required) and location (optional), for this order only. */
+  phone: string
+  location: string
   delivery_date: string
   driver_id: string
   note: string
@@ -49,12 +61,28 @@ function businessToday(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Phnom_Penh' })
 }
 
+const PHONE_RE = new RegExp(`^\\+?\\d{${PHONE_MIN_DIGITS},${PHONE_MAX_DIGITS}}$`)
+const CUSTOMER_TYPES: OrderCustomerType[] = ['saved', 'direct']
+
 const emptyLine = (): LineState => ({ key: newKey(), item_code: '', qty: '' })
 const emptyBox = (color: BoxColor): BoxState => ({ key: newKey(), color, lines: [emptyLine()] })
 
 function fromOrder(order: Order): FormState {
+  const c = order.customer
+  const direct = c.type === 'direct' || c.id === null
   return {
-    customer: { ...order.customer },
+    customerType: direct ? 'direct' : 'saved',
+    customer: direct
+      ? null
+      : {
+          id: c.id!,
+          name: c.name ?? '',
+          phone_display: c.phone_display,
+          location: c.location,
+          is_active: c.is_active ?? undefined,
+        },
+    phone: direct ? (c.phone_display ?? '') : '',
+    location: direct ? (c.location ?? '') : '',
     delivery_date: order.delivery_date,
     driver_id: order.driver?.id ?? '',
     note: order.note ?? '',
@@ -72,11 +100,18 @@ function fromOrder(order: Order): FormState {
 
 type Errors = Record<string, string>
 
-/** Client checks, the same as the API's: a customer, ≥ 1 box, ≥ 1 line per box, an item and a
+/** Client checks, the same as the API's: a saved customer or a direct order's phone (8–15 digits,
+ * optional leading +), ≥ 1 box, ≥ 1 line per box, an item and a
  * valid quantity per line (whole for packs, ≤ 3 decimals for kg, > 0), one line per item per box. */
 function validate(form: FormState, items: Map<string, AvailableItem>): Errors {
   const errors: Errors = {}
-  if (!form.customer) errors.customer = 'orders.errors.customerRequired'
+  if (form.customerType === 'saved') {
+    if (!form.customer) errors.customer = 'orders.errors.customerRequired'
+  } else {
+    const phone = compactPhone(form.phone)
+    if (!phone) errors.phone = 'orders.errors.phoneRequired'
+    else if (!PHONE_RE.test(phone)) errors.phone = 'errors.INVALID_PHONE'
+  }
   if (!form.delivery_date) errors.delivery_date = 'orders.errors.dateRequired'
   if (form.boxes.length === 0) errors.boxes = 'orders.errors.boxesRequired'
   for (const box of form.boxes) {
@@ -123,9 +158,15 @@ function liveSummary(form: FormState, items: Map<string, AvailableItem>, order: 
   return { colors, total: { boxes: form.boxes.length, items: sorted(total) } }
 }
 
+function customerBody(form: FormState) {
+  return form.customerType === 'saved'
+    ? { customer_type: 'saved', customer_id: form.customer?.id }
+    : { customer_type: 'direct', phone: form.phone.trim(), location: form.location.trim() || null }
+}
+
 function body(form: FormState, items: Map<string, AvailableItem>) {
   return {
-    customer_id: form.customer?.id,
+    ...customerBody(form),
     delivery_date: form.delivery_date,
     driver_id: form.driver_id || null,
     note: form.note.trim() || null,
@@ -291,7 +332,16 @@ export function OrderFormPage({ mode }: { mode: 'create' | 'edit' }) {
 
   const [form, setForm] = useState<FormState | null>(
     mode === 'create'
-      ? { customer: null, delivery_date: businessToday(), driver_id: '', note: '', boxes: [emptyBox('white')] }
+      ? {
+          customerType: 'saved',
+          customer: null,
+          phone: '',
+          location: '',
+          delivery_date: businessToday(),
+          driver_id: '',
+          note: '',
+          boxes: [emptyBox('white')],
+        }
       : null,
   )
   const [version, setVersion] = useState<number | null>(null)
@@ -369,7 +419,13 @@ export function OrderFormPage({ mode }: { mode: 'create' | 'edit' }) {
   if (!form) return null
 
   const errors = validate(form, items)
-  const visibleErrors = showErrors ? errors : {}
+  const visibleErrors: Errors = showErrors ? { ...errors } : {}
+  // The API's answer for a phone it can't read shows under the field, like the client check.
+  const saveCode = save.isError ? getError(save.error).code : null
+  if (saveCode === 'INVALID_PHONE' && form.customerType === 'direct' && !visibleErrors.phone) {
+    visibleErrors.phone = 'errors.INVALID_PHONE'
+  }
+  const phoneLimits = { min_digits: PHONE_MIN_DIGITS, max_digits: PHONE_MAX_DIGITS }
   const summary = liveSummary(form, items, order)
   const setBoxes = (boxes: BoxState[]) => setForm({ ...form, boxes })
   const submit = () => {
@@ -391,18 +447,65 @@ export function OrderFormPage({ mode }: { mode: 'create' | 'edit' }) {
   const details = (
     <Card>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t('orders.fields.customer')} className="sm:col-span-2">
-          {() => (
-            <>
+        <div className="space-y-3 sm:col-span-2">
+          <div>
+            <p className="mb-1 block text-sm font-medium text-stone-700">{t('orders.fields.customer')}</p>
+            <SegmentedControl<OrderCustomerType>
+              label={t('orders.fields.customer')}
+              segments={CUSTOMER_TYPES.map((type) => ({ value: type, label: t(`orders.customerTypes.${type}`) }))}
+              value={form.customerType}
+              onChange={(customerType) => setForm({ ...form, customerType })}
+            />
+          </div>
+          {form.customerType === 'saved' ? (
+            <div>
               <CustomerPicker
                 value={form.customer}
                 invalid={Boolean(visibleErrors.customer)}
                 onChange={(c) => setForm({ ...form, customer: c })}
               />
               {visibleErrors.customer && <p className="mt-1 text-xs text-red-700">{t(visibleErrors.customer)}</p>}
-            </>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={t('orders.fields.phone')}>
+                {(id) => (
+                  <>
+                    <Input
+                      id={id}
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="off"
+                      required
+                      aria-invalid={Boolean(visibleErrors.phone) || undefined}
+                      className={cx('h-11 tabular-nums sm:h-10', visibleErrors.phone && 'ring-red-400')}
+                      placeholder="012 345 678"
+                      maxLength={40}
+                      value={form.phone}
+                      onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                    />
+                    {visibleErrors.phone && (
+                      <p className="mt-1 text-xs text-red-700">{t(visibleErrors.phone, phoneLimits)}</p>
+                    )}
+                  </>
+                )}
+              </Field>
+              <Field label={t('orders.fields.locationOptional')}>
+                {(id) => (
+                  <Input
+                    id={id}
+                    className="h-11 sm:h-10"
+                    maxLength={PARTNER_LOCATION_MAX_LENGTH}
+                    placeholder={t('orders.locationPlaceholder')}
+                    value={form.location}
+                    onChange={(e) => setForm({ ...form, location: e.target.value })}
+                  />
+                )}
+              </Field>
+              <p className="text-xs text-stone-500 sm:col-span-2">{t('orders.directOrderHint')}</p>
+            </div>
           )}
-        </Field>
+        </div>
         <Field label={t('orders.fields.deliveryDate')}>
           {(id) => (
             <Input
@@ -492,7 +595,7 @@ export function OrderFormPage({ mode }: { mode: 'create' | 'edit' }) {
   const messages = (
     <>
       {notice && <Alert tone="warning">{notice}</Alert>}
-      {save.isError && getError(save.error).code !== 'ORDER_CONFLICT' && (
+      {save.isError && saveCode !== 'ORDER_CONFLICT' && !(saveCode === 'INVALID_PHONE' && form.customerType === 'direct') && (
         <Alert tone="error">{errorMessage(save.error)}</Alert>
       )}
       {showErrors && Object.keys(errors).length > 0 && (

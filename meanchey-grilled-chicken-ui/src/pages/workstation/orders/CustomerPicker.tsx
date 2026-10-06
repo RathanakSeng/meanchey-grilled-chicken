@@ -56,6 +56,7 @@ export function CustomerPicker({
             {value.phone_display && (
               <span className="block text-xs tabular-nums text-stone-500">{value.phone_display}</span>
             )}
+            {value.location && <span className="block text-xs text-stone-500">{value.location}</span>}
           </span>
         ) : (
           <span className="text-stone-400">{t('orders.chooseCustomer')}</span>
@@ -105,6 +106,7 @@ export function CustomerPicker({
                     {o.phone_display && (
                       <span className="block text-xs tabular-nums text-stone-500">{o.phone_display}</span>
                     )}
+                    {o.location && <span className="block truncate text-xs text-stone-500">{o.location}</span>}
                   </span>
                   {value?.id === o.id && <Icon name="check" className="text-brand-600" />}
                 </button>

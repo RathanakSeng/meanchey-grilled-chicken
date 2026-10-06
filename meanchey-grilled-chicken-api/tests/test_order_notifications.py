@@ -105,6 +105,8 @@ async def test_recipients_and_one_alert_per_status(
     assert row.payload == {
         "code": order["code"],
         "customer": "Dara <Shop> & Co",
+        "customer_type": "saved",
+        "customer_phone": None,
         "actor_id": str(staff.id),
         "white": 1,
         "black": 1,
@@ -264,6 +266,16 @@ def test_english_texts() -> None:
             "stock, nothing wasted).",
         ),
     ]
+    # A direct order has no name: "Direct order · phone".
+    direct = row("order.delivered", customer=None, customer_type="direct")
+    direct.payload["customer_phone"] = "012 345 678"
+    cases.append(
+        (
+            direct,
+            "✅ <b>OR-20261003-001</b>: delivered to Direct order · 012 345 678, everything "
+            "accepted.",
+        )
+    )
     for notification, expected in cases:
         text, keyboard = notify.message_for(notification, Language.EN)
         assert text == expected

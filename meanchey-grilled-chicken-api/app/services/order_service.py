@@ -11,8 +11,12 @@ order), then the values, and increments `version`.
 
 Rules enforced here:
 - Lines: only orderable items (packs: whole count > 0; packed by-products: kg > 0), one line per
-  item per box, at least one box and one line per box. The customer must be active when chosen;
-  the driver (optional) an active staff member or supervisor.
+  item per box, at least one box and one line per box. The driver (optional) an active staff
+  member or supervisor.
+- Customer: a saved customer (`customer_id`, active when chosen) or a direct order (`phone`
+  required and normalized, `location` optional; no name). The order shows a snapshot (name,
+  phone, location) copied on every create / edit while Created and once more when delivery
+  starts; from Delivering on it's frozen, so later edits of the customer never change it.
 - Create / edit only warn about stock (`stock_warnings`). Delivering takes the order's totals out
   of stock, oldest batch first (inventory_service.take_for_order); not enough →
   INVENTORY_INSUFFICIENT and the order stays Created.
@@ -26,6 +30,7 @@ Rules enforced here:
 
 import uuid
 from collections import Counter
+from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
@@ -36,7 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.errors import AppError, ErrorCode
-from app.core.phones import format_phone
+from app.core.phones import format_phone, normalize_phone
 from app.inventory.catalog import ITEMS_BY_CODE, ORDERABLE, ORDERABLE_CODES, ItemDef
 from app.models import (
     Customer,
@@ -188,15 +193,108 @@ def _audit(session: AsyncSession, action: str, actor: User, order: Order, **deta
 # --- Validation ----------------------------------------------------------------------------------
 
 
-async def _customer(session: AsyncSession, customer_id: uuid.UUID) -> Customer:
+async def _customer(
+    session: AsyncSession, customer_id: uuid.UUID, *, allow_inactive: bool = False
+) -> Customer:
     customer = await session.get(Customer, customer_id)
     if customer is None:
         raise AppError(422, ErrorCode.CUSTOMER_NOT_FOUND, "Customer not found")
-    if not customer.is_active:
+    if not customer.is_active and not allow_inactive:
         raise AppError(
             422, ErrorCode.CUSTOMER_INACTIVE, "The customer is deactivated; choose another one"
         )
     return customer
+
+
+@dataclass(frozen=True)
+class CustomerSnapshot:
+    """What an order stores about its customer (see the module docstring)."""
+
+    type: str
+    customer_id: uuid.UUID | None
+    name: str | None
+    phone: str | None
+    location: str | None
+
+    @classmethod
+    def of(cls, customer: Customer) -> "CustomerSnapshot":
+        return cls("saved", customer.id, customer.name, customer.phone, customer.location)
+
+
+def _location(value: str | None) -> str | None:
+    value = (value or "").strip()
+    return value or None
+
+
+async def _resolve_customer(
+    session: AsyncSession,
+    type_: str,
+    customer_id: uuid.UUID | None,
+    phone: str | None,
+    location: str | None,
+    *,
+    current_id: uuid.UUID | None = None,
+) -> CustomerSnapshot:
+    """Check a customer choice and return its snapshot.
+
+    Saved: `customer_id` required, no phone / location; the customer must be active (except the
+    order's current one, which may have been deactivated since). Direct: no `customer_id`, a
+    phone (VALIDATION_ERROR when missing, INVALID_PHONE when malformed), an optional location.
+    """
+    errors: list[dict[str, Any]] = []
+    if type_ == "saved":
+        if customer_id is None:
+            errors.append(_field(["body", "customer_id"], "Required", "missing"))
+        errors += [
+            _field(["body", f], "Only for direct orders", "extra_forbidden")
+            for f, v in (("phone", phone), ("location", location))
+            if v is not None
+        ]
+        if errors:
+            raise _invalid(errors)
+        assert customer_id is not None
+        customer = await _customer(session, customer_id, allow_inactive=customer_id == current_id)
+        return CustomerSnapshot.of(customer)
+    if customer_id is not None:
+        errors.append(_field(["body", "customer_id"], "Not for direct orders", "extra_forbidden"))
+    if not (phone or "").strip():
+        errors.append(_field(["body", "phone"], "Required", "missing"))
+    if errors:
+        raise _invalid(errors)
+    return CustomerSnapshot("direct", None, None, normalize_phone(phone), _location(location))
+
+
+async def _refreshed(session: AsyncSession, order: Order) -> CustomerSnapshot:
+    """The order's snapshot with a saved customer's current details (direct: unchanged)."""
+    if order.customer_type == "saved" and order.customer_id is not None:
+        customer = await session.get(Customer, order.customer_id)
+        if customer is not None:
+            return CustomerSnapshot.of(customer)
+    return CustomerSnapshot(
+        order.customer_type,
+        order.customer_id,
+        order.customer_name,
+        order.customer_phone,
+        order.customer_location,
+    )
+
+
+def _set_customer(order: Order, snap: CustomerSnapshot) -> None:
+    order.customer_type = snap.type
+    order.customer_id = snap.customer_id
+    order.customer_name = snap.name
+    order.customer_phone = snap.phone
+    order.customer_location = snap.location
+
+
+def _customer_details(order: Order) -> dict[str, Any]:
+    """The snapshot for audit entries (the phone readable)."""
+    return {
+        "customer": order.customer_name,
+        "customer_type": order.customer_type,
+        "customer_phone": format_phone(order.customer_phone),
+        "customer_location": order.customer_location,
+    }
 
 
 async def _driver(session: AsyncSession, driver_id: uuid.UUID) -> User:
@@ -310,10 +408,10 @@ def _items_payload(quantities: Quantities) -> list[dict[str, Any]]:
     return out
 
 
-def _snapshot(order: Order, customer: Customer | None, driver: User | None) -> dict[str, Any]:
+def _snapshot(order: Order, driver: User | None) -> dict[str, Any]:
     """What an edit can change, for the audit diff."""
     return {
-        "customer": customer.name if customer else None,
+        **_customer_details(order),
         "delivery_date": order.delivery_date.isoformat(),
         "driver": driver.full_name if driver else None,
         "note": order.note,
@@ -324,10 +422,8 @@ def _snapshot(order: Order, customer: Customer | None, driver: User | None) -> d
     }
 
 
-async def _people(session: AsyncSession, order: Order) -> tuple[Customer | None, User | None]:
-    customer = await session.get(Customer, order.customer_id)
-    driver = await session.get(User, order.driver_id) if order.driver_id else None
-    return customer, driver
+async def _driver_of(session: AsyncSession, order: Order) -> User | None:
+    return await session.get(User, order.driver_id) if order.driver_id else None
 
 
 # --- Create, edit, cancel ------------------------------------------------------------------------
@@ -340,13 +436,14 @@ def _note(value: str | None) -> str | None:
 
 async def create_order(session: AsyncSession, actor: User, data: OrderCreate) -> Order:
     _validate_boxes(data.boxes)
-    customer = await _customer(session, data.customer_id)
+    snap = await _resolve_customer(
+        session, data.customer_type, data.customer_id, data.phone, data.location
+    )
     if data.driver_id is not None:
         await _driver(session, data.driver_id)
     now = utcnow()
     order = Order(
         code=await next_code(session, business_today(now)),
-        customer_id=customer.id,
         delivery_date=data.delivery_date or business_today(now),
         driver_id=data.driver_id,
         note=_note(data.note),
@@ -359,6 +456,7 @@ async def create_order(session: AsyncSession, actor: User, data: OrderCreate) ->
         boxes=_build_boxes(data.boxes),
         returns=[],
     )
+    _set_customer(order, snap)
     session.add(order)
     await session.flush()
     _audit(
@@ -366,7 +464,7 @@ async def create_order(session: AsyncSession, actor: User, data: OrderCreate) ->
         "order.create",
         actor,
         order,
-        customer=customer.name,
+        **_customer_details(order),
         delivery_date=order.delivery_date.isoformat(),
         **{f"{c}_boxes": n for c, n in _box_counts(order).items()},
         items=_items_payload(totals(order)),
@@ -384,15 +482,13 @@ async def update_order(
         _validate_boxes(data.boxes or [])
     errors = [
         _field(["body", f], "Required")
-        for f in ("customer_id", "delivery_date", "boxes")
+        for f in ("delivery_date", "boxes")
         if f in fields and getattr(data, f) is None
     ]
     if errors:
         raise _invalid(errors)
-    before = _snapshot(order, *await _people(session, order))
-    if "customer_id" in fields and data.customer_id != order.customer_id:
-        assert data.customer_id is not None
-        order.customer_id = (await _customer(session, data.customer_id)).id
+    before = _snapshot(order, await _driver_of(session, order))
+    _set_customer(order, await _customer_change(session, order, data, fields))
     if "driver_id" in fields and data.driver_id != order.driver_id:
         if data.driver_id is not None:
             await _driver(session, data.driver_id)
@@ -408,13 +504,43 @@ async def update_order(
         await session.flush()
         order.boxes.extend(_build_boxes(data.boxes or []))
     await session.flush()
-    after = _snapshot(order, *await _people(session, order))
+    after = _snapshot(order, await _driver_of(session, order))
     changes = {k: {"from": before[k], "to": after[k]} for k in before if before[k] != after[k]}
     if changes:
         _touch(order, actor)
         _audit(session, "order.update", actor, order, changes=changes)
     await session.commit()
     return await get_order(session, order_id)
+
+
+async def _customer_change(
+    session: AsyncSession, order: Order, data: OrderUpdate, fields: set[str]
+) -> CustomerSnapshot:
+    """The order's new snapshot: replaced when `customer_type` / `customer_id` is sent, a direct
+    order's phone / location edited, otherwise refreshed from the saved customer."""
+    if fields & {"customer_type", "customer_id"}:
+        return await _resolve_customer(
+            session,
+            data.customer_type or "saved",
+            data.customer_id,
+            data.phone,
+            data.location,
+            current_id=order.customer_id,
+        )
+    sent = sorted(fields & {"phone", "location"})
+    if not sent:
+        return await _refreshed(session, order)
+    if order.customer_type != "direct":
+        raise _invalid(
+            [_field(["body", f], "Only for direct orders", "extra_forbidden") for f in sent]
+        )
+    return await _resolve_customer(
+        session,
+        "direct",
+        None,
+        data.phone if "phone" in fields else order.customer_phone,
+        data.location if "location" in fields else order.customer_location,
+    )
 
 
 async def cancel_order(
@@ -438,7 +564,6 @@ async def cancel_order(
 async def _alert(
     session: AsyncSession, actor: User, order: Order, type_: str, **payload: Any
 ) -> None:
-    customer = await session.get(Customer, order.customer_id)
     await notification_service.notify(
         session,
         type_,
@@ -446,7 +571,10 @@ async def _alert(
         entity_id=order.id,
         payload={
             "code": order.code,
-            "customer": customer.name if customer else "",
+            # The snapshot: no name for direct orders (shown as "Direct order · phone").
+            "customer": order.customer_name,
+            "customer_type": order.customer_type,
+            "customer_phone": format_phone(order.customer_phone),
             "actor_id": str(actor.id),
             **payload,
         },
@@ -461,6 +589,8 @@ async def start_delivery(
     quantities = totals(order)
     # Stock out, oldest batch first; INVENTORY_INSUFFICIENT rolls everything back.
     await inventory_service.take_for_order(session, actor, order, quantities)
+    # The last refresh: from now on the customer details are frozen.
+    _set_customer(order, await _refreshed(session, order))
     order.status = "delivering"
     order.delivering_by = actor.id
     order.delivering_at = utcnow()
@@ -650,6 +780,7 @@ async def list_orders(
     session: AsyncSession,
     *,
     status: OrderListStatus,
+    customer_type: str | None,
     customer_id: uuid.UUID | None,
     driver_id: uuid.UUID | None,
     date_from: date | None,
@@ -663,6 +794,8 @@ async def list_orders(
         conditions.append(Order.status.in_(COMPLETED))
     elif status != "all":
         conditions.append(Order.status == status)
+    if customer_type:
+        conditions.append(Order.customer_type == customer_type)
     if customer_id:
         conditions.append(Order.customer_id == customer_id)
     if driver_id:
@@ -672,14 +805,19 @@ async def list_orders(
     if date_to:
         conditions.append(Order.delivery_date <= date_to)
     if q and q.strip():
-        pattern = f"%{_escape_like(q.strip())}%"
-        conditions.append(
-            or_(
-                Order.code.ilike(pattern, escape="\\"),
-                Customer.name.ilike(pattern, escape="\\"),
-            )
-        )
-    base = select(Order).join(Customer, Customer.id == Order.customer_id).where(*conditions)
+        term = q.strip()
+        pattern = f"%{_escape_like(term)}%"
+        matches = [
+            Order.code.ilike(pattern, escape="\\"),
+            Order.customer_name.ilike(pattern, escape="\\"),
+            Order.customer_location.ilike(pattern, escape="\\"),
+        ]
+        # Phones are stored as digits: "012 345" finds 012345678.
+        digits = "".join(ch for ch in term if ch.isdigit())
+        if digits:
+            matches.append(Order.customer_phone.contains(digits, autoescape=True))
+        conditions.append(or_(*matches))
+    base = select(Order).where(*conditions)
     total = await session.scalar(select(func.count()).select_from(base.subquery())) or 0
     rows = (
         await session.execute(
@@ -690,14 +828,14 @@ async def list_orders(
         )
     ).all()
     orders = [r[0] for r in rows]
-    customers = await _customers(session, {o.customer_id for o in orders})
+    customers = await _customers(session, {o.customer_id for o in orders if o.customer_id})
     users = await _users(session, {o.driver_id for o in orders if o.driver_id})
     items = [
         OrderListItem(
             id=o.id,
             code=o.code,
             status=o.status,  # type: ignore[arg-type]
-            customer=_customer_brief(customers[o.customer_id]),
+            customer=_customer_brief(o, customers),
             delivery_date=o.delivery_date,
             driver=_ref(users, o.driver_id),
             white_boxes=white or 0,
@@ -755,7 +893,12 @@ async def customer_options(session: AsyncSession, q: str | None) -> list[Custome
         .order_by(func.lower(Customer.name), Customer.id)
         .limit(OPTIONS_LIMIT)
     )
-    return [CustomerOption(id=c.id, name=c.name, phone_display=format_phone(c.phone)) for c in rows]
+    return [
+        CustomerOption(
+            id=c.id, name=c.name, phone_display=format_phone(c.phone), location=c.location
+        )
+        for c in rows
+    ]
 
 
 async def driver_options(session: AsyncSession) -> list[DriverOption]:
@@ -806,13 +949,17 @@ def _ref(users: dict[uuid.UUID, User], user_id: uuid.UUID | None) -> UserRef | N
     return UserRef.model_validate(user) if user else None
 
 
-def _customer_brief(c: Customer) -> CustomerBrief:
+def _customer_brief(order: Order, customers: dict[uuid.UUID, Customer]) -> CustomerBrief:
+    """The order's snapshot; `is_active` is the saved customer's current status."""
+    customer = customers.get(order.customer_id) if order.customer_id else None
     return CustomerBrief(
-        id=c.id,
-        name=c.name,
-        phone_display=format_phone(c.phone),
-        location=c.location,
-        is_active=c.is_active,
+        type=order.customer_type,  # type: ignore[arg-type]
+        id=order.customer_id,
+        name=order.customer_name,
+        phone=order.customer_phone,
+        phone_display=format_phone(order.customer_phone),
+        location=order.customer_location,
+        is_active=customer.is_active if customer else None,
     )
 
 
@@ -894,8 +1041,7 @@ def _user_ids(order: Order) -> set[uuid.UUID]:
 
 async def order_out(session: AsyncSession, order: Order) -> OrderOut:
     users = await _users(session, _user_ids(order))
-    customer = await session.get(Customer, order.customer_id)
-    assert customer is not None
+    customers = await _customers(session, {order.customer_id} if order.customer_id else set())
     delivered = totals(order)
     returns = []
     for r in sorted(order.returns, key=lambda r: _ORDER.get(r.item_code, 999)):
@@ -925,7 +1071,7 @@ async def order_out(session: AsyncSession, order: Order) -> OrderOut:
         id=order.id,
         code=order.code,
         status=order.status,  # type: ignore[arg-type]
-        customer=_customer_brief(customer),
+        customer=_customer_brief(order, customers),
         delivery_date=order.delivery_date,
         driver=_ref(users, order.driver_id),
         note=order.note,

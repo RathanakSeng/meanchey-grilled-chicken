@@ -39,6 +39,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, utcnow
+from app.models.partner import (
+    PARTNER_LOCATION_MAX_LENGTH,
+    PARTNER_NAME_MAX_LENGTH,
+    PARTNER_PHONE_MAX_LENGTH,
+)
 
 ORDER_STATUSES = (
     "created",
@@ -50,6 +55,8 @@ ORDER_STATUSES = (
     "cancelled",
 )
 BOX_COLORS = ("white", "black")
+# saved: a customer from Customers; direct: no saved customer, a phone (+ location) for this order.
+CUSTOMER_TYPES = ("saved", "direct")
 ORDER_NOTE_MAX_LENGTH = 1000
 ORDER_REASON_MAX_LENGTH = 500
 ORDER_KG = Numeric(12, 3)
@@ -72,16 +79,31 @@ class Order(Base):
     __table_args__ = (
         CheckConstraint(_in("status", ORDER_STATUSES), name="status"),
         CheckConstraint(f"char_length(note) <= {ORDER_NOTE_MAX_LENGTH}", name="note_length"),
+        CheckConstraint(_in("customer_type", CUSTOMER_TYPES), name="customer_type"),
+        CheckConstraint(
+            "(customer_type = 'saved' AND customer_id IS NOT NULL) OR "
+            "(customer_type = 'direct' AND customer_id IS NULL AND customer_phone IS NOT NULL)",
+            name="customer",
+        ),
         Index("ix_orders_status_delivery_date", "status", "delivery_date"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     # OR-YYYYMMDD-NNN, numbered per creation day (BUSINESS_TIMEZONE). Never changes.
     code: Mapped[str] = mapped_column(String(32), unique=True)
-    # RESTRICT: customers are deactivated, never deleted. Must be active when chosen.
-    customer_id: Mapped[uuid.UUID] = mapped_column(
+    customer_type: Mapped[str] = mapped_column(String(16))
+    # Saved orders only. RESTRICT: customers are deactivated, never deleted. Must be active when
+    # chosen.
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("customers.id", ondelete="RESTRICT"), index=True
     )
+    # What the order shows (response, list, alerts, delivery note): copied from the customer
+    # (saved) or entered (direct, no name) on every create / edit while Created and when delivery
+    # starts; frozen from Delivering on, so later customer edits never change it.
+    customer_name: Mapped[str | None] = mapped_column(String(PARTNER_NAME_MAX_LENGTH))
+    # Normalized (core/phones.py); required for direct orders.
+    customer_phone: Mapped[str | None] = mapped_column(String(PARTNER_PHONE_MAX_LENGTH))
+    customer_location: Mapped[str | None] = mapped_column(String(PARTNER_LOCATION_MAX_LENGTH))
     delivery_date: Mapped[date] = mapped_column(Date)
     # An active staff member or supervisor; optional.
     driver_id: Mapped[uuid.UUID | None] = mapped_column(

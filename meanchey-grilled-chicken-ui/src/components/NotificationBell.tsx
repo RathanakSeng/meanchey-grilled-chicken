@@ -60,7 +60,9 @@ export function useNotificationText() {
           })
           .join(', ')
       }
-      const common = { code: p.code, customer: p.customer }
+      // A direct order has no customer name: "Direct order · 012 345 678".
+      const customer = p.customer ?? t('orders.directOrderWithPhone', { phone: p.customer_phone ?? '—' })
+      const common = { code: p.code, customer }
       if (n.type === 'order.delivering') {
         return {
           text: t('notifications.orderDelivering', { ...common, white: p.white ?? 0, black: p.black ?? 0 }),
