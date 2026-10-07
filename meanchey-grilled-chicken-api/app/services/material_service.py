@@ -21,6 +21,12 @@
 - **Icons:** `icon_key` names a picture bundled with the UI (the defaults have one); an uploaded
   icon (`set_icon`: PNG / JPEG / WebP, at most 1 MB, decoded to check it, center-cropped and
   resized to a 256 px square PNG) is shown before it. `delete_icon` removes the upload.
+- **Preparation role** (`prep_role`, services/preparation_service.py): `packaging` (the default
+  for new materials) gives the material a **prepared twin** (`<item_code>_prepared`, Prepared
+  section), whose balance row is created with the material; `satay_sauce` / `zip_bag_2` /
+  `zip_bag_4` are the satay sachet inputs; `none` (Marinade sauce) isn't preparable. Not editable
+  in the UI yet. A kg <-> g switch converts the twin's balance too (its own
+  `material_unit_change` movement); switching to / from count needs no movements on either.
 - Audit: `material.create`, `material.update` (changes), `material.archive`, `material.restore`,
   `material.stock_add`, `material.stock_remove` (`reason`); `entity_type = material`. An icon
   change is a `material.update` with `changes.icon = "changed" / "removed"` (never the bytes).
@@ -39,7 +45,7 @@ from sqlalchemy.orm import undefer
 
 from app.core.errors import AppError, ErrorCode
 from app.inventory import units
-from app.inventory.catalog import MARINADE, MATERIAL_PREFIX
+from app.inventory.catalog import MARINADE, MATERIAL_PREFIX, prepared_code
 from app.models import AppSetting, InventoryBalance, InventoryMaterial, InventoryMovement, User
 from app.models.base import utcnow
 from app.schemas.common import UserRef
@@ -55,19 +61,22 @@ from app.services.audit_service import record
 
 ENTITY = "material"
 SEEDED_KEY = "inventory_materials_seeded"
-# (system_code, name_km, name_en, unit, icon_key). All start at 0. The icon keys are pictures
-# bundled with the UI (src/assets/inventory/materials/); migration 0015 backfilled them.
-DEFAULTS: tuple[tuple[str | None, str, str, units.Unit, str], ...] = (
-    (None, "ខ្សែ", "String", "kg", "string"),
-    (None, "ចង្កាក់", "Skewer", "kg", "skewer"),
-    (None, "ស្ទីកគ័រ (កញ្ចប់ ២ ដុំ)", "Sticker (2-piece packs)", "kg", "sticker_2"),
-    (None, "ស្ទីកគ័រ (កញ្ចប់ ៤ ដុំ)", "Sticker (4-piece packs)", "kg", "sticker_4"),
-    (MARINADE, "ទឹកប្រឡាក់", "Marinade sauce", "g", "marinade"),
-    (None, "សាតេ", "Satay sauce", "g", "satay"),
-    (None, "ថង់ Zip 7 (កញ្ចប់ ២ ដុំ)", "Zip bag 7 (2-piece packs)", "kg", "zip_bag_2"),
-    (None, "ថង់ Zip 7 (កញ្ចប់ ៤ ដុំ)", "Zip bag 7 (4-piece packs)", "kg", "zip_bag_4"),
-    (None, "ថង់បឺតខ្យល់", "Vacuum bag", "kg", "vacuum_bag"),
+# (system_code, name_km, name_en, unit, icon_key, prep_role). All start at 0. The icon keys are
+# pictures bundled with the UI (src/assets/inventory/materials/); migration 0015 backfilled them,
+# migration 0017 the preparation roles.
+DEFAULTS: tuple[tuple[str | None, str, str, units.Unit, str, str], ...] = (
+    (None, "ខ្សែ", "String", "kg", "string", "packaging"),
+    (None, "ចង្កាក់", "Skewer", "kg", "skewer", "packaging"),
+    (None, "ស្ទីកគ័រ (កញ្ចប់ ២ ដុំ)", "Sticker (2-piece packs)", "kg", "sticker_2", "packaging"),
+    (None, "ស្ទីកគ័រ (កញ្ចប់ ៤ ដុំ)", "Sticker (4-piece packs)", "kg", "sticker_4", "packaging"),
+    (MARINADE, "ទឹកប្រឡាក់", "Marinade sauce", "g", "marinade", "none"),
+    (None, "សាតេ", "Satay sauce", "g", "satay", "satay_sauce"),
+    (None, "ថង់ Zip 7 (កញ្ចប់ ២ ដុំ)", "Zip bag 7 (2-piece packs)", "kg", "zip_bag_2", "zip_bag_2"),
+    (None, "ថង់ Zip 7 (កញ្ចប់ ៤ ដុំ)", "Zip bag 7 (4-piece packs)", "kg", "zip_bag_4", "zip_bag_4"),
+    (None, "ថង់បឺតខ្យល់", "Vacuum bag", "kg", "vacuum_bag", "packaging"),
 )
+# One material each (partial unique index uq_inventory_materials_prep_role).
+SINGLE_PREP_ROLES = ("satay_sauce", "zip_bag_2", "zip_bag_4")
 ICON_MAX_BYTES = 1024 * 1024
 ICON_SIZE = 256
 # A small file can still decode to a huge bitmap; refuse it before decoding.
@@ -106,6 +115,7 @@ async def _add(
     *,
     system_code: str | None = None,
     icon_key: str | None = None,
+    prep_role: str = "packaging",
     actor: User | None = None,
 ) -> InventoryMaterial:
     material = InventoryMaterial(
@@ -115,12 +125,16 @@ async def _add(
         unit=unit,
         system_code=system_code,
         icon_key=icon_key,
+        prep_role=prep_role,
         created_by=actor.id if actor else None,
         updated_by=actor.id if actor else None,
     )
     session.add(material)
     await session.flush()
-    await inventory_service.ensure_balances(session, [material.item_code])
+    codes = [material.item_code]
+    if prep_role == "packaging":
+        codes.append(prepared_code(material.item_code))
+    await inventory_service.ensure_balances(session, codes)
     return material
 
 
@@ -129,7 +143,7 @@ async def ensure_defaults(session: AsyncSession) -> None:
     commits (bootstrap)."""
     seeded = await session.get(AppSetting, SEEDED_KEY)
     if seeded is None:
-        for system_code, name_km, name_en, unit, icon_key in DEFAULTS:
+        for system_code, name_km, name_en, unit, icon_key, prep_role in DEFAULTS:
             if system_code and await inventory_service.marinade_material(session):
                 continue
             # Someone may already have a material of that name: don't duplicate it.
@@ -137,11 +151,23 @@ async def ensure_defaults(session: AsyncSession) -> None:
                 session, InventoryMaterial.name_km, name_km
             ):
                 continue
-            await _add(session, name_km, name_en, unit, system_code=system_code, icon_key=icon_key)
+            if prep_role in SINGLE_PREP_ROLES and await session.scalar(
+                select(exists().where(InventoryMaterial.prep_role == prep_role))
+            ):
+                prep_role = "packaging"
+            await _add(
+                session,
+                name_km,
+                name_en,
+                unit,
+                system_code=system_code,
+                icon_key=icon_key,
+                prep_role=prep_role,
+            )
         session.add(AppSetting(key=SEEDED_KEY, value="1"))
         await session.flush()
     if await inventory_service.marinade_material(session) is None:
-        _, name_km, name_en, unit, icon_key = _MARINADE_DEFAULT
+        _, name_km, name_en, unit, icon_key, _role = _MARINADE_DEFAULT
         # An active material with that name becomes the system one; otherwise create it.
         existing = await session.scalar(
             select(InventoryMaterial).where(
@@ -152,9 +178,19 @@ async def ensure_defaults(session: AsyncSession) -> None:
         if existing is not None and existing.unit != "count":
             existing.system_code = MARINADE
             existing.icon_key = existing.icon_key or icon_key
+            if existing.prep_role == "packaging":
+                existing.prep_role = "none"
             await session.flush()
         else:
-            await _add(session, name_km, name_en, unit, system_code=MARINADE, icon_key=icon_key)
+            await _add(
+                session,
+                name_km,
+                name_en,
+                unit,
+                system_code=MARINADE,
+                icon_key=icon_key,
+                prep_role="none",
+            )
 
 
 # --- Reading -------------------------------------------------------------------------------------
@@ -226,6 +262,7 @@ async def materials_out(
                 system_code=m.system_code,
                 icon_key=m.icon_key,
                 icon_url=inventory_service.material_icon_url(m),
+                prep_role=m.prep_role,  # type: ignore[arg-type]
                 count=(bal.count if bal and bal.count is not None else 0)
                 if m.unit == "count"
                 else None,
@@ -347,40 +384,53 @@ async def _change_unit(
     old: units.Unit = m.unit  # type: ignore[assignment]
     if m.system_code and new == "count":
         raise _system_locked("A material the app relies on can't be counted in pieces")
-    bal = (await inventory_service.lock_balances(session, [m.item_code]))[m.item_code]
-    before = _amount(bal, old)
+    twin = prepared_code(m.item_code)
+    # The prepared twin (when it has a balance row) has the material's unit: it switches too.
+    has_twin = await session.get(InventoryBalance, twin) is not None
+    codes = [m.item_code, twin] if has_twin else [m.item_code]
+    balances = await inventory_service.lock_balances(session, codes)
+    before = _amount(balances[m.item_code], old)
+    after = Decimal(0)
     if units.same_measure(old, new):
-        after = units.convert(before, old, new)
-        _set_amount(bal, new, after)
         now = utcnow()
-        bal.updated_at = now
-        deltas = {"count": None, "kg": None, "g": None}
-        deltas[old] = -before
-        deltas[new] = after
-        session.add(
-            InventoryMovement(
-                item_code=m.item_code,
-                count_delta=None,
-                kg_delta=deltas["kg"],
-                g_delta=deltas["g"],
-                source="material_unit_change",
-                reason=f"{old} -> {new}",
-                balance_kg_after=bal.kg,
-                balance_g_after=bal.g,
-                created_by=actor.id,
-                created_at=now,
+        for code in codes:
+            row = balances[code]
+            amount_before = _amount(row, old)
+            amount_after = units.convert(amount_before, old, new)
+            if code == m.item_code:
+                after = amount_after
+            _set_amount(row, new, amount_after)
+            row.updated_at = now
+            if code == twin and not amount_before:
+                # An empty twin just switches unit: no history row.
+                continue
+            deltas: dict[str, Decimal | None] = {"count": None, "kg": None, "g": None}
+            deltas[old] = -amount_before
+            deltas[new] = amount_after
+            session.add(
+                InventoryMovement(
+                    item_code=code,
+                    count_delta=None,
+                    kg_delta=deltas["kg"],
+                    g_delta=deltas["g"],
+                    source="material_unit_change",
+                    reason=f"{old} -> {new}",
+                    balance_kg_after=row.kg,
+                    balance_g_after=row.g,
+                    created_by=actor.id,
+                    created_at=now,
+                )
             )
-        )
     else:
-        if await _has_movements(session, m.item_code):
+        if await _has_movements(session, m.item_code) or await _has_movements(session, twin):
             raise AppError(
                 409,
                 ErrorCode.MATERIAL_UNIT_LOCKED,
                 "Switching to or from count is only possible before the first stock entry",
                 {"unit": old},
             )
-        after = Decimal(0)
-        _set_amount(bal, new, Decimal(0))
+        for code in codes:
+            _set_amount(balances[code], new, Decimal(0))
     m.unit = new
     return {
         "from": f"{units.quantize(old, before)} {old}",

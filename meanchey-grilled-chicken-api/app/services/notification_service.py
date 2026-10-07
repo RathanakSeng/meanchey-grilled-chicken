@@ -2,7 +2,8 @@
 
 - **Recipients:** active users holding the alert's permission (effective permissions: granted,
   permission active, still assignable to their role) and the superadmin, who holds everything
-  implicitly. Production alerts: `production_plan.view`; order alerts: `orders.review_returns`.
+  implicitly. Production alerts: `production_plan.view`; order alerts: `orders.review_returns`;
+  preparation alerts: `preparation.update`.
   Staff can hold neither. The actor is included when they qualify.
 - **Creation:** `notify()` inserts one row per recipient in the caller's transaction (e.g. the step
   2 Finish), so an alert exists exactly when the action committed. The new ids are queued on the
@@ -31,6 +32,8 @@ ORDER_DELIVERING = "order.delivering"
 ORDER_DELIVERED = "order.delivered"
 ORDER_RETURN_PENDING = "order.return_pending"
 ORDER_RETURNS_REVIEWED = "order.returns_reviewed"
+PREPARATION_ALERT_PERMISSION = "preparation.update"
+PREPARATION_FINISHED = "preparation.finished"
 _QUEUE_KEY = "queued_notifications"
 
 

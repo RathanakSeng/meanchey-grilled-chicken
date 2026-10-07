@@ -81,7 +81,7 @@ async def movement_count(session) -> int:
 
 async def test_starts_at_zero_with_every_item(client, gm) -> None:
     r = ok(await client.get("/inventory", headers=auth(gm)))
-    assert [s["section"] for s in r["sections"]] == ["stock", "wasted"]
+    assert [s["section"] for s in r["sections"]] == ["stock", "prepared", "wasted"]
     items = {i["code"]: i for s in r["sections"] for i in s["items"]}
     assert amounts(items, "chicken") == (0, "0.000")
     assert amounts(items, "packs_big") == (0, None)  # count only
@@ -89,7 +89,13 @@ async def test_starts_at_zero_with_every_item(client, gm) -> None:
     assert items["byproduct_packed.liver"]["name_en"] == "Liver (packed)"
     assert items["byproduct_processed.liver"]["name_km"] == "ថ្លើមមាន់ (ផលិត)"
     assert items["wasted.wings"]["kg_estimated"] is True
-    assert {i["group"] for i in items.values()} == {"raw", "processed", "packed", "wasted"}
+    assert {i["group"] for i in items.values()} == {
+        "raw",
+        "processed",
+        "packed",
+        "prepared",
+        "wasted",
+    }
     assert all(i["updated_at"] is None for i in items.values())
     assert ok(await client.get("/inventory/movements", headers=auth(gm)))["total"] == 0
 
@@ -353,10 +359,14 @@ async def test_production_items_are_never_set_by_hand(
 
 
 async def test_every_catalog_item_comes_from_production(client, gm) -> None:
-    """Catalog items are production items; the manual ones are the materials (Raw)."""
+    """Catalog items are production items, except the satay sachets (preparations); the
+    manual ones are the materials (Raw), their prepared twins come from preparations."""
     items = (await stock(client, gm)).values()
-    assert {i["origin"] for i in items if not i["code"].startswith("material_")} == {"production"}
-    assert {i["origin"] for i in items if i["code"].startswith("material_")} == {"manual"}
+    prepared = {i["origin"] for i in items if i["section"] == "prepared"}
+    others = [i for i in items if i["section"] != "prepared"]
+    assert prepared == {"preparation"}
+    assert {i["origin"] for i in others if not i["code"].startswith("material_")} == {"production"}
+    assert {i["origin"] for i in others if i["code"].startswith("material_")} == {"manual"}
 
 
 async def test_adjust_permission_and_feature_are_gone(client, superadmin, gm, session) -> None:

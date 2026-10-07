@@ -56,6 +56,25 @@ export function MovementRow({
         {t(`inventory.sources.${m.source}`)}
         {m.source === 'material_remove' && m.reason && <span className="text-stone-500"> — {m.reason}</span>}
       </>
+    ) : m.source === 'preparation' ? (
+      // "Preparation PP-…", or "Reversed: reopen · PP-…".
+      <>
+        {m.reversal_of !== null ? (
+          <span className="mr-1 font-medium text-stone-700">
+            {t(m.reason === 'cancel' ? 'inventory.reversedCancel' : 'inventory.reversedReopen')} ·
+          </span>
+        ) : (
+          <span className="mr-1">{t('inventory.sources.preparation')}</span>
+        )}
+        {m.preparation && (
+          <Link
+            to={paths.preparation(m.preparation.id)}
+            className="font-medium tabular-nums text-brand-700 hover:underline"
+          >
+            {m.preparation.code}
+          </Link>
+        )}
+      </>
     ) : m.source === 'adjustment' ? (
       <>
         {t('inventory.sources.adjustment')}
@@ -87,8 +106,8 @@ export function MovementRow({
       <div className="min-w-0 flex-1">
         {showItem && (
           <p className="font-medium text-stone-900">
-            {m.section === 'wasted' && (
-              <span className="text-stone-500">{t('inventory.sections.wasted')}: </span>
+            {(m.section === 'wasted' || m.section === 'prepared') && (
+              <span className="text-stone-500">{t(`inventory.sections.${m.section}`)}: </span>
             )}
             {localized(m)}
           </p>

@@ -11,6 +11,7 @@ from app.models import (
     Customer,
     InventoryMaterial,
     Order,
+    Preparation,
     ProductionBatch,
     Role,
     Supplier,
@@ -24,6 +25,7 @@ ENTITY_LABELS: dict[str, InstrumentedAttribute[str]] = {
     "production_batch": ProductionBatch.code,
     "order": Order.code,
     "material": InventoryMaterial.name_en,
+    "preparation": Preparation.code,
 }
 
 

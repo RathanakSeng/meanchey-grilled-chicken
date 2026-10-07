@@ -35,10 +35,12 @@ export function ItemPicture({
   )
 }
 
-export type ItemCardBadgeTone = 'wasted' | 'system' | 'archived'
+export type ItemCardBadgeTone = 'wasted' | 'prepared' | 'system' | 'archived'
 
 const BADGE_TONES: Record<ItemCardBadgeTone, string> = {
   wasted: 'bg-red-50 text-red-700 ring-red-200',
+  // A prepared twin of a raw material (Prepared tab).
+  prepared: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   // A material production uses (Marinade sauce).
   system: 'bg-sky-50 text-sky-700 ring-sky-200',
   archived: 'bg-stone-100 text-stone-600 ring-stone-300',

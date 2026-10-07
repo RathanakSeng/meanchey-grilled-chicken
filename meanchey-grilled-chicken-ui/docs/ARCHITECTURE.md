@@ -80,6 +80,8 @@ src/
 │   ├── format.ts          # dates, localized names, initials, username normalize
 │   ├── telegram.ts        # telegram handle, isTelegramMiniApp, initTelegram, openTelegramLink
 │   ├── quantity.ts        # the inventory unit rule (count / kg 3 / g 1): parse, scaled ints, format
+│   ├── useAutosave.ts     # server-side draft autosave (debounce, keepalive, local backup, conflicts),
+│   │                      #   shared by production steps and preparations; keepaliveFetch
 │   ├── pdf.ts             # PDFs from the API: fetchPdf (blob, JSON errors), tabForPdf, printPdf
 │   │                      #   (hidden frame + print dialog on PCs, new tab on phones), openPdf
 │   ├── paths.ts           # app routes (paths.users, paths.user(id)…), legacy prefixes, parentPath, isUnder
@@ -98,7 +100,8 @@ src/
 │   │                      #   PartnerListPage, KpiCards, PartnerFormSheet, validation)
 │   │   └── production/    # ProductionListPage, ProductionBatchPage, StepForms (3 step forms), StepSummaries,
 │   │                      #   StepShell (autosave status, notices, Finish), SupplierPicker, badges,
-│   │                      #   useAutosaveDraft, steps.ts (values / payloads / finish rules / balances),
+│   │                      #   useAutosaveDraft (production's wrapper of lib/useAutosave),
+│   │                      #   steps.ts (values / payloads / finish rules / balances),
 │   │                      #   numbers.ts (Decimal-safe parsing), api.ts (query keys, keepalive save),
 │   │                      #   PlanCard (plan card, "waiting for plan", plan vs actual),
 │   │                      #   StockChangesCard (the batch's stock movements)
@@ -115,6 +118,11 @@ src/
 │   │                      #   badges (status, box swatch / counts, OrderCustomerName / DirectOrderBadge /
 │   │                      #   customerText / telHref), api.ts (orderKeys, invalidateOrders,
 │   │                      #   integer amounts: parseAmount / amountOf / toApi, formatting)
+│   │   └── preparations/  # PreparationListPage, PreparationPage (lazy: one chunk each; the page's
+│   │                      #   satay / packaging forms, summary, Reopen / Cancel), values.ts (form values,
+│   │                      #   payload, field errors, scaled amounts), badges (status / type badges,
+│   │                      #   outputs text, MaterialThumb / ItemThumb), api.ts (preparationKeys,
+│   │                      #   onPreparationChanged, draft key)
 │   │   └── production-plans/ # PlanListPage, PlanPage (lazy), PlanBadge, api.ts (planKeys, pending count:
 │   │                      #   outside the lazy chunk because the nav badge uses it)
 │   └── settings/          # SettingsPage (hub), AuditLogPage, ProfilePage, TelegramLinkCard (superadmin), UserLimitsPage (superadmin),
@@ -238,12 +246,15 @@ sequenceDiagram
       production-plans               RequireAccess production_plan.view
         index                        PlanListPage (lazy, ?status=&q=&page=)
         :batchId                     PlanPage (lazy)
-      inventory                      RequireAccess inventory.view → InventoryPage           (lazy, ?tab=stock&section=raw|processed|packed|wasted · ?tab=history&item&area&source&from&to&batch&page; `area` = the stock / wasted filter, `section` stays the Stock sub-tab)
+      inventory                      RequireAccess inventory.view → InventoryPage           (lazy, ?tab=stock&section=raw|processed|packed|prepared|wasted · ?tab=history&item&area&source&from&to&batch&page; `area` = the stock / wasted filter, `section` stays the Stock sub-tab)
       orders                         RequireAccess orders.view
         index                        OrderListPage (lazy, ?status=&type=&customer=&from=&to=&q=&page=)
         new                          RequireAccess orders.create → OrderFormPage(create) (lazy)
         :orderId                     OrderPage (lazy)
         :orderId/edit                RequireAccess orders.update → OrderFormPage(edit) (lazy)
+      preparations                   RequireAccess preparation.view
+        index                        PreparationListPage (lazy, ?type=&status=&from=&to=&q=&cancelled=1&page=)
+        :preparationId               PreparationPage (lazy)
     /settings
       index                          SettingsPage (hub: cards from the nav tree)
       users                          RequireAccess users.view
@@ -261,7 +272,7 @@ sequenceDiagram
     *                                NotFound (e.g. a top-level /production: there is no redirect)
 ```
 
-**Paths.** Every frontend URL comes from `lib/paths.ts` (`paths.users`, `paths.user(id)`, `paths.editUser(id)`, `paths.suppliers`, `paths.customers`, `paths.production`, `paths.productionBatch(id, step?)`, `paths.productionPlans`, `paths.productionPlan(batchId)`, `paths.inventory`, `paths.userLimits`, `paths.businessInfo`, …). Components never write route literals, so moving a page is a one-file change. API URLs such as `api.get('/users')` are unrelated and stay literal.
+**Paths.** Every frontend URL comes from `lib/paths.ts` (`paths.users`, `paths.user(id)`, `paths.editUser(id)`, `paths.suppliers`, `paths.customers`, `paths.production`, `paths.productionBatch(id, step?)`, `paths.productionPlans`, `paths.productionPlan(batchId)`, `paths.inventory`, `paths.preparations`, `paths.preparation(id)`, `paths.userLimits`, `paths.businessInfo`, …). Components never write route literals, so moving a page is a one-file change. API URLs such as `api.get('/users')` are unrelated and stay literal.
 
 **Legacy redirects.** `LegacyRedirect` swaps the old prefix (from `LEGACY_PREFIXES`) for the new one and keeps the rest of the path, the query string and the hash, e.g. `/users/<id>/edit?x=1#a` → `/settings/users/<id>/edit?x=1#a`.
 
@@ -380,6 +391,10 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 | `['orders-customer-options', q]` | `GET /orders/customer-options` (`{id, name, phone_display, location}`; customer picker while open; the list's customer filter with `''`) |
 | `['orders-driver-options']` | `GET /orders/driver-options` (form) |
 | `['orders-available-stock']` | `GET /orders/available-stock` (form: item options, live summary warnings) |
+| `['preparations', params]` | `GET /preparations` (`keepPreviousData`) |
+| `['preparations-stats']` | `GET /preparations/stats` (KPI cards) |
+| `['preparation', id]` | `GET /preparations/{id}`; written with `setQueryData` by every draft save, Finish, reopen and cancel |
+| `['preparations-material-options']` | `GET /preparations/material-options` (the packaging form's picker, stock per material) |
 | `['business-settings']` | `GET /settings/business` (Business info page); written with `setQueryData` by Save, logo upload and remove |
 | `['business-settings', 'logo', updated_at]` | `GET /settings/business/logo` as a blob → object URL for the preview (only when `has_logo`; the `updated_at` in the key refetches it after a change) |
 | `['role-limits']` | `GET /settings/role-limits` (superadmin, User limits page); written with `setQueryData` by each Save |
@@ -395,14 +410,15 @@ useCanAccess()({ permission, roles })            // shared by <Can>, RequireAcce
 - Orders: create / edit / cancel / Start delivery / Mark delivered / Review return write the returned order into `['order', id]` and call `invalidateOrders` (`['orders']`, `['orders-stats']`, `['orders-available-stock']` and the inventory keys: Start delivery and the review move stock). On `ORDER_CONFLICT` the current order from `details.order` is written into the cache (the form resets to it) and a notice is shown; on `ORDER_INVALID_STATUS` the order is refetched. Amounts are integers (counts, or grams for kg: `parseAmount("1.25", "kg") = 1250`), so the live summary, the "at most delivered" and "stock + wasted = returned" checks are exact; they go back to the API as `count` or a 3-decimal `kg` string (`toApi`). `PRODUCTION_STOCK_ALREADY_USED` is translated with the item names and order codes from `details` (`useErrorMessage`).
 - Delivery notes (order page): **Print** and **Send to my Telegram** are mutations, not queries (each one is counted by the API, so nothing is cached); on success they invalidate `['order', id]` so `print_count` updates. PDFs are fetched by `lib/pdf.ts` with the API client (`responseType: 'blob'`, bearer token) and shown from a `blob:` URL (revoked after a minute); an error body arriving as a Blob is parsed back to JSON so `useErrorMessage` translates the code (`TELEGRAM_NOT_LINKED`, `TELEGRAM_SEND_FAILED`, `DOCUMENT_UNAVAILABLE`, `TELEGRAM_NOT_CONFIGURED`). On phones the new tab is opened **inside the click handler** (`tabForPdf()`), before the request, so popup blockers (iOS Safari) allow it; on PCs (`pointer: fine`, ≥ 768 px) the PDF loads in a hidden iframe whose `print()` opens the dialog, with a new tab as the fallback. In the Mini App (`isTelegramMiniApp`) Print is hidden and Send to Telegram is the header button; elsewhere Send is in the ⋮ menu.
 - Business info: Save sends every text field (empty → `null`); the logo is uploaded as `FormData` (`file`), type and size checked first (`LOGO_WRONG_TYPE` / `LOGO_TOO_LARGE` client errors); Preview opens `GET /settings/business/preview.pdf` in a new tab (`openPdf`).
+- Preparations: draft saves only write the returned preparation into `['preparation', id]`; Finish, reopen, cancel and New (`onPreparationChanged`) also invalidate the list, the stats, the material options and the inventory keys (they move stock). `PREPARATION_CONFLICT` / `PREPARATION_INVALID_STATUS` / `PREPARATION_CANCELLED` on reopen or cancel refetch the preparation. The form keeps strings as typed (`values.ts`): satay lines by pack size (`include`, `satay_g`, `zip_bag_qty`, `sachets`) and packaging lines (`material_id`, `quantity`); amounts are parsed into scaled integers in their unit (satay g × 10; zip bags / materials in the material's unit; `gramsInUnit` converts the sauce to a kg material like the API) for the *Available* checks and blockers; `toPayload` sends only valid values. Inventory: `InventoryItem.origin` may be `preparation`; the item sheet renders `preparation_sources`; Add / Remove / Edit (`materialRefOfItem`) only for `origin = manual`, so a prepared twin (which carries its `material` for the picture) is never changed by hand.
 - Plans: Save and Confirm write the returned plan into `['production-plan', batchId]` and invalidate the plan list, the pending count, the batch and the production list. On `PRODUCTION_CONFLICT` the plan is refetched and a notice shown (no merge UI: a plan has three fields). Confirm with unsaved edits sends the PATCH first, then confirms with the new version.
 - Role limits: creating a user, reactivating, deactivating and changing a role call `invalidateRoleCapacity()` (`['role-capacity']` and `['role-limits']`); saving a limit writes `['role-limits']` and invalidates `['role-capacity']`. `ROLE_LIMIT_REACHED` is translated with the role name from its `details.role` (`useErrorMessage`).
 - Notifications: opening one marks it read (`POST /notifications/{id}/read`), **Mark all as read** calls `read-all`; both invalidate `['notifications']` and `['notifications-unread']`.
 - Defaults: `retry: 1`, `refetchOnWindowFocus: false`. The Telegram WebView focuses and blurs often, so refetching on focus would be noisy. The unread count is the one exception (a single tiny request, and the point of the bell).
 
-### Autosave (production drafts)
+### Autosave (production drafts, preparations)
 
-`pages/workstation/production/useAutosaveDraft.ts` keeps one step's form on the server while it's being filled in, and survives the Mini App being closed. Each step form (`StepForms.tsx`) owns its values (strings, as typed) and passes two pure functions from `steps.ts`: `fromBatch(batch)` (server → form values) and `toPayload(values)` (form → draft body; invalid inputs are left out so the server keeps its value).
+`lib/useAutosave.ts` keeps a draft form on the server while it's being filled in, and survives the Mini App being closed. It knows nothing about the record: an `AutosaveTarget` gives the local-backup key, the server copy, its `version` / `updated_at`, whether it still takes drafts, the PATCH and its `keepalive` twin (`keepaliveFetch`), the conflict code and where the conflict body carries the current copy, and how to reload it. `pages/workstation/production/useAutosaveDraft.ts` is production's thin wrapper (`mc.draft.<batchId>.<step>`, `PATCH /production/{id}/{step}`, `PRODUCTION_CONFLICT` / `details.batch`); the preparation page builds its own target (`mc.prep.<id>`, `PATCH /preparations/{id}`, `PREPARATION_CONFLICT` / `details.preparation`) and reuses `StepShell` (its Finish label and confirmation texts are props). Typing back to the saved value settles the status to *Saved* (nothing to send). Each step form (`StepForms.tsx`) owns its values (strings, as typed) and passes two pure functions from `steps.ts`: `fromBatch(batch)` (server → form values) and `toPayload(values)` (form → draft body; invalid inputs are left out so the server keeps its value).
 
 ```mermaid
 flowchart LR
@@ -443,7 +459,8 @@ flowchart LR
   | `audit.actions.<action with . replaced by _>` | Audit action labels (including `supplier_*`, `customer_*`, `production_*`) |
   | `partners.*` | Shared supplier/customer texts: field labels and hints, KPI labels, status and sort options, list actions |
   | `suppliers.*`, `customers.*` | Per-list texts: title, description, buttons, empty states, confirmations, success messages (`{{name}}`) |
-  | `production.*` | Production: steps, fields, units, KPI and filter labels, autosave states, restore / conflict notices, balance texts, dialogs; `production.errors.*` are the client-side field errors (required, invalid kg, …). By-product names come from the API catalog (`useLocalized`). |
+  | `preparations.*` | Preparation: types (`types.<type>.title/short/description`), statuses, KPI and filter labels, satay / packaging form texts, blockers, Finish / Reopen / Cancel dialogs; sachet short names under `inventory.shortNames`, the Prepared sub-tab under `inventory.groups/sections/badges.prepared`, the bell text under `notifications.preparationFinished` |
+| `production.*` | Production: steps, fields, units, KPI and filter labels, autosave states, restore / conflict notices, balance texts, dialogs; `production.errors.*` are the client-side field errors (required, invalid kg, …). By-product names come from the API catalog (`useLocalized`). |
 
 - **Server-provided bilingual text** (permission and module names and descriptions) goes through `useLocalized()`, which picks `*_km` or `*_en` with an English fallback.
 - **Dates** use `Intl.DateTimeFormat` with the `km-KH` or `en-GB` locale, via `useFormatDate()`. Calendar dates from the API (`"2026-09-29"`, e.g. production step dates) go through `useFormatDay()` (same helper, formatted in UTC), so they show the same day in any device time zone.
@@ -583,6 +600,8 @@ The page brings the KPI cards (`KpiGrid`), URL-driven filters (`?q&deactivated=1
 | Bell polled from the app shell | One 60-second poll (plus window focus) for the unread count serves every page; the list itself loads only when the bell opens. Telegram delivers the same alerts in real time, so no websocket is needed. |
 | Plan-vs-actual comment rule mirrored in the UI | The API refuses Finish without a comment when packs differ; the form shows the difference as it's typed and lists the missing comment among the Finish blockers, so the refusal never surprises anyone. |
 | Capacity shown before submitting | The API is the authority on role limits (row lock, `ROLE_LIMIT_REACHED`), but a manager shouldn't fill in a whole form to learn the role is full: the form, the role sheet and the list show *active / limit* up front, and the server error remains the fallback for races. |
+| One autosave hook for every server-side draft | Production steps and preparations need exactly the same guarantees (debounce, keepalive on close, local backup and restore, version conflicts). Extracting the hook behind a small target interface keeps one implementation to fix and test; production's behaviour is unchanged (it only supplies its URL, key and conflict code). |
+| Prepared stock as its own sub-tab, twins shown with their material | Prepared items are a separate stock (the API's Prepared section), so they get their own pill like Wasted; a prepared material reuses its raw material's picture with a *Prepared* badge rather than a new picture per material, so a material created or re-iconed in the app needs nothing else. |
 | Order form keeps boxes on the client until Save | An order is short and typed in one go, so there are no server drafts (unlike production): boxes and lines live in component state with local keys, the summary is computed live, and one POST / PATCH replaces the boxes. The API repeats every check; the version guards against a concurrent edit. |
 | Order actions by status, one primary button | Each status has exactly one next step (Start delivery, Mark delivered, Review return), shown as the main button only to whoever may do it; Edit and Cancel, rarer and only while Created, live in the ⋮ menu. |
 | Inventory amounts straight from the API | Balances and movements are computed and locked server-side (the ledger); the page only formats them (count, kg with up to 3 decimals, "≈" when estimated) and never adds anything up, so it can't disagree with the server. |

@@ -35,6 +35,11 @@ BODIES: dict[tuple[str, str], dict] = {
     ("PATCH", "/inventory/materials/{material_id}"): {"name_en": "String"},
     ("POST", "/inventory/materials/{material_id}/add"): {"quantity": "1"},
     ("POST", "/inventory/materials/{material_id}/remove"): {"quantity": "0.5", "reason": "Test"},
+    ("POST", "/preparations"): {"type": "satay_sachet"},
+    ("PATCH", "/preparations/{preparation_id}"): {"version": 1, "note": "Superset"},
+    ("POST", "/preparations/{preparation_id}/finish"): {"version": 1},
+    ("POST", "/preparations/{preparation_id}/reopen"): {"version": 1},
+    ("POST", "/preparations/{preparation_id}/cancel"): {"version": 1, "reason": "Superset"},
 }
 
 
@@ -67,7 +72,11 @@ async def world(client, session, superadmin, make_user) -> dict:
         )
     ).json()
     materials = (await client.get("/inventory/materials", headers=h)).json()
+    preparation = (
+        await client.post("/preparations", json={"type": "satay_sachet"}, headers=h)
+    ).json()
     return {
+        "preparation_id": preparation["id"],
         "material_id": next(m["id"] for m in materials if m["name_en"] == "String"),
         "gm": gm,
         "superadmin": superadmin,
@@ -95,6 +104,7 @@ def _fill(path: str, world: dict) -> str:
     url = url.replace("{role}", "staff").replace("{item_code}", "packs_big")
     url = url.replace("{order_id}", world["order_id"])
     url = url.replace("{material_id}", world["material_id"])
+    url = url.replace("{preparation_id}", world["preparation_id"])
     # Someone else's (or no) notification: 404 for both, never 403.
     url = url.replace("{notification_id}", str(uuid.uuid4()))
     if "{partner_id}" in url:
@@ -163,5 +173,14 @@ async def test_superadmin_is_never_forbidden_where_the_gm_is_allowed(
         "GET /inventory/materials/{material_id}/icon",
         "PUT /inventory/materials/{material_id}/icon",
         "DELETE /inventory/materials/{material_id}/icon",
+        "GET /preparations",
+        "GET /preparations/stats",
+        "GET /preparations/material-options",
+        "POST /preparations",
+        "GET /preparations/{preparation_id}",
+        "PATCH /preparations/{preparation_id}",
+        "POST /preparations/{preparation_id}/finish",
+        "POST /preparations/{preparation_id}/reopen",
+        "POST /preparations/{preparation_id}/cancel",
     ):
         assert route in checked, route

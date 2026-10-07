@@ -13,6 +13,7 @@ import { useErrorMessage } from '@/lib/errors'
 import { useRelativeTime } from '@/lib/format'
 import { paths } from '@/lib/paths'
 import type { InventoryItem, InventoryItemDetail, InventoryMovement, ItemSource, Page } from '@/lib/types'
+import { useFormatDay } from '@/lib/format'
 import { STEPS } from '@/pages/workstation/production/api'
 import { invalidateInventory, inventoryKeys, useStockFormat } from './api'
 import { MaterialFormSheet, StockSheet, materialRefOfItem } from './MaterialSheets'
@@ -100,7 +101,7 @@ export function ItemSheet({ item, onClose }: { item: InventoryItem | null; onClo
       <div className="flex items-center gap-4">
         <ItemPicture src={picture} icon={d.visual.icon} muted={d.visual.wasted} className="h-24 w-24" />
         <div className="min-w-0">
-          <Badge tone={item.section === 'wasted' ? 'red' : 'neutral'}>
+          <Badge tone={item.section === 'wasted' ? 'red' : item.section === 'prepared' ? 'green' : 'neutral'}>
             {t(`inventory.groups.${item.group}`)}
           </Badge>
           <p className="mt-2 text-3xl font-semibold tabular-nums text-stone-900">{d.amount}</p>
@@ -143,6 +144,22 @@ export function ItemSheet({ item, onClose }: { item: InventoryItem | null; onClo
               </Button>
             </div>
           )}
+        </>
+      ) : item.origin === 'preparation' ? (
+        <>
+          <h3 className="mt-6 text-sm font-semibold text-stone-900">{t('inventory.fromPreparation')}</h3>
+          {detail.isError && (
+            <Alert tone="error" className="mt-2">
+              {errorMessage(detail.error)}
+            </Alert>
+          )}
+          {detail.isPending ? (
+            <div className="flex justify-center py-6 text-brand-600">
+              <Spinner />
+            </div>
+          ) : detail.data ? (
+            <PreparationSources detail={detail.data} onNavigate={onClose} />
+          ) : null}
         </>
       ) : (
         <>
@@ -215,6 +232,42 @@ export function ItemSheet({ item, onClose }: { item: InventoryItem | null; onClo
         />
       )}
     </Sheet>
+  )
+}
+
+/** Prepared items: one row per preparation (oldest first) and a totals line equal to the balance. */
+function PreparationSources({ detail, onNavigate }: { detail: InventoryItemDetail; onNavigate(): void }) {
+  const { t } = useTranslation()
+  const fmt = useStockFormat()
+  const formatDay = useFormatDay()
+  const sources = detail.preparation_sources ?? []
+  if (sources.length === 0) {
+    return <p className="py-4 text-sm text-stone-500">{t('inventory.noPreparationStock')}</p>
+  }
+  const amount = (s: { count: number | null; kg: string | null; g?: string | null }) =>
+    s.count !== null ? fmt.count(s.count) : s.kg !== null ? fmt.kg(s.kg) : s.g ? fmt.g(s.g) : '—'
+  return (
+    <ul className="mt-2 divide-y divide-stone-100 text-sm">
+      {sources.map((s) => (
+        <li key={s.preparation_id} className="flex items-baseline justify-between gap-3 py-2">
+          <span className="min-w-0">
+            <Link
+              to={paths.preparation(s.preparation_id)}
+              onClick={onNavigate}
+              className="font-medium tabular-nums text-brand-700 hover:underline"
+            >
+              {s.code}
+            </Link>
+            {s.prepared_date && <span className="text-stone-500"> · {formatDay(s.prepared_date)}</span>}
+          </span>
+          <span className="shrink-0 font-medium tabular-nums text-stone-900">{amount(s)}</span>
+        </li>
+      ))}
+      <li className="flex items-baseline justify-between gap-3 py-2 font-semibold text-stone-900">
+        <span>{t('inventory.total')}</span>
+        <span className="tabular-nums">{amount(detail)}</span>
+      </li>
+    </ul>
   )
 }
 

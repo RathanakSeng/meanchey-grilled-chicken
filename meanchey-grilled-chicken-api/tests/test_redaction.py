@@ -122,6 +122,18 @@ async def world(client, session, superadmin, make_user) -> dict:
     order = await post("/orders", order_body)
     cancelled = await post("/orders", order_body)
     await post(f"/orders/{cancelled['id']}/cancel", {"version": 1, "reason": "Customer cancelled"})
+    # Preparations the superadmin created and finished (alerting the GM) and cancelled.
+    prepared = await post("/preparations", {"type": "packaging_material"})
+    prepared = (
+        await client.patch(
+            f"/preparations/{prepared['id']}",
+            json={"version": 1, "lines": [{"material_id": string["id"], "quantity": "0.5"}]},
+            headers=auth(superadmin),
+        )
+    ).json()
+    prepared = await post(f"/preparations/{prepared['id']}/finish", {"version": 2})
+    dropped = await post("/preparations", {"type": "satay_sachet"})
+    await post(f"/preparations/{dropped['id']}/cancel", {"version": 1, "reason": "Not needed"})
     # Its step 1 finish above also wrote inventory movements with created_by = the superadmin.
     # Superadmin-targeted audit entries (its own sign-in, a failed one).
     await client.post("/auth/login", json={"username": "superadmin", "password": "wrong"})
@@ -146,6 +158,7 @@ async def world(client, session, superadmin, make_user) -> dict:
         "planned_version": plan["version"],
         "orders": [order["id"], cancelled["id"]],
         "string": string,
+        "preparations": [prepared["id"], dropped["id"]],
     }
 
 
@@ -182,6 +195,8 @@ def _fill(path: str, world: dict) -> list[str]:
         return [path.replace("{order_id}", o) for o in world["orders"]]
     if "{item_code}" in path:
         return [path.replace("{item_code}", "chicken")]
+    if "{preparation_id}" in path:
+        return [path.replace("{preparation_id}", p) for p in world["preparations"]]
     if "{material_id}" in path:
         return [path.replace("{material_id}", world["string"]["id"])]
     if "{batch_id}" in path:
@@ -209,6 +224,11 @@ EXTRA_QUERIES = [
     "/inventory/materials?include_archived=true",
     "/inventory/movements?source=material_add",
     "/audit-logs?action=material.create",
+    "/preparations?include_cancelled=true",
+    "/inventory/movements?source=preparation",
+    "/inventory/movements?section=prepared",
+    "/audit-logs?action=preparation.finish",
+    "/audit-logs?entity_type=preparation",
 ]
 
 
@@ -293,7 +313,9 @@ async def test_delivery_note_names_the_superadmin_as_system(client, world, html_
 async def test_alerts_and_plans_name_the_superadmin_as_system(client, world) -> None:
     for key in ("gm", "sup"):
         page = (await client.get("/notifications", headers=auth(world[key]))).json()
-        assert page["total"] == 1 and page["items"][0]["actor"]["is_system"] is True
+        # The plan alert; the GM also the preparation alert (preparation.update).
+        assert page["total"] == (2 if key == "gm" else 1)
+        assert all(item["actor"]["is_system"] is True for item in page["items"])
         plan = (
             await client.get(f"/production-plans/{world['planned']}", headers=auth(world[key]))
         ).json()["plan"]

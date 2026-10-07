@@ -14,6 +14,8 @@ export const paths = {
   newOrder: '/workstation/orders/new',
   order: (id: string) => `/workstation/orders/${id}`,
   editOrder: (id: string) => `/workstation/orders/${id}/edit`,
+  preparations: '/workstation/preparations',
+  preparation: (id: string) => `/workstation/preparations/${id}`,
   settings: '/settings',
   users: '/settings/users',
   newUser: '/settings/users/new',

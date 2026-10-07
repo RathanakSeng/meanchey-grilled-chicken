@@ -1,6 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
-import { API_BASE_URL } from '@/lib/api'
-import { tokenStore } from '@/lib/storage'
+import { keepaliveFetch } from '@/lib/useAutosave'
 import type { ProductionBatch, StepNumber, StepSlug } from '@/lib/types'
 import { invalidateInventory } from '@/pages/workstation/inventory/api'
 import { invalidatePlans } from '@/pages/workstation/production-plans/api'
@@ -86,14 +85,5 @@ export function planConfirmed(batch: ProductionBatch): boolean {
  * covers it and is resent on the next visit.
  */
 export function keepaliveSave(batchId: string, slug: StepSlug, body: object): Promise<Response> {
-  const token = tokenStore.getAccess()
-  return fetch(`${API_BASE_URL}/production/${batchId}/${slug}`, {
-    method: 'PATCH',
-    keepalive: true,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  })
+  return keepaliveFetch(`/production/${batchId}/${slug}`, 'PATCH', body)
 }

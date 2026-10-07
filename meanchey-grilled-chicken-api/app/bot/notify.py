@@ -35,6 +35,7 @@ from app.services.notification_service import (
     ORDER_DELIVERING,
     ORDER_RETURN_PENDING,
     ORDER_RETURNS_REVIEWED,
+    PREPARATION_FINISHED,
     PROCESSING_FINISHED,
 )
 
@@ -114,6 +115,27 @@ def _order_message(row: Notification, lang: Language) -> str:
 ORDER_TYPES = (ORDER_DELIVERING, ORDER_DELIVERED, ORDER_RETURN_PENDING, ORDER_RETURNS_REVIEWED)
 
 
+def preparation_summary(lang: Language, p: dict[str, Any]) -> str:
+    """ "40 satay sachets (2-piece), 25 (4-piece) | Skewer 2.000 kg, String 0.500 kg" in `lang`
+    (names escaped)."""
+    groups = []
+    sachets = [(size, p.get(f"sachets_{size}")) for size in (2, 4)]
+    sachet_parts = [
+        t(lang, "prep_sachets_first" if not i else "prep_sachets_more", count=n, size=size)
+        for i, (size, n) in enumerate((s, n) for s, n in sachets if n)
+    ]
+    if sachet_parts:
+        groups.append(", ".join(sachet_parts))
+    material_parts = []
+    for m in p.get("materials") or []:
+        name = escape(str(m.get("name_km" if lang == Language.KM else "name_en", "")))
+        unit = t(lang, f"unit_{m.get('unit')}") if m.get("unit") in ("kg", "g", "count") else ""
+        material_parts.append(f"{name} {m.get('quantity')}{unit}")
+    if material_parts:
+        groups.append(", ".join(material_parts))
+    return " | ".join(groups) if groups else t(lang, "order_nothing")
+
+
 def message_for(row: Notification, lang: Language) -> tuple[str, InlineKeyboardMarkup | None]:
     """The alert text (HTML) and its Mini App button, in `lang`."""
     p: dict[str, Any] = row.payload
@@ -122,6 +144,15 @@ def message_for(row: Notification, lang: Language) -> tuple[str, InlineKeyboardM
     if row.type in ORDER_TYPES:
         text = _order_message(row, lang)
         button, path = "open_order", f"/workstation/orders/{row.entity_id}"
+    elif row.type == PREPARATION_FINISHED:
+        text = t(
+            lang,
+            "preparation_finished",
+            code=code,
+            again=again,
+            summary=preparation_summary(lang, p),
+        )
+        button, path = "open_preparation", f"/workstation/preparations/{row.entity_id}"
     elif row.type == PROCESSING_FINISHED:
         text = t(
             lang,

@@ -48,6 +48,7 @@ MODULES: list[ModuleDef] = [
     ModuleDef("production_plan", "Packaging plan", "ផែនការវេចខ្ចប់"),
     ModuleDef("inventory", "Inventory", "ស្តុក"),
     ModuleDef("orders", "Orders", "ការបញ្ជាទិញ"),
+    ModuleDef("preparation", "Preparation", "ការរៀបចំ"),
     ModuleDef("settings", "Settings", "ការកំណត់"),
 ]
 
@@ -372,6 +373,51 @@ _ORDER_CODES = frozenset(p.code for p in PERMISSIONS if p.module == "orders")
 
 PERMISSIONS += [
     PermissionDef(
+        code="preparation.view",
+        module="preparation",
+        name_en="View preparations",
+        name_km="មើលការរៀបចំ",
+        description_en="See preparations (satay sachets, packaging materials) and their figures.",
+        description_km="មើលការរៀបចំ (សាតេកញ្ចប់ សម្ភារៈវេចខ្ចប់) និងតួលេខសង្ខេប។",
+        assignable_to=_EVERYONE,
+    ),
+    PermissionDef(
+        code="preparation.create",
+        module="preparation",
+        name_en="Record preparations",
+        name_km="កត់ត្រាការរៀបចំ",
+        description_en=(
+            "Create preparations, fill them in and finish them (raw materials out, prepared "
+            "materials in)."
+        ),
+        description_km="បង្កើតការរៀបចំ បំពេញ និងបញ្ចប់ (ដកវត្ថុធាតុដើមចេញ បញ្ចូលសម្ភារៈដែលរៀបចំរួច)។",
+        assignable_to=_EVERYONE,
+    ),
+    PermissionDef(
+        code="preparation.update",
+        module="preparation",
+        name_en="Reopen preparations",
+        name_km="បើកការរៀបចំឡើងវិញ",
+        description_en=(
+            "Reopen finished preparations (their stock is put back), and receive the "
+            "preparation alerts."
+        ),
+        description_km="បើកការរៀបចំដែលបានបញ្ចប់ឡើងវិញ (ស្តុកត្រូវបានដាក់ត្រឡប់វិញ) និងទទួលការជូនដំណឹងការរៀបចំ។",
+        assignable_to=_MANAGERS,
+    ),
+    PermissionDef(
+        code="preparation.cancel",
+        module="preparation",
+        name_en="Cancel preparations",
+        name_km="លុបចោលការរៀបចំ",
+        description_en="Cancel a preparation with a reason (a finished one puts its stock back).",
+        description_km="លុបចោលការរៀបចំ ដោយបញ្ជាក់មូលហេតុ (ការរៀបចំដែលបានបញ្ចប់ ដាក់ស្តុកត្រឡប់វិញ)។",
+        assignable_to=_MANAGERS,
+    ),
+]
+
+PERMISSIONS += [
+    PermissionDef(
         code="settings.business_info",
         module="settings",
         name_en="Edit business info",
@@ -593,6 +639,35 @@ FEATURES: list[FeatureDef] = [
         levels=(("off", ()), ("full", ("orders.review_returns",))),
     ),
     FeatureDef(
+        code="preparation",
+        menu="workstation",
+        name_en="Preparation",
+        name_km="ការរៀបចំ",
+        description_en=(
+            "Satay sachets and packaging materials made ready from raw materials. Record lets "
+            "someone create, fill in and finish preparations."
+        ),
+        description_km=(
+            "សាតេកញ្ចប់ និងសម្ភារៈវេចខ្ចប់ដែលរៀបចំពីវត្ថុធាតុដើម។ កម្រិតកត់ត្រាអាចបង្កើត បំពេញ និងបញ្ចប់ការរៀបចំ។"
+        ),
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF),
+        levels=(
+            ("off", ()),
+            ("view", ("preparation.view",)),
+            ("record", ("preparation.view", "preparation.create")),
+        ),
+    ),
+    FeatureDef(
+        code="preparation_management",
+        menu="workstation",
+        name_en="Preparation management",
+        name_km="គ្រប់គ្រងការរៀបចំ",
+        description_en="Reopen and cancel preparations, and receive the preparation alerts.",
+        description_km="បើកឡើងវិញ និងលុបចោលការរៀបចំ ព្រមទាំងទទួលការជូនដំណឹងការរៀបចំ។",
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
+        levels=(("off", ()), ("full", ("preparation.update", "preparation.cancel"))),
+    ),
+    FeatureDef(
         code="staff_management",
         menu="settings",
         name_en="Staff management",
@@ -663,7 +738,9 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
     # superadmin allows it.
     | {"inventory.view", "inventory.materials_stock", "inventory.materials_manage"}
     # Orders Record, management Full, returns Full.
-    | _ORDER_CODES,
+    | _ORDER_CODES
+    # Preparation Record, preparation management Full.
+    | {"preparation.view", "preparation.create", "preparation.update", "preparation.cancel"},
     # Workstation features at full access, except the production plan (off: the GM decides who
     # plans). Staff: view them and set their access; adding or editing staff is the GM's call.
     Role.SUPERVISOR: _feature_defaults(
@@ -682,6 +759,9 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
             "orders": "record",
             "order_management": "off",
             "order_returns": "off",
+            # Preparation Record; reopening and cancelling are the GM's to allow.
+            "preparation": "record",
+            "preparation_management": "off",
             "staff_management": "view",
             "staff_access": "full",
         },

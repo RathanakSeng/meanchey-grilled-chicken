@@ -1,6 +1,6 @@
 # API Features — Phase 1
 
-What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The business features, **suppliers and customers** (§11), **production** (§14), **inventory** (§18), **orders** (§19) with their **delivery notes** (§19.6) and the **business info** printed on them (§20), plug into the permission system described here, as will later ones.
+What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The business features, **suppliers and customers** (§11), **production** (§14), **inventory** (§18), **orders** (§19) with their **delivery notes** (§19.6), the **business info** printed on them (§20) and **preparation** (§21: satay sachets and packaging materials made ready from raw materials), plug into the permission system described here, as will later ones.
 
 - [1. Authentication](#1-authentication)
 - [2. Password policy](#2-password-policy)
@@ -22,6 +22,7 @@ What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័�
 - [18. Inventory](#18-inventory)
 - [19. Orders](#19-orders)
 - [20. Business info](#20-business-info)
+- [21. Preparation](#21-preparation)
 
 ---
 
@@ -283,6 +284,15 @@ Staff can't hold either. The alerts go to whoever holds `production_plan.view`, 
 | `orders.cancel` | Cancel a Created order (the customer cancelled) | GM, supervisor | Order management (Full access) |
 | `orders.review_returns` | Put returned items back into stock or wasted; **receive the order alerts** (§16) | GM, supervisor | Order returns (Full access) |
 
+**Module `preparation`** (§21)
+
+| Code | Meaning | Assignable to | In feature (level) |
+|---|---|---|---|
+| `preparation.view` | See preparations and their figures | GM, supervisor, staff | Preparation (View only and up) |
+| `preparation.create` | Create, fill in and finish preparations | GM, supervisor, staff | Preparation (Record) |
+| `preparation.update` | Reopen finished preparations; **receive the preparation alerts** (§16) | GM, supervisor | Preparation management (Full access) |
+| `preparation.cancel` | Cancel preparations | GM, supervisor | Preparation management (Full access) |
+
 **Module `settings`** (§20)
 
 | Code | Meaning | Assignable to | In feature (level) |
@@ -300,11 +310,11 @@ Cancelling batches is a general-manager decision, like deactivating users: `prod
 | Role | On creation |
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
-| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions, `inventory.view` and `inventory.materials_stock` (Inventory **Record**), `inventory.materials_manage` (Inventory materials **Full**; **not** `inventory.history`: the superadmin allows it per GM) and all five `orders.*` permissions (Orders Record, Order management Full, Order returns Full). **Not** `settings.business_info` (Business info Off: the superadmin allows it per GM). |
-| Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Inventory Record** (material stock), Inventory materials **Off**; **Orders Record**, Order management and Order returns **Off**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
+| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions, `inventory.view` and `inventory.materials_stock` (Inventory **Record**), `inventory.materials_manage` (Inventory materials **Full**; **not** `inventory.history`: the superadmin allows it per GM) all five `orders.*` permissions (Orders Record, Order management Full, Order returns Full) and all four `preparation.*` permissions (Preparation Record, Preparation management Full). **Not** `settings.business_info` (Business info Off: the superadmin allows it per GM). |
+| Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Inventory Record** (material stock), Inventory materials **Off**; **Orders Record**, Order management and Order returns **Off**; **Preparation Record**, Preparation management **Off**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
 | Staff | Every feature **Off** (no permissions). |
 
-`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing. The `production_plan.*` permissions were backfilled to existing active general managers only (supervisors' default is Off). `users.manage_access` is backfilled to existing **active supervisors** (Staff access Full). `inventory.view` is backfilled to existing active general managers and supervisors. `inventory.history` is in nobody's defaults, so it isn't backfilled: only the superadmin sees inventory history until it grants it. The `orders.*` permissions are backfilled per the defaults: all five to existing active general managers, `orders.view` and `orders.create` to existing active supervisors, nothing to staff.
+`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing. The `production_plan.*` permissions were backfilled to existing active general managers only (supervisors' default is Off). `users.manage_access` is backfilled to existing **active supervisors** (Staff access Full). `inventory.view` is backfilled to existing active general managers and supervisors. `inventory.history` is in nobody's defaults, so it isn't backfilled: only the superadmin sees inventory history until it grants it. The `orders.*` permissions are backfilled per the defaults: all five to existing active general managers, `orders.view` and `orders.create` to existing active supervisors, nothing to staff. The `preparation.*` permissions likewise: all four to existing active general managers, `preparation.view` and `preparation.create` to existing active supervisors, nothing to staff.
 
 **Default change for existing supervisors (migration `0009`).** Staff management used to default to Full access. Migration `0009_supervisor_staff_defaults` moved every supervisor whose staff management was **exactly Full** (`users.view/create/update`) to **View only** (removes `users.create` and `users.update`), deactivated supervisors included so that reactivating doesn't bring Full back. Supervisors at a custom or lower level were left alone. Each changed supervisor got one `feature.set` audit entry with no actor (System) and `details.source = "default_change"`. It runs once (Alembic); its downgrade does nothing.
 
@@ -338,7 +348,7 @@ Grant and revoke are idempotent.
 
 ## 6. Audit log
 
-Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `target_user_id`, `entity_type`, `entity_id`, `details` JSONB, `created_at`). `entity_type` / `entity_id` reference a non-user record (`supplier`, `customer`, `production_batch`, `order`); they're null for user and auth actions.
+Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `target_user_id`, `entity_type`, `entity_id`, `details` JSONB, `created_at`). `entity_type` / `entity_id` reference a non-user record (`supplier`, `customer`, `production_batch`, `order`, `material`, `preparation`); they're null for user and auth actions.
 
 | Area | Actions |
 |---|---|
@@ -353,10 +363,11 @@ Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `ta
 | Inventory | `inventory.adjust` (`item_code`, `name_en`, `name_km`, `from` / `to` = `{count, kg}`, `reason`): only entries from before production items became read-only (§18.5), kept as the record. Production movements are in the inventory history (§18), not the audit log. |
 | Orders | `order.document_printed` (`copy`: 1 = the original, 2+ = copies; `via`: `download` / `telegram`): one per delivery note generated (§19.6); the Business info preview isn't audited. `order.create` (`customer` (the name; null for a direct order), `customer_type`, `customer_phone` (readable), `customer_location`, `delivery_date`, `white_boxes`, `black_boxes`, `items`), `order.update` (`changes`: field → `{from, to}` for `customer`, `customer_type`, `customer_phone`, `customer_location` (the order's customer snapshot, §19.2), `delivery_date`, `driver`, `note`, `boxes` = `{white, black, items}`; only when something changed), `order.cancel` (`reason`), `order.delivering` (`items`: the totals that left stock), `order.delivered` (`outcome`: `accepted` / `returned`, with `reason` and `returned` items), `order.returns_reviewed` (`outcome`: `partly_returned` / `fully_returned`, `to_stock`, `to_wasted`). Items are `[{item_code, name_en, name_km, count, kg}]`. `entity_type = order`, `details.code` = the order code. |
 | Materials | `material.create` (`unit`), `material.update` (`changes`: field → `[old, new]`, incl. `unit` and the converted `balance`), `material.archive` (`balance`), `material.restore`, `material.stock_add` / `material.stock_remove` (`quantity`, `unit`, `balance_after`; `reason` on removals). `entity_type = material`, `details.name_en` / `name_km` / `item_code`. Production's marinade movements are in the inventory history, not the audit log. |
+| Preparations | `preparation.create`, `preparation.finish` (`sachets_2`, `sachets_4` (satay) or `materials`: `[{name_en, name_km, quantity, unit}]` (packaging)), `preparation.reopen`, `preparation.cancel` (`reason`, `was`: `draft` / `finished`). `entity_type = preparation`, `details.code` and `details.type`. **Draft saves are not audited**; the stock movements are in the inventory history. |
 | Settings | `settings.role_limit_update` (`role`, `from`, `to`; `null` = unlimited). Superadmin only, so hidden from general managers. `settings.business_update` (`changes`: field → `[old, new]` for the text fields; the logo as `"logo": "changed"` / `"removed"`, never its bytes), only when something changed (§20). A GM given Business info sees its own entries; the superadmin's are hidden from it like everything it does. |
 | Profile | `profile.update`; `profile.telegram_link` / `profile.telegram_unlink` (the superadmin's Telegram link, §7.5; hidden from the GM like everything the superadmin does) |
 
-`GET /audit-logs` is available to the **superadmin and general manager only** (§13 for what general managers don't see). This is a role check, not a permission. It supports filters (`action`, `actor_id`, `target_user_id`, `entity_type`, `entity_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references, and `entity: {type, id, name}` for supplier / customer / production batch / order entries (the record's current name, or the batch / order code, falling back to the logged one).
+`GET /audit-logs` is available to the **superadmin and general manager only** (§13 for what general managers don't see). This is a role check, not a permission. It supports filters (`action`, `actor_id`, `target_user_id`, `entity_type`, `entity_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references, and `entity: {type, id, name}` for supplier / customer / production batch / order / material / preparation entries (the record's current name, or the batch / order / preparation code, falling back to the logged one).
 
 ---
 
@@ -461,6 +472,7 @@ Every error has the same shape:
 | Production guard | `PRODUCTION_STOCK_ALREADY_USED` (409: a reopen / cancel would take back stock that already left in orders; `details = {items: [{item_code, name_en, name_km, remaining_count, remaining_kg, needed_count, needed_kg, orders}], orders}`, §18.10) |
 | Inventory | `INVENTORY_INSUFFICIENT` (409: a balance would go below zero; `details.items` = `[{item_code, name_en, name_km, available_count, available_kg, needed_count, needed_kg}]`; raised by Finish, reopen and cancel as a safeguard, and by **Delivering** an order when its totals are above the stock, §19), `INVENTORY_ITEM_NOT_FOUND` (404), `INVENTORY_ITEM_PRODUCTION_ONLY` (409: setting an item's value directly, for everyone, `details.item_code`; materials also `details.use = "material_add_remove"`) |
 | Materials | `MATERIAL_NOT_FOUND` (404), `MATERIAL_UNIT_LOCKED` (409: to / from count after the first movement), `MATERIAL_ARCHIVED` (409: stock change on an archived material), `MATERIAL_SYSTEM_LOCKED` (409: archiving Marinade sauce or switching it to count), `DUPLICATE_MATERIAL_NAME` (409, `details.fields`) |
+| Preparations | `PREPARATION_NOT_FOUND` (404), `PREPARATION_CONFLICT` (409, `details.preparation`: the current preparation), `PREPARATION_CANCELLED` (409: any change to a cancelled preparation), `PREPARATION_INVALID_STATUS` (409, `details.status`: saving or finishing a finished one, reopening a draft); also `VALIDATION_ERROR` (values, line kind, a non-preparable material), `MATERIAL_ARCHIVED` (409 at Finish, `details` names the material) and `INVENTORY_INSUFFICIENT` (§18.3) |
 | Generic | `VALIDATION_ERROR` (with `details.fields`; also a logo that isn't a PNG / JPEG or is over 500 kB, `loc = ["body", "file"]`), `NOT_FOUND` (also: `GET /settings/business/logo` without a logo), `METHOD_NOT_ALLOWED`, `HTTP_ERROR` |
 
 Codes are defined in `app/core/errors.py`. **Never rename a code:** the UI depends on them.
@@ -530,7 +542,7 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | POST | `/production-plans/{batch_id}/confirm` | `production_plan.manage` |
 | GET | `/inventory` | `inventory.view` |
 | GET | `/inventory/items/{item_code}` | `inventory.view` |
-| GET | `/inventory/movements` | `inventory.history` (filters incl. `order_id`) |
+| GET | `/inventory/movements` | `inventory.history` (filters incl. `order_id`, `preparation_id`) |
 | POST | `/inventory/items/{item_code}/set` | `inventory.view`; every item → `409 INVENTORY_ITEM_PRODUCTION_ONLY` (§18.5) |
 | GET | `/inventory/materials` | `inventory.view` (`include_archived` only with `inventory.materials_manage`) |
 | POST | `/inventory/materials` | `inventory.materials_manage` |
@@ -548,6 +560,15 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | POST | `/orders/{id}/returns/review` | `orders.review_returns` |
 | GET | `/orders/{id}/document.pdf` | `orders.view` (any status) |
 | POST | `/orders/{id}/document/send-telegram` | `orders.view` (to the requester's own chat) |
+| GET | `/preparations` | `preparation.view` |
+| GET | `/preparations/stats` | `preparation.view` |
+| GET | `/preparations/material-options` | `preparation.create` |
+| POST | `/preparations` | `preparation.create` |
+| GET | `/preparations/{id}` | `preparation.view` |
+| PATCH | `/preparations/{id}` | `preparation.create` (drafts) |
+| POST | `/preparations/{id}/finish` | `preparation.create` |
+| POST | `/preparations/{id}/reopen` | `preparation.update` |
+| POST | `/preparations/{id}/cancel` | `preparation.cancel` |
 | GET | `/health` (no prefix) | public |
 | GET | `/docs`, `/redoc`, `/openapi.json` (no prefix) | only when API docs are enabled (development by default, §13) |
 
@@ -623,6 +644,8 @@ How general managers (and, for staff, supervisors with Staff access) give access
 | `orders` | workstation | GM, supervisor, staff | `orders.view` | `orders.view/create` | — |
 | `order_management` | workstation | GM, supervisor | — | — | `orders.update/cancel` |
 | `order_returns` | workstation | GM, supervisor | — | — | `orders.review_returns` |
+| `preparation` | workstation | GM, supervisor, staff | `preparation.view` | `preparation.view/create` | — |
+| `preparation_management` | workstation | GM, supervisor | — | — | `preparation.update/cancel` |
 | `staff_management` | settings | GM, supervisor | `users.view` | `users.view/create` | `users.view/create/update` |
 | `staff_access` | settings | supervisor | — | — | `users.manage_access` |
 | `business_info` | settings | **GM** | — | — | `settings.business_info` |
@@ -641,6 +664,7 @@ How general managers (and, for staff, supervisors with Staff access) give access
 - **Startup validation** (`validate_features`, at import and in bootstrap): every code a feature uses exists, is assignable to every role in `applies_to`, and has no `grantable_by`; the first level is `off` with no codes; levels are unique and follow the order `off` → `view` → `record` → `full` (`LEVELS`), where any after `off` may be omitted (production and staff management use `record`; staff access has only `off` and `full`). A mismatch stops the API from starting.
 - **Orders:** *View only* = see orders; *Record* = also create them, start delivery, mark them delivered and record returns (Orders has no Full access level). **Order management** *Full access* = edit and cancel Created orders. **Order returns** *Full access* = review returns and **receive the order alerts**. A GM with default permissions reads as Orders *Record*, management and returns *Full access*. A supervisor with Staff access can give staff Orders only up to its own Orders level.
 - **Inventory:** *View only* = see stock, wasted items and materials; *Record* = also add and remove the stock of materials (with a reason to remove). **Inventory materials** *Full access* = create, edit, archive and restore materials. Defaults: GM Record + Full; supervisors Record + Off; staff Off (a supervisor with Staff access can give staff up to its own Inventory level).
+- **Preparation:** *View only* = see preparations; *Record* = also create, fill in and finish them (Preparation has no Full access level). **Preparation management** *Full access* = reopen and cancel preparations and **receive the preparation alerts**. Defaults: GM Record + Full; supervisors Record + Off; staff Off (a supervisor with Staff access can give staff Preparation up to its own level; management doesn't apply to staff).
 - **Production plan:** *View only* = see plans and receive the production alerts; *Full access* = also set and confirm plans. Supervisors start at *Off*; the GM starts at *Full access*.
 
 ### 12.2 Current level
@@ -688,6 +712,7 @@ The superadmin can use these endpoints too. Adding and editing staff info stay s
 - **UI:** one build for everyone. The superadmin's role label is "System" / "ប្រព័ន្ធ", like the API's redacted references; its extra screens are runtime checks. Their code is in the bundle (visible in browser dev tools), but they never receive superadmin data because the API redacts it.
 - **Notifications and plans:** a notification stores the actor's id and serializes it as a `UserRef` for the recipient reading it, so a step finished by the superadmin reads as "System" to everyone else; the Telegram texts never name the actor. Plan `confirmed_by` / `updated_by` are `UserRef`s too.
 - **Orders:** every user reference on an order (`created_by`, `driver`, `delivering_by`, `delivered_by`, `returns_reviewed_by`, `cancelled_by`, `updated_by`, each return's `reviewed_by`) is a `UserRef`; the order routes are in the redaction and superset sweeps, with orders the superadmin created and cancelled. Driver options list only active staff and supervisors.
+- **Preparations:** `created_by`, `updated_by`, `finished_by`, `cancelled_by` are `UserRef`s; the routes are in the redaction and superset sweeps, with preparations the superadmin created, finished (alerting the GM, read as "System") and cancelled.
 - **Delivery notes** (§19.6) are rendered from the order as serialized for the requester, so names on them ("Prepared by", "Driver") are redacted like any `UserRef`. The redaction sweep reads them as HTML (`html_documents` fixture) and checks the text.
 - **Linked Telegram id:** the superadmin's (like everyone's) `telegram_user_id` is never serialized; responses only carry `telegram_linked`.
 - **Tests:** `tests/test_redaction.py` calls every GET route (from the OpenAPI schema) plus key mutations as a GM, a supervisor and staff, over data the superadmin created, and fails if a body contains the superadmin's id, name or the word "superadmin". Its data includes a batch whose step 2 the superadmin finished and whose plan it confirmed (alerts for the GM and a supervisor with plan access).
@@ -877,9 +902,10 @@ Production and order alerts, stored in the app (the bell) and sent on Telegram.
 | Order out for delivery | `order.delivering` | `code`, `customer`, `customer_type`, `customer_phone`, `white`, `black` (box counts), `actor_id`, `repeat` |
 | Order delivered, everything accepted | `order.delivered` | `code`, `customer`, `customer_type`, `customer_phone`, `actor_id`, `repeat` |
 | Order delivered with returns | `order.return_pending` | `code`, `customer`, `customer_type`, `customer_phone`, `returned` (items), `reason`, `actor_id`, `repeat` |
+| Preparation finished | `preparation.finished` | `code`, `type`, `sachets_2`, `sachets_4` (satay; null for a pack size not made), `materials` (packaging: `[{name_en, name_km, quantity, unit}]`), `actor_id`, `repeat` |
 | Return reviewed | `order.returns_reviewed` | `code`, `customer`, `customer_type`, `customer_phone`, `outcome` (`partly_returned` / `fully_returned`), `to_stock`, `to_wasted` (items), `actor_id`, `repeat` |
 
-- **Recipients:** every **active** user holding the alert's permission (effective permissions: granted, active permission, still assignable to the role), the superadmin implicitly. Production alerts: `production_plan.view` (the GM and the supervisors given plan access). Order alerts: `orders.review_returns` (the GM and the supervisors given Order returns). Staff hold neither. The person who acted is included when they qualify. Order items in the payload are `[{item_code, name_en, name_km, count, kg}]` (names kept with the alert).
+- **Recipients:** every **active** user holding the alert's permission (effective permissions: granted, active permission, still assignable to the role), the superadmin implicitly. Production alerts: `production_plan.view` (the GM and the supervisors given plan access). Order alerts: `orders.review_returns` (the GM and the supervisors given Order returns). Preparation alerts: `preparation.update` (the GM and the supervisors given Preparation management). Staff hold none of them. The person who acted is included when they qualify. Order items in the payload are `[{item_code, name_en, name_km, count, kg}]` (names kept with the alert).
 - `repeat` is `true` when the batch already had an alert of that type (e.g. step 2 finished again after a reopen); the text says "again".
 - One `notifications` row per recipient is inserted **in the same transaction** as the Finish: an alert exists exactly when the step was finished.
 
@@ -909,6 +935,8 @@ Production and order alerts, stored in the app (the bell) and sent on Telegram.
 - ✅ *"{code}: delivered to {customer}, everything accepted."*
 - ↩️ *"{code}: {customer} returned items — {3 × 4-Piece Packs, 0.250 kg Liver (packed)}. Reason: “{reason}”. Review the return."*
 - 📦 *"{code}: return reviewed — partly / fully returned ({…} to stock, {…} wasted)."* (*nothing* when a side is empty)
+
+- 🧂 *"{code}: preparation finished — 40 satay sachets (2-piece), 25 (4-piece) | Skewer 2.000 kg, String 0.500 kg."* (satay sachets, then each packaging material; "again" after a reopen). Button **Open preparation / បើកការរៀបចំ** → `/workstation/preparations/<id>`. Material names are escaped.
 
 Order alerts have the button **Open order / បើកការបញ្ជាទិញ** → `/workstation/orders/<order id>`. The customer name, item names and the reason are escaped. `customer` is the order's snapshot (§19.2): the name, or `null` for a direct order, whose texts read *"Direct order · 012 345 678"* / *"ការបញ្ជាទិញផ្ទាល់ · 012 345 678"* (`customer_phone`, readable).
 
@@ -957,11 +985,11 @@ How many **active** general managers, supervisors and staff there may be. The su
 
 ## 18. Inventory
 
-**Inventory (ស្តុក)** totals what production has made and used and what orders took, across all batches: a **ledger of movements** (`inventory_movements`, append-only) plus a **balance per item** (`inventory_balances`). Every production Finish writes movements; reopen and cancel write reversing movements; an order leaving for delivery takes its packs and packed by-products out, and its return review puts them back (stock or wasted). **Every production item changes only through production and orders**: nobody, not even the superadmin, changes it by hand. **Materials** (§18.11: string, skewers, sauces, bags…) are the exception: their stock is added and removed by hand, and step 2 uses the marinade. **A balance can never go below zero.** The production process itself doesn't change: each batch still uses only its own chickens.
+**Inventory (ស្តុក)** totals what production has made and used and what orders took, across all batches: a **ledger of movements** (`inventory_movements`, append-only) plus a **balance per item** (`inventory_balances`). Every production Finish writes movements; reopen and cancel write reversing movements; an order leaving for delivery takes its packs and packed by-products out, and its return review puts them back (stock or wasted). **Every production item changes only through production and orders**: nobody, not even the superadmin, changes it by hand. **Materials** (§18.11: string, skewers, sauces, bags…) are the exception: their stock is added and removed by hand, and step 2 uses the marinade. **Prepared items** (section **Prepared**, §18.12) change only through preparations (§21). **A balance can never go below zero.** The production process itself doesn't change: each batch still uses only its own chickens.
 
 ### 18.1 Items
 
-Defined in `app/inventory/catalog.py`, in two **sections**: **stock** and **wasted**. Each item has a `code`, `name_en` / `name_km`, a display `group` (stock: `raw` / `processed` / `packed`; wasted: `wasted`), the units it tracks (`count`, `kg` or both) and an order.
+Defined in `app/inventory/catalog.py`, in three **sections**: **stock**, **prepared** and **wasted**. Each item has a `code`, `name_en` / `name_km`, a display `group` (stock: `raw` / `processed` / `packed`; prepared: `prepared`; wasted: `wasted`), the units it tracks (`count`, `kg` or both) and an order.
 
 | Section · group | Item (`code`) | Units | Comes from |
 |---|---|---|---|
@@ -970,6 +998,8 @@ Defined in `app/inventory/catalog.py`, in two **sections**: **stock** and **wast
 | stock · processed | By-product (processed), one per catalog by-product: e.g. Liver (processed) / ថ្លើមមាន់ (ផលិត) (`byproduct_processed.liver`) | kg | step 2 |
 | stock · packed | 4-Piece Packs / កញ្ចប់ ៤ ដុំ (`packs_big`), 2-Piece Packs / កញ្ចប់ ២ ដុំ (`packs_small`) | count | step 3 |
 | stock · packed | By-product (packed / carried forward), e.g. Liver (packed) / ថ្លើមមាន់ (វេចខ្ចប់) (`byproduct_packed.liver`) | kg | step 3 |
+| prepared | Satay sachets (2-piece packs) / សាតេកញ្ចប់ (កញ្ចប់ ២ ដុំ) (`satay_sachet_2`), Satay sachets (4-piece packs) (`satay_sachet_4`) | count | satay sachet preparations (§21) |
+| prepared | the **prepared twin** of each packaging material (`<material item_code>_prepared`, §18.12) | the material's unit | packaging preparations (§21) |
 | wasted | Wings (`wasted.wings`), Thighs (`wasted.thighs`) | count + kg (**estimated**) | step 3 rejects |
 | wasted | each by-product (`wasted.byproduct.liver`, …) | kg | step 3 rejected kg; packed by-products returned damaged (§19) |
 | wasted | 4-Piece Packs (`wasted.packs_big`), 2-Piece Packs (`wasted.packs_small`) | count | packs returned damaged (§19) |
@@ -1013,7 +1043,7 @@ Migration `0010` added `production_batches.inventory_tracked`: **false for every
 
 ### 18.5 Production items are read-only
 
-Each item has an **`origin`**: `production` (every catalog item: changes only through production — Finish, reopen, cancel — and orders — Delivering, return review) or `manual` (the materials, §18.11).
+Each item has an **`origin`**: `production` (the catalog's production items: changes only through production — Finish, reopen, cancel — and orders — Delivering, return review), `manual` (the materials, §18.11) or `preparation` (the satay sachets and the prepared twins: changes only through preparations, §21).
 
 - `POST /inventory/items/{item_code}/set` (guard `inventory.view`) answers `409 INVENTORY_ITEM_PRODUCTION_ONLY` (`details.item_code`) for **every** item, **for everyone, the superadmin included**: production items change only through production; materials through add / remove (`details.use = "material_add_remove"`). An unknown item → `404`. The body is validated first (`422`). The `inventory.adjust` permission stays inactive.
 - **One-time reset (migration `0011`):** every `source = adjustment` movement was deleted; each remaining movement's `balance_count_after` / `balance_kg_after` was recomputed as a running total per item (by `created_at`, `id`), and `inventory_balances` set to the per-item totals. Inventory therefore reflects production only. The `inventory.adjust` audit entries stay as the record. Running it again changes nothing; it stops with an error instead of writing a negative balance (only possible if an adjustment had covered more by-product than the batches produced).
@@ -1021,6 +1051,8 @@ Each item has an **`origin`**: `production` (every catalog item: changes only th
 ### 18.6 Where the stock came from (per batch)
 
 `GET /inventory/items/{item_code}` (`inventory.view`, so everyone with Inventory) returns the item (`code`, names, `section`, `group`, units, `kg_estimated`, `origin`), its balance and `updated_at`, and **`sources`**: for each batch, the **net** quantity it currently contributes, the sum of all that batch's movements for the item, **every source** (production with its reversals, order stock-outs taken from it, returns given back to it), `[{batch_id, code, count, kg, kg_estimated, last_step}]`, only where the net isn't zero, **oldest batch first**. `last_step` is the latest of that batch's steps still contributing; `kg_estimated` is set when its contribution includes estimated kg. **The totals equal the balance.** No movement details (those need `inventory.history`). Untracked batches never appear.
+
+**Prepared items** (origin `preparation`) answer `preparation_sources` instead: per preparation, the net quantity it currently adds (`[{preparation_id, code, prepared_date, count, kg, g}]`, oldest first, non-zero only; the totals equal the balance); `sources` is empty. Other items have `preparation_sources: []`.
 
 Example: after two batches finish step 1 (100 + 50 chickens), Chicken lists both; once the 50-chicken batch finishes step 2 it drops out of Chicken and appears under Wings, Thighs and the processed by-products; after its step 3 it drops out of Wings and appears under the packs and wasted items.
 
@@ -1037,9 +1069,9 @@ The movement history is behind **one** permission, `inventory.history` (feature 
 
 | Endpoint | Guard | Notes |
 |---|---|---|
-| `GET /inventory` | `inventory.view` | `{sections: [{section, items: [{code, section, group, name_en, name_km, tracks_count, tracks_kg, tracks_g, kg_estimated, origin, count, kg, g, updated_at, material}]}]}`, stock first. `updated_at` = the latest movement, `null` if it never changed. Every catalog item is listed (0 until it moves), and every **active material** in Raw right after Chicken (by English name; the UI sorts by the shown language) with `material = {id, unit, system_code, archived, icon_key, icon_url}` (`null` for catalog items). |
+| `GET /inventory` | `inventory.view` | `{sections: [{section, items: [{code, section, group, name_en, name_km, tracks_count, tracks_kg, tracks_g, kg_estimated, origin, count, kg, g, updated_at, material}]}]}`: stock, then prepared (the satay sachets, then the prepared twins by English name: every active packaging material's, and an archived material's only while it has stock; `material` = the twin's material, for its picture), then wasted. `updated_at` = the latest movement, `null` if it never changed. Every catalog item is listed (0 until it moves), and every **active material** in Raw right after Chicken (by English name; the UI sorts by the shown language) with `material = {id, unit, system_code, archived, icon_key, icon_url, prep_role}` (`null` for catalog items). |
 | `GET /inventory/items/{item_code}` | `inventory.view` | §18.6. |
-| `GET /inventory/movements` | `inventory.history` | Newest first. Filters: `item_code`, `section` (materials count as stock), `source` (`production` / `adjustment` / `order` / `order_return` / `material_add` / `material_remove` / `material_unit_change`), `batch_id`, `batch_code` (part of the code), `order_id`, `date_from` / `date_to` (business days, `BUSINESS_TIMEZONE`); `page`, `page_size` (default 50, max 100). Each row: item and names, section, `count_delta`, `kg_delta`, `g_delta`, `kg_estimated`, `source`, `batch {id, code}` (for order movements: the batch the quantity is attributed to), `order {id, code}` (order movements, else `null`), `step`, `reversal_of`, `reason` (a material removal's reason; "reopen" / "cancel" on reversals), `balance_count_after`, `balance_kg_after`, `balance_g_after`, `created_by` (`UserRef`), `created_at`. History rows keep the unit they were written in (a kg ↔ g switch doesn't rewrite them). |
+| `GET /inventory/movements` | `inventory.history` | Newest first. Filters: `item_code`, `section` (`stock` / `prepared` / `wasted`; materials count as stock, their twins as prepared), `source` (`production` / `adjustment` / `order` / `order_return` / `material_add` / `material_remove` / `material_unit_change` / `preparation`), `batch_id`, `batch_code` (part of the code), `order_id`, `preparation_id`, `date_from` / `date_to` (business days, `BUSINESS_TIMEZONE`); `page`, `page_size` (default 50, max 100). Each row: item and names, section, `count_delta`, `kg_delta`, `g_delta`, `kg_estimated`, `source`, `batch {id, code}` (for order movements: the batch the quantity is attributed to), `order {id, code}` (order movements, else `null`), `preparation {id, code}` (preparation movements, else `null`), `step`, `reversal_of`, `reason` (a material removal's reason; "reopen" / "cancel" on reversals), `balance_count_after`, `balance_kg_after`, `balance_g_after`, `created_by` (`UserRef`), `created_at`. History rows keep the unit they were written in (a kg ↔ g switch doesn't rewrite them). |
 | `POST /inventory/items/{item_code}/set` | `inventory.view` | §18.5: `409 INVENTORY_ITEM_PRODUCTION_ONLY` for every item. |
 | `/inventory/materials…` | see §18.11 | Materials: list, create, edit, archive, restore, add, remove; icon upload / delete / serve. |
 | `GET /production/{id}` | `production.view` | With `inventory.history`: `inventory_tracked` and `stock_changes`, the batch's un-reversed movements `[{step, item_code, section, name_en, name_km, count_delta, kg_delta, g_delta, kg_estimated}]`, by step then item order (empty when untracked; step 2 includes the marinade). Without it both keys are absent. With `production.create`, while step 2 of a tracked, in-progress batch is a draft: `marinade_stock = {unit, count, kg, g}` (the Marinade sauce on hand, for the step 2 form); `null` otherwise. |
@@ -1072,21 +1104,21 @@ Orders (§19) move only orderable items (the packs and the packed by-products). 
 
 **Materials** are inventory items that don't come from production: string, skewers, stickers, sauces, bags… They appear in the **Raw** group after Chicken. Their stock is added and removed by hand; **Marinade sauce** is also taken by production step 2.
 
-**Data** (`inventory_materials`, migration `0014`): `id`, `item_code` (`material_<8 hex>`, unique; the inventory item code used by balances and movements), `name_km`, `name_en` (both required, 1–100, whitespace collapsed), `unit` (`kg` | `g` | `count`), `system_code` (unique, null; `marinade` for Marinade sauce), `icon_key` (null; a picture bundled with the UI, migration `0015`), `icon` / `icon_mime` (an uploaded icon, both set or both null), `archived_at` / `archived_by`, `created_by` / `updated_by`, `created_at` / `updated_at`. Names are **unique among active materials, per language, case-insensitive** (partial unique indexes on `lower(name_km)` / `lower(name_en)` where not archived). Each material has one balance row in its unit and uses the same ledger (§18.3), `origin = manual`.
+**Data** (`inventory_materials`, migration `0014`): `id`, `item_code` (`material_<8 hex>`, unique; the inventory item code used by balances and movements), `name_km`, `name_en` (both required, 1–100, whitespace collapsed), `unit` (`kg` | `g` | `count`), `system_code` (unique, null; `marinade` for Marinade sauce), `icon_key` (null; a picture bundled with the UI, migration `0015`), `prep_role` (migration `0017`, §18.12), `icon` / `icon_mime` (an uploaded icon, both set or both null), `archived_at` / `archived_by`, `created_by` / `updated_by`, `created_at` / `updated_at`. Names are **unique among active materials, per language, case-insensitive** (partial unique indexes on `lower(name_km)` / `lower(name_en)` where not archived). Each material has one balance row in its unit and uses the same ledger (§18.3), `origin = manual`.
 
 **Defaults** (seeded once at startup, then never re-created: an archived default stays archived), all at 0:
 
-| `system_code` | km | en | unit | `icon_key` |
-|---|---|---|---|---|
-| — | ខ្សែ | String | kg | `string` |
-| — | ចង្កាក់ | Skewer | kg | `skewer` |
-| — | ស្ទីកគ័រ (កញ្ចប់ ២ ដុំ) | Sticker (2-piece packs) | kg | `sticker_2` |
-| — | ស្ទីកគ័រ (កញ្ចប់ ៤ ដុំ) | Sticker (4-piece packs) | kg | `sticker_4` |
-| `marinade` | ទឹកប្រឡាក់ | Marinade sauce | g | `marinade` |
-| — | សាតេ | Satay sauce | g | `satay` |
-| — | ថង់ Zip 7 (កញ្ចប់ ២ ដុំ) | Zip bag 7 (2-piece packs) | kg | `zip_bag_2` |
-| — | ថង់ Zip 7 (កញ្ចប់ ៤ ដុំ) | Zip bag 7 (4-piece packs) | kg | `zip_bag_4` |
-| — | ថង់បឺតខ្យល់ | Vacuum bag | kg | `vacuum_bag` |
+| `system_code` | km | en | unit | `icon_key` | `prep_role` |
+|---|---|---|---|---|---|
+| — | ខ្សែ | String | kg | `string` | `packaging` |
+| — | ចង្កាក់ | Skewer | kg | `skewer` | `packaging` |
+| — | ស្ទីកគ័រ (កញ្ចប់ ២ ដុំ) | Sticker (2-piece packs) | kg | `sticker_2` | `packaging` |
+| — | ស្ទីកគ័រ (កញ្ចប់ ៤ ដុំ) | Sticker (4-piece packs) | kg | `sticker_4` | `packaging` |
+| `marinade` | ទឹកប្រឡាក់ | Marinade sauce | g | `marinade` | `none` |
+| — | សាតេ | Satay sauce | g | `satay` | `satay_sauce` |
+| — | ថង់ Zip 7 (កញ្ចប់ ២ ដុំ) | Zip bag 7 (2-piece packs) | kg | `zip_bag_2` | `zip_bag_2` |
+| — | ថង់ Zip 7 (កញ្ចប់ ៤ ដុំ) | Zip bag 7 (4-piece packs) | kg | `zip_bag_4` | `zip_bag_4` |
+| — | ថង់បឺតខ្យល់ | Vacuum bag | kg | `vacuum_bag` | `packaging` |
 
 Marinade sauce is re-created on every start if it's missing (step 2 needs it). Migration `0015` backfilled `icon_key` on databases seeded before it (by English name; Marinade sauce by its system code). Materials created in the app have no `icon_key`.
 
@@ -1096,8 +1128,8 @@ Marinade sauce is re-created on every start if it's missing (step 2 needs it). M
 - **Remove stock** (`inventory.materials_stock`): `quantity` as above and a **reason** (1–500 characters, trimmed). Never below zero → `409 INVENTORY_INSUFFICIENT`. Movement `source = material_remove`, `reason` kept.
 - **Create / edit** (`inventory.materials_manage`): names and unit. Duplicate active name → `409 DUPLICATE_MATERIAL_NAME` (`details.fields`: `name_km` / `name_en`).
 - **Unit change:**
-  - **kg ↔ g: always allowed.** The balance is converted (× 1000 / ÷ 1000, rounded half-up to the new unit's precision) and one `material_unit_change` movement records the old unit out and the new unit in (e.g. `kg_delta −1.250`, `g_delta +1250.0`). Earlier history rows keep their own unit.
-  - **weight ↔ count: only while the material has no movements at all** → otherwise `409 MATERIAL_UNIT_LOCKED`.
+  - **kg ↔ g: always allowed.** The balance is converted (× 1000 / ÷ 1000, rounded half-up to the new unit's precision) and one `material_unit_change` movement records the old unit out and the new unit in (e.g. `kg_delta −1.250`, `g_delta +1250.0`). Earlier history rows keep their own unit. The **prepared twin** (§18.12) is converted the same way (its own movement when it has stock).
+  - **weight ↔ count: only while the material and its prepared twin have no movements at all** → otherwise `409 MATERIAL_UNIT_LOCKED`.
 - **Archive** (instead of delete): hides the material from Raw and the pickers; its balance and history stay. Archiving with stock is allowed (the UI warns). Adding or removing stock of an archived material → `409 MATERIAL_ARCHIVED`. **Restore** brings it back (its names must be free among active materials). Its archived name can be reused meanwhile.
 - **System materials** (`system_code`, i.e. Marinade sauce): can be renamed and switched kg ↔ g; never archived or switched to count → `409 MATERIAL_SYSTEM_LOCKED`.
 - **Icon** (`inventory.materials_manage`): upload a **PNG, JPEG or WebP of at most 1 MB**, checked by decoding it (not by its name or declared type; at most 25 megapixels). It's rotated per its EXIF, **center-cropped to a square and resized to 256 × 256**, and stored as a PNG (transparency kept) in the row. A new upload replaces the old one; deleting it brings back `icon_key` / the unit icon. Not an image, another format, empty or over 1 MB → `422 VALIDATION_ERROR` (`details.fields[0].loc = ["body", "file"]`). The UI shows, in order: the uploaded icon, the `icon_key` picture, the unit icon.
@@ -1109,7 +1141,7 @@ Marinade sauce is re-created on every start if it's missing (step 2 needs it). M
 
 | Method | Path | Guard | Notes |
 |---|---|---|---|
-| GET | `/inventory/materials?include_archived=` | `inventory.view` | Active materials by English name; with `include_archived=true` the archived ones after them, **only for holders of `inventory.materials_manage`** (ignored for anyone else). Each: `id`, `item_code`, `name_km`, `name_en`, `unit`, `system_code`, `icon_key`, `icon_url` (the uploaded icon, below; `null` without one), `count` / `kg` / `g` (the balance in its unit, others null), `has_movements`, `archived_at`, `archived_by`, `created_by`, `created_at`, `updated_by`, `updated_at` (`UserRef`s). |
+| GET | `/inventory/materials?include_archived=` | `inventory.view` | Active materials by English name; with `include_archived=true` the archived ones after them, **only for holders of `inventory.materials_manage`** (ignored for anyone else). Each: `id`, `item_code`, `name_km`, `name_en`, `unit`, `system_code`, `icon_key`, `prep_role`, `icon_url` (the uploaded icon, below; `null` without one), `count` / `kg` / `g` (the balance in its unit, others null), `has_movements`, `archived_at`, `archived_by`, `created_by`, `created_at`, `updated_by`, `updated_at` (`UserRef`s). |
 | POST | `/inventory/materials` | `inventory.materials_manage` | `{name_km, name_en, unit}` → `201`. |
 | PATCH | `/inventory/materials/{id}` | `inventory.materials_manage` | Partial `{name_km?, name_en?, unit?}`. |
 | POST | `/inventory/materials/{id}/archive` · `/restore` | `inventory.materials_manage` | Idempotent. |
@@ -1120,6 +1152,15 @@ Marinade sauce is re-created on every start if it's missing (step 2 needs it). M
 | DELETE | `/inventory/materials/{id}/icon` | `inventory.materials_manage` | Removes the upload (no-op without one) → the material. |
 
 Unknown material → `404 MATERIAL_NOT_FOUND`. Every write returns the material. Audit (§6): `material.create`, `material.update` (`changes`, incl. `unit` and the converted `balance`; an icon change is `changes.icon = "changed"` / `"removed"`, never the image), `material.archive` (`balance`), `material.restore`, `material.stock_add` / `material.stock_remove` (`quantity`, `unit`, `balance_after`; `reason` on removals), `entity_type = material` (the audit log names it by its English name).
+
+### 18.12 Prepared items
+
+The **Prepared** section (`section = group = prepared`, shown as its own sub-tab between Packed and Wasted) holds what preparations (§21) make. Origin `preparation`: nobody sets or adds them by hand (`set` → `INVENTORY_ITEM_PRODUCTION_ONLY` like everything else; the material add / remove routes act on the raw material only).
+
+- **Satay sachets:** `satay_sachet_2`, `satay_sachet_4` (count), catalog items.
+- **Prepared twins:** every material with `prep_role = packaging` has a twin, `<material item_code>_prepared`, resolved from the material at runtime (no table): the **same names, unit and icon**, section Prepared. Its balance row is created at startup for existing materials and when such a material is created (and on demand). Archiving the material hides its twin from the overview **unless the twin has stock**. A kg ↔ g switch of the material converts the twin (§18.11).
+- **`prep_role`** (`inventory_materials`, migration `0017`): `none` (not preparable; Marinade sauce) · `packaging` (moved 1:1 to its twin; **the default for new materials**) · `satay_sauce` · `zip_bag_2` · `zip_bag_4` (the satay sachet inputs; at most one material each, a partial unique index). The migration set Marinade → none, Satay sauce / Zip bag 7 (2) / Zip bag 7 (4) by their icon key (else English name), everything else packaging. **It isn't editable in the UI yet (to be decided later)**; it's returned on materials (`prep_role`) and on the overview's `material`.
+- History: preparation movements carry `source = preparation` and `preparation {id, code}`; the item detail lists preparations (§18.6).
 
 ---
 
@@ -1265,3 +1306,70 @@ Empty strings mean "not set". If the row is ever missing (e.g. a truncated test 
 | `GET /settings/business/preview.pdf` | The sample delivery note (PDF). |
 
 All guarded by `settings.business_info`: the superadmin implicitly; a **general manager** only when the superadmin sets its **Business info** feature to Full access (§12.1; default Off, not backfilled). Supervisors and staff can't hold it.
+
+---
+
+## 21. Preparation
+
+**Workstation → Preparation (ការរៀបចំ):** raw materials made **ready to use**. **Not to be confused with production step 3 (Standardize / packaging)**: a preparation only converts materials into prepared materials.
+
+```
+New preparation (type) → PP-YYYYMMDD-NNN, draft (autosave)
+  Finish  → stock moves (inputs out, outputs in), prepared date recorded, managers alerted
+  Reopen  → back to draft, values kept, movements reversed, date cleared       (preparation.update)
+  Cancel  → draft: cancelled; finished: movements reversed, then cancelled      (preparation.cancel)
+```
+
+### 21.1 Types and lines
+
+| Type | Lines | Inputs (entered) | Output (entered) |
+|---|---|---|---|
+| `satay_sachet` — ធ្វើសាតេកញ្ចប់ / Make satay sachets | one per pack size (2 and / or 4) | Satay sauce used (`satay_g`, g, 1 decimal), Zip bag 7 of that pack size used (`zip_bag_qty`, in that material's unit) | Satay sachets of that pack size (`sachets`, count) |
+| `packaging_material` — រៀបចំសម្ភារៈវេចខ្ចប់ / Prepare packaging materials | one per material (`prep_role = packaging`) | `quantity` of the material (its unit) | the **same quantity** of its prepared twin (**1:1**, same unit) |
+
+All values are typed in (**no recipe yet**). Lines are stored with `unit` (the material's unit when saved): a later kg ↔ g switch is converted at Finish; a switch to / from count needs the line re-entered (`VALIDATION_ERROR`).
+
+### 21.2 Data (migration `0017`)
+
+- `preparations`: `id`, `code` (unique, `PP-YYYYMMDD-NNN`: the creation day in `BUSINESS_TIMEZONE`, numbered per day by `preparation_counters`, so concurrent creations get distinct numbers), `type`, `status` (`draft` | `finished` | `cancelled`), `prepared_date` (recorded at Finish, cleared on reopen; CHECK finished ⇔ date), `note` (≤ 1000), `cancel_reason` (≤ 500), `version`, `created_by` / `updated_by` / `finished_by` / `cancelled_by` and their times.
+- `preparation_lines`: `id`, `preparation_id` (FK, cascade), `position`, satay fields (`pack_size` 2 | 4, `satay_g`, `quantity` = zip bags, `sachets`) or packaging fields (`material_id` FK RESTRICT, `quantity`), `unit`; CHECKs: one kind per line, values ≥ 0; unique (`preparation_id`, `pack_size`) and (`preparation_id`, `material_id`).
+- `inventory_movements.preparation_id` (FK, SET NULL) with `source = preparation`.
+
+### 21.3 Rules
+
+- **Drafts** (`PATCH`, `preparation.create`): `{version, lines?, note?}`; `lines` replaces every line. Partial values are fine; only types, ≥ 0, the unit's precision and the line kind are checked (satay fields on a packaging preparation or the other way round, a missing `pack_size` / `material_id`, a duplicate, an unknown material or one whose `prep_role` isn't `packaging` → `VALIDATION_ERROR`). Every write (draft, finish, reopen, cancel) locks the row and needs the current `version` (stale → `409 PREPARATION_CONFLICT` with the current preparation); checks run: not found → cancelled (`PREPARATION_CANCELLED`) → status (`PREPARATION_INVALID_STATUS`) → version → values.
+- **Finish** (`preparation.create`): ≥ 1 line; every value present and **> 0**; the materials **active** (`MATERIAL_ARCHIVED`) and with the right `prep_role` (`VALIDATION_ERROR`); then in one transaction (the materials read with a share lock, so a unit change waits):
+  - satay line: −satay sauce (the grams, converted when the material is in kg), −zip bag 7 (2 or 4), +satay sachets (2 or 4);
+  - packaging line: −material, +its prepared twin (same quantity and unit, also for g and counted materials);
+  - **not enough stock → `409 INVENTORY_INSUFFICIENT`** (items, available, needed; §18.3) and nothing changes;
+  - `prepared_date` = today in `BUSINESS_TIMEZONE`; movements `source = preparation`, `preparation_id`; the alert is stored (§16).
+- **Reopen** (`preparation.update`): finished → draft, values kept; its open movements are reversed (`reversal_of`, `reason = "reopen"`, in each item's current unit); blocked by `INVENTORY_INSUFFICIENT` when the outputs are no longer in stock; `prepared_date` cleared.
+- **Cancel** (`preparation.cancel`, reason 1–500 required): a draft is cancelled; a finished one is reversed first (`reason = "cancel"`, same block). Cancelled is read-only.
+- **Audit** (`entity_type = preparation`): `preparation.create`, `preparation.finish`, `preparation.reopen`, `preparation.cancel` (§6). Draft saves aren't audited.
+
+### 21.4 Endpoints
+
+| Endpoint | Guard | Notes |
+|---|---|---|
+| `GET /preparations` | `preparation.view` | Filters `type`, `status` (`all` = draft + finished, `draft`, `finished`, `cancelled`), `include_cancelled`, `date_from` / `date_to` (the prepared date, or the creation day while not finished), `q` (the code, or a material name in km / en: a packaging line's material, or the satay inputs for satay preparations); newest first; paging 20 (max 100). Items: `id`, `code`, `type`, `status`, `prepared_date`, `created_at`, `outputs` (below), `created_by`. |
+| `GET /preparations/stats` | `preparation.view` | `drafts` (now), `finished_this_month`, `sachets_2_this_month`, `sachets_4_this_month` (finished, prepared date in the current month, `BUSINESS_TIMEZONE`). |
+| `GET /preparations/material-options` | `preparation.create` | Active packaging materials by English name with `stock` and `prepared_stock` (no Inventory access needed). |
+| `POST /preparations` | `preparation.create` | `{type}` → `201`, a draft. |
+| `GET /preparations/{id}` | `preparation.view` | The preparation: `lines` (satay: `pack_size`, `satay_g`, `zip_bag_qty`, `sachets`; packaging: `material` with its current `stock` / `prepared_stock`, `quantity`; both `unit`), `satay_materials` (satay only: the `satay_sauce`, `zip_bag_2`, `zip_bag_4` materials with their stock, null when missing), `inputs` / `outputs` (what the lines take and make, from values > 0: `{item_code, name_en, name_km, unit, quantity, material_id, icon_key}`), the user references and times. Quantities are strings in the unit's precision (`"12"`, `"1.250"`, `"350.0"`). |
+| `PATCH /preparations/{id}` | `preparation.create` | Draft save. |
+| `POST /preparations/{id}/finish` | `preparation.create` | `{version}`. |
+| `POST /preparations/{id}/reopen` | `preparation.update` | `{version}`. |
+| `POST /preparations/{id}/cancel` | `preparation.cancel` | `{version, reason}`. |
+
+User references are `UserRef`s (redacted, §13); the routes are part of the redaction and superset sweeps.
+
+### 21.5 Access and alerts
+
+| Feature | Applies to | Levels |
+|---|---|---|
+| `preparation` (Preparation) | GM, supervisor, staff | Off · View only (`preparation.view`) · Record (`+ preparation.create`) |
+| `preparation_management` (Preparation management) | GM, supervisor | Off · Full access (`preparation.update`, `preparation.cancel`; **receives the preparation alerts**) |
+
+Defaults: general managers Record + Full; supervisors Record + Off; staff Off; the superadmin implicitly everything; backfilled per these defaults (§5.3). A supervisor with Staff access gives staff Preparation up to its own level (§12.3).
+
+**Alerts:** finishing a preparation notifies every active holder of `preparation.update` (bell + Telegram when linked), stored in the Finish transaction and sent after the commit like production and order alerts (§16); a re-finish after a reopen says "again".

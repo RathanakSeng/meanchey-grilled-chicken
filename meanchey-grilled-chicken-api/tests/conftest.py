@@ -80,7 +80,8 @@ async def _clean_database() -> None:
                 "TRUNCATE audit_logs, refresh_tokens, user_permissions, permissions, users, "
                 "bot_prefs, app_settings, production_batches, production_batch_counters, "
                 "suppliers, customers, role_limits, inventory_movements, inventory_balances, "
-                "orders, order_counters, business_settings, inventory_materials "
+                "orders, order_counters, business_settings, inventory_materials, preparations, "
+                "preparation_counters "
                 "RESTART IDENTITY CASCADE"
             )
         )

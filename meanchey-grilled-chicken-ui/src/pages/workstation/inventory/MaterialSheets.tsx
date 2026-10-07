@@ -52,7 +52,8 @@ export interface MaterialRef {
 }
 
 export function materialRefOfItem(item: InventoryItem): MaterialRef | null {
-  if (!item.material) return null
+  // A prepared twin carries its material (picture) but isn't changed by hand.
+  if (!item.material || item.origin !== 'manual') return null
   return {
     id: item.material.id,
     name_km: item.name_km,

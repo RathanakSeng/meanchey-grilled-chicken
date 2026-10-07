@@ -47,7 +47,8 @@
     "userLimits": "User limits",
     "inventory": "Inventory",
     "orders": "Orders",
-    "businessInfo": "Business info"
+    "businessInfo": "Business info",
+    "preparations": "Preparation"
   },
   "roles": {
     "superadmin": "System",
@@ -202,7 +203,9 @@
       "inventory_history": "Inventory history",
       "orders": "Orders",
       "order_management": "Order management",
-      "order_returns": "Order returns"
+      "order_returns": "Order returns",
+      "preparation": "Preparation",
+      "preparation_management": "Preparation management"
     },
     "legendRecord": "Record: can start batches and fill in steps, but can't reopen finished steps.",
     "gmHint": "Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced).",
@@ -230,7 +233,8 @@
       "customer": "Customer",
       "production_batch": "Production batch",
       "order": "Order",
-      "material": "Material"
+      "material": "Material",
+      "preparation": "Preparation"
     },
     "defaultBackfill": "Granted automatically (role default)",
     "actions": {
@@ -282,7 +286,11 @@
       "material_archive": "Material archived",
       "material_restore": "Material restored",
       "material_stock_add": "Material stock added",
-      "material_stock_remove": "Material stock removed"
+      "material_stock_remove": "Material stock removed",
+      "preparation_create": "Preparation started",
+      "preparation_finish": "Preparation finished",
+      "preparation_reopen": "Preparation reopened",
+      "preparation_cancel": "Preparation cancelled"
     },
     "featureChange": "{{feature}}: {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
@@ -490,7 +498,11 @@
     "MATERIAL_SYSTEM_LOCKED": "Production uses this material: it can’t be archived or counted in pieces.",
     "DUPLICATE_MATERIAL_NAME": "Another material already has this name.",
     "ICON_WRONG_TYPE": "The icon must be a PNG, JPEG or WebP image.",
-    "ICON_TOO_LARGE": "The icon must be at most 1 MB."
+    "ICON_TOO_LARGE": "The icon must be at most 1 MB.",
+    "PREPARATION_NOT_FOUND": "This preparation doesn't exist.",
+    "PREPARATION_CONFLICT": "Someone else changed this preparation. It has been reloaded; check it and try again.",
+    "PREPARATION_CANCELLED": "This preparation is cancelled and can't be changed.",
+    "PREPARATION_INVALID_STATUS": "This can't be done in the preparation's current status. It has been reloaded."
   },
   "permissions": {
     "readOnlyNotice": "You can view these permissions, but you can't change them here.",
@@ -738,7 +750,12 @@
     "orderDelivering": "{{code}} for {{customer}} is out for delivery — {{white}} white / {{black}} black boxes.",
     "orderDelivered": "{{code}}: delivered to {{customer}}, everything accepted.",
     "orderReturnPending": "{{code}}: {{customer}} returned items — {{summary}}. Review the return.",
-    "orderReturnsReviewed": "{{code}}: return reviewed — {{outcome}} ({{toStock}} to stock, {{toWasted}} wasted)."
+    "orderReturnsReviewed": "{{code}}: return reviewed — {{outcome}} ({{toStock}} to stock, {{toWasted}} wasted).",
+    "preparationFinished": "{{code}}: preparation finished{{again}} — {{summary}}.",
+    "prepSachetsFirst": "{{n}} satay sachets ({{size}}-piece)",
+    "prepSachetsMore": "{{n}} ({{size}}-piece)",
+    "prepUnit_kg": "{{value}} kg",
+    "prepUnit_g": "{{value}} g"
   },
   "telegramLink": {
     "title": "Telegram",
@@ -798,13 +815,15 @@
     },
     "sections": {
       "stock": "Stock",
-      "wasted": "Wasted"
+      "wasted": "Wasted",
+      "prepared": "Prepared"
     },
     "groups": {
       "raw": "Raw",
       "processed": "Processed",
       "packed": "Packed",
-      "wasted": "Wasted"
+      "wasted": "Wasted",
+      "prepared": "Prepared"
     },
     "kgValue": "{{value}} kg",
     "estimatedHint": "Estimated from the batch's average weight",
@@ -826,7 +845,8 @@
       "order_return": "Return",
       "material_add": "Added",
       "material_remove": "Removed",
-      "material_unit_change": "Unit changed"
+      "material_unit_change": "Unit changed",
+      "preparation": "Preparation"
     },
     "reversedReopen": "Reversed: reopen",
     "reversedCancel": "Reversed: cancelled",
@@ -836,7 +856,8 @@
     "stockChanges": "Stock changes",
     "untracked": "Not counted in inventory (before inventory started).",
     "badges": {
-      "wasted": "Wasted"
+      "wasted": "Wasted",
+      "prepared": "Prepared"
     },
     "shortNames": {
       "chicken": "Chicken",
@@ -847,7 +868,9 @@
       "heart": "Heart",
       "head": "Head",
       "packs_big": "4-Piece Packs",
-      "packs_small": "2-Piece Packs"
+      "packs_small": "2-Piece Packs",
+      "satay_sachet_2": "Satay sachets (2-piece)",
+      "satay_sachet_4": "Satay sachets (4-piece)"
     },
     "updatedAgo": "Updated {{time}}",
     "cardLabel": "{{name}}: {{amount}}",
@@ -860,7 +883,9 @@
     "noProductionStock": "No stock from production right now.",
     "fromBatch": "from",
     "toBatch": "to",
-    "gValue": "{{value}} g"
+    "gValue": "{{value}} g",
+    "fromPreparation": "From preparations",
+    "noPreparationStock": "Nothing from preparations right now."
   },
   "orders": {
     "title": "Orders",
@@ -1148,5 +1173,105 @@
     "iconChangedAudit": "Icon changed",
     "iconRemovedAudit": "Icon removed",
     "archivedBadge": "Archived"
+  },
+  "preparations": {
+    "title": "Preparation",
+    "description": "Satay sachets and packaging materials made ready from raw materials.",
+    "new": "New preparation",
+    "chooseType": "What are you preparing?",
+    "types": {
+      "satay_sachet": {
+        "title": "Make satay sachets",
+        "short": "Satay sachets",
+        "description": "Satay sauce and zip bags 7 → satay sachets (2-piece and / or 4-piece)."
+      },
+      "packaging_material": {
+        "title": "Prepare packaging materials",
+        "short": "Packaging materials",
+        "description": "Skewers, string, stickers, bags… moved from Raw to Prepared."
+      }
+    },
+    "status": {
+      "draft": "Draft",
+      "finished": "Finished",
+      "cancelled": "Cancelled"
+    },
+    "kpi": {
+      "drafts": "Drafts",
+      "finishedThisMonth": "Finished this month",
+      "sachets2": "Sachets (2-piece) this month",
+      "sachets4": "Sachets (4-piece) this month"
+    },
+    "filters": {
+      "type": "Type",
+      "allTypes": "All types",
+      "status": "Status",
+      "allStatuses": "Draft and finished",
+      "date": "Date",
+      "dateHint": "The prepared date, or the day it was started while not finished."
+    },
+    "searchPlaceholder": "Search code or material",
+    "columns": {
+      "code": "Code",
+      "type": "Type",
+      "outputs": "Made",
+      "preparedDate": "Prepared date",
+      "status": "Status"
+    },
+    "noResults": "No preparations match these filters.",
+    "emptyTitle": "No preparations yet",
+    "emptyBody": "Start one to turn satay sauce into sachets, or to get packaging materials ready.",
+    "emptyBodyReadOnly": "Preparations appear here once someone records one.",
+    "preparedOn": "Prepared {{date}}",
+    "nothingYet": "Nothing entered yet",
+    "countOf": "{{n}} × {{name}}",
+    "actions": "Preparation actions",
+    "reopen": "Reopen",
+    "reopenTitle": "Reopen {{code}}?",
+    "reopenBody": "It goes back to draft with its values kept, and its stock is put back (what it made leaves Prepared, what it used returns to Raw). Finish it again afterwards.",
+    "cancel": "Cancel preparation",
+    "cancelBody": "{{code}} will be cancelled and can't be changed afterwards.",
+    "cancelBodyFinished": "{{code}} will be cancelled: its stock is put back (what it made leaves Prepared, what it used returns to Raw). It can't be changed afterwards.",
+    "cancelReason": "Reason",
+    "cancelledNotice": "This preparation was cancelled.",
+    "viewOnlyNotice": "This preparation is still a draft. You can only view it.",
+    "used": "Used",
+    "made": "Made",
+    "finishedBy": "Finished by {{name}} · {{time}}",
+    "fields": {
+      "note": "Note",
+      "lines": "Lines"
+    },
+    "noMaterial": "No material is set up for this",
+    "available": "Available: {{amount}}",
+    "satay": {
+      "line2": "Satay sachets (2-piece packs)",
+      "line4": "Satay sachets (4-piece packs)",
+      "include": "Include",
+      "sauceUsed": "Satay sauce used (g)",
+      "zipUsed": "Zip bag 7 used",
+      "sachetsMade": "Sachets made"
+    },
+    "packaging": {
+      "hint": "Moves the same amount from Raw to Prepared.",
+      "empty": "No materials yet. Add the ones you prepared.",
+      "remove": "Remove {{name}}",
+      "quantity": "Quantity",
+      "add": "Add material",
+      "noneLeft": "Every preparable material is already in the list."
+    },
+    "notEnough": "Not enough {{name}} in stock",
+    "blockers": {
+      "noLines": "Add at least one line",
+      "fillIn": "Fill in every value (more than 0)",
+      "noMaterial": "A satay input material isn't set up"
+    },
+    "finish": "Finish preparation",
+    "finishConfirmTitle": "Finish this preparation?",
+    "finishConfirmBody": "The stock moves now and the preparation is locked. Only a manager can reopen or cancel it.",
+    "willMake": "Finishing makes: {{items}}",
+    "dateHint": "The prepared date is recorded when you finish.",
+    "auditSachets": "{{n}} sachets ({{size}}-piece)",
+    "cancelledBy": "Cancelled by {{name}} · {{time}}"
   }
 }

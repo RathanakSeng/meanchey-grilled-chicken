@@ -4,10 +4,10 @@ import { Icon } from '@/components/icons'
 import { Alert, Button, ConfirmDialog, Input, Spinner, cx } from '@/components/ui'
 import { useIsMobileLayout } from '@/layouts/useIsMobileLayout'
 import { useErrorMessage } from '@/lib/errors'
+import type { SaveStatus, useAutosave } from '@/lib/useAutosave'
 import type { FieldError } from './steps'
-import type { SaveStatus, useAutosaveDraft } from './useAutosaveDraft'
 
-type Autosave = ReturnType<typeof useAutosaveDraft<unknown>>
+type Autosave = ReturnType<typeof useAutosave<unknown, unknown>>
 
 /** A labelled number input: decimal keypad for kg / g, numeric for counts; big touch targets. */
 export function NumberField({
@@ -119,9 +119,10 @@ export function AutosaveStatus({ status, savedAt }: { status: SaveStatus; savedA
 }
 
 /**
- * Card around a step form: header with the autosave status, restore / conflict notices, the
- * form, and the Finish button (sticky above the bottom bar on mobile). Finish flushes the draft,
- * asks for confirmation, then calls `onFinish`.
+ * Card around a step form (also a preparation's form): header with the autosave status, restore
+ * / conflict notices, the form, and the Finish button (sticky above the bottom bar on mobile).
+ * Finish flushes the draft, asks for confirmation, then calls `onFinish`. The Finish texts
+ * default to production's.
  */
 export function StepShell({
   title,
@@ -131,6 +132,9 @@ export function StepShell({
   onFinish,
   finishing,
   finishError,
+  finishLabel,
+  confirmTitle,
+  confirmBody,
   children,
 }: {
   title: ReactNode
@@ -142,6 +146,9 @@ export function StepShell({
   onFinish(): void
   finishing: boolean
   finishError: unknown
+  finishLabel?: string
+  confirmTitle?: string
+  confirmBody?: string
   children: ReactNode
 }) {
   const { t } = useTranslation()
@@ -159,7 +166,7 @@ export function StepShell({
       onClick={() => setConfirming(true)}
     >
       <Icon name="check" width={18} height={18} />
-      {t('production.finishStep')}
+      {finishLabel ?? t('production.finishStep')}
     </Button>
   )
 
@@ -183,7 +190,7 @@ export function StepShell({
             </div>
           </Alert>
         )}
-        {autosave.conflict && (
+        {!!autosave.conflict && (
           <Alert tone="error">
             <p className="font-medium">{t('production.conflict.title')}</p>
             <p className="mt-0.5">
@@ -240,9 +247,9 @@ export function StepShell({
 
       <ConfirmDialog
         open={confirming}
-        title={t('production.finishConfirmTitle')}
-        body={t('production.finishConfirmBody')}
-        confirmLabel={t('production.finishStep')}
+        title={confirmTitle ?? t('production.finishConfirmTitle')}
+        body={confirmBody ?? t('production.finishConfirmBody')}
+        confirmLabel={finishLabel ?? t('production.finishStep')}
         loading={finishing}
         onConfirm={() => {
           setConfirming(false)

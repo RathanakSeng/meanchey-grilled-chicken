@@ -10,7 +10,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.models.inventory import ADJUST_REASON_MAX_LENGTH, MATERIAL_NAME_MAX_LENGTH
 from app.schemas.common import UserRef
-from app.schemas.inventory import GOut, InventoryUnit, KgOut
+from app.schemas.inventory import GOut, InventoryUnit, KgOut, PrepRole
 
 _SPACES = re.compile(r"\s+")
 
@@ -78,6 +78,10 @@ class MaterialOut(BaseModel):
     icon_key: str | None
     # The uploaded icon, versioned (`/inventory/materials/{id}/icon?v=...`), or null.
     icon_url: str | None
+    # What preparations may do with it (packaging: moved 1:1 to its prepared twin; satay_sauce /
+    # zip_bag_2 / zip_bag_4: satay sachet inputs; none). New materials are packaging; not
+    # editable in the UI yet.
+    prep_role: PrepRole
     # The balance, in the material's unit (the other two are null).
     count: int | None
     kg: KgOut | None

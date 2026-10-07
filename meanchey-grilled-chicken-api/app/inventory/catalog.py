@@ -12,6 +12,11 @@ demand (and at startup), so no migration is needed.
 `inventory_materials` table (created and archived in the app) and become `ItemDef`s at runtime
 (`inventory_service.resolve`), with `origin = manual`, group `raw` and one unit (count, kg or g).
 The Marinade sauce material (`system_code = marinade`) is what step 2's marinade comes from.
+
+**Prepared** (section and group `prepared`, origin `preparation`): what preparations make
+(services/preparation_service.py). The satay sachets are catalog items here; every packaging
+material (`prep_role = packaging`) has a **prepared twin**, `<material item_code>_prepared`, with
+the material's names and unit, resolved at runtime like materials (`prepared_def`).
 """
 
 from dataclasses import dataclass
@@ -19,15 +24,16 @@ from typing import Literal
 
 from app.production.catalog import BYPRODUCTS
 
-Section = Literal["stock", "wasted"]
+Section = Literal["stock", "prepared", "wasted"]
 # `production`: changes only through production (finish / reopen / cancel) and orders (delivery,
 # returns); no manual changes for anyone. `manual`: materials, whose stock is added and removed
-# by hand (`/inventory/materials/{id}/add|remove`).
-Origin = Literal["production", "manual"]
-# Display groups: stock is raw / processed / packed; wasted is its own group.
-Group = Literal["raw", "processed", "packed", "wasted"]
-SECTIONS: tuple[Section, ...] = ("stock", "wasted")
-GROUPS: tuple[Group, ...] = ("raw", "processed", "packed", "wasted")
+# by hand (`/inventory/materials/{id}/add|remove`). `preparation`: made only by preparations
+# (finish / reopen / cancel); no manual changes either.
+Origin = Literal["production", "manual", "preparation"]
+# Display groups: stock is raw / processed / packed; prepared and wasted are their own groups.
+Group = Literal["raw", "processed", "packed", "prepared", "wasted"]
+SECTIONS: tuple[Section, ...] = ("stock", "prepared", "wasted")
+GROUPS: tuple[Group, ...] = ("raw", "processed", "packed", "prepared", "wasted")
 
 CHICKEN = "chicken"
 WINGS = "wings"
@@ -38,16 +44,35 @@ WASTED_WINGS = "wasted.wings"
 WASTED_THIGHS = "wasted.thighs"
 WASTED_PACKS_BIG = "wasted.packs_big"
 WASTED_PACKS_SMALL = "wasted.packs_small"
+SATAY_SACHET_2 = "satay_sachet_2"
+SATAY_SACHET_4 = "satay_sachet_4"
+SATAY_SACHETS: dict[int, str] = {2: SATAY_SACHET_2, 4: SATAY_SACHET_4}
 
 
 # Materials (inventory_materials, by hand): item codes are MATERIAL_PREFIX + 8 hex characters.
 MATERIAL_PREFIX = "material_"
 # The material step 2 uses (its marinade_g), found by its system code.
 MARINADE = "marinade"
+# A packaging material's prepared twin: <material item_code> + PREPARED_SUFFIX.
+PREPARED_SUFFIX = "_prepared"
+
+
+def is_prepared_twin(code: str) -> bool:
+    return code.startswith(MATERIAL_PREFIX) and code.endswith(PREPARED_SUFFIX)
 
 
 def is_material(code: str) -> bool:
-    return code.startswith(MATERIAL_PREFIX)
+    """A raw material's own item (not its prepared twin)."""
+    return code.startswith(MATERIAL_PREFIX) and not code.endswith(PREPARED_SUFFIX)
+
+
+def prepared_code(material_code: str) -> str:
+    return f"{material_code}{PREPARED_SUFFIX}"
+
+
+def twin_base(code: str) -> str:
+    """The material item code a prepared twin belongs to."""
+    return code[: -len(PREPARED_SUFFIX)]
 
 
 def byproduct_processed(code: str) -> str:
@@ -93,6 +118,29 @@ def _items() -> list[ItemDef]:
         ItemDef(WASTED_PACKS_BIG, "4-Piece Packs", "កញ្ចប់ ៤ ដុំ", "wasted", "wasted", True, False, 62),
         ItemDef(
             WASTED_PACKS_SMALL, "2-Piece Packs", "កញ្ចប់ ២ ដុំ", "wasted", "wasted", True, False, 63
+        ),
+        # Made by satay sachet preparations (satay sauce + zip bag 7).
+        ItemDef(
+            SATAY_SACHET_2,
+            "Satay sachets (2-piece packs)",
+            "សាតេកញ្ចប់ (កញ្ចប់ ២ ដុំ)",
+            "prepared",
+            "prepared",
+            True,
+            False,
+            55,
+            origin="preparation",
+        ),
+        ItemDef(
+            SATAY_SACHET_4,
+            "Satay sachets (4-piece packs)",
+            "សាតេកញ្ចប់ (កញ្ចប់ ៤ ដុំ)",
+            "prepared",
+            "prepared",
+            True,
+            False,
+            56,
+            origin="preparation",
         ),
     ]
     for b in sorted(BYPRODUCTS, key=lambda b: b.order):

@@ -29,7 +29,8 @@ from app.models.base import Base, utcnow
 
 # order: stock out at Delivering; order_return: returned items back (stock or wasted);
 # material_add / material_remove: stock of a material added or taken out by hand;
-# material_unit_change: a material switched between kg and g (balance converted).
+# material_unit_change: a material switched between kg and g (balance converted);
+# preparation: a preparation finished (inputs out, outputs in) or reversed (reopen / cancel).
 MOVEMENT_SOURCES = (
     "production",
     "adjustment",
@@ -38,6 +39,7 @@ MOVEMENT_SOURCES = (
     "material_add",
     "material_remove",
     "material_unit_change",
+    "preparation",
 )
 ADJUST_REASON_MAX_LENGTH = 500
 INVENTORY_KG = Numeric(12, 3)
@@ -45,6 +47,11 @@ INVENTORY_KG = Numeric(12, 3)
 INVENTORY_G = Numeric(14, 1)
 MATERIAL_NAME_MAX_LENGTH = 100
 MATERIAL_UNITS = ("kg", "g", "count")
+# What a preparation may do with a material (services/preparation_service.py): `packaging` moves
+# 1:1 to its prepared twin; `satay_sauce` / `zip_bag_2` / `zip_bag_4` are the satay sachet inputs
+# (one material each); `none` isn't preparable. Not editable in the UI yet.
+PREP_ROLES = ("none", "packaging", "satay_sauce", "zip_bag_2", "zip_bag_4")
+SINGLE_PREP_ROLES = ("satay_sauce", "zip_bag_2", "zip_bag_4")
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -74,7 +81,8 @@ class InventoryBalance(Base):
 class InventoryMovement(Base):
     """One change of one item's stock, with the balance after it. Never updated or deleted.
 
-    Sources: production (finish / reopen / cancel; also the marinade a step 2 used), order
+    Sources: production (finish / reopen / cancel; also the marinade a step 2 used), preparation
+    (finish / reopen / cancel), order
     (Delivering), order_return (return review), material_add / material_remove (materials, by
     hand), material_unit_change (kg <-> g: the old unit out and the new unit in, one row),
     adjustment (kept for old rows).
@@ -116,6 +124,10 @@ class InventoryMovement(Base):
     order_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("orders.id", ondelete="SET NULL"), index=True
     )
+    # Preparation movements: the preparation they belong to.
+    preparation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("preparations.id", ondelete="SET NULL"), index=True
+    )
     step: Mapped[int | None] = mapped_column(SmallInteger)
     reversal_of: Mapped[int | None] = mapped_column(
         ForeignKey("inventory_movements.id", ondelete="RESTRICT")
@@ -150,6 +162,14 @@ class InventoryMaterial(Base):
             name="names",
         ),
         CheckConstraint("(icon IS NULL) = (icon_mime IS NULL)", name="icon_mime"),
+        CheckConstraint(_in("prep_role", PREP_ROLES), name="prep_role"),
+        # One material per satay sachet input.
+        Index(
+            "uq_inventory_materials_prep_role",
+            "prep_role",
+            unique=True,
+            postgresql_where=text(_in("prep_role", SINGLE_PREP_ROLES)),
+        ),
         # Names unique among active materials, per language, case-insensitive.
         Index(
             "uq_inventory_materials_active_name_km",
@@ -178,6 +198,10 @@ class InventoryMaterial(Base):
     # route loads the bytes.
     icon: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
     icon_mime: Mapped[str | None] = mapped_column(String(16))
+    # See PREP_ROLES. New materials are packaging (they get a prepared twin).
+    prep_role: Mapped[str] = mapped_column(
+        String(16), default="packaging", server_default=text("'packaging'")
+    )
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     archived_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")

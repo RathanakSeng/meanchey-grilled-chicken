@@ -20,13 +20,13 @@ import { useItemDisplay } from './useItemDisplay'
 
 type Tab = 'stock' | 'history'
 /** Sub-tabs of the Stock tab (`group` from the API), in order; `?section=`, default raw. */
-const SECTIONS: InventoryGroup[] = ['raw', 'processed', 'packed', 'wasted']
+const SECTIONS: InventoryGroup[] = ['raw', 'processed', 'packed', 'prepared', 'wasted']
 const GRID = 'grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-6'
 
 /**
  * Inventory (Workstation): balances updated by production and orders, plus **materials** in Raw
  * (string, skewers, sauces…: stock added / removed by hand with Inventory Record; created, edited
- * and archived with Inventory materials). Tabs: Stock (`?tab=stock&section=raw|processed|packed|wasted`: sub-tabs of item cards; tap a
+ * and archived with Inventory materials). Tabs: Stock (`?tab=stock&section=raw|processed|packed|prepared|wasted`: sub-tabs of item cards; tap a
  * card for its sheet) and History (`?tab=history`, with its filters; only with inventory.history:
  * without it there is no tab bar and Stock shows directly). The section is kept when switching
  * tabs, so Back and refresh return to the same sub-tab.
@@ -165,6 +165,7 @@ function StockTab({
     .sort((a, b) =>
       a.material && b.material ? localized(a).localeCompare(localized(b)) : a.material ? 1 : b.material ? -1 : 0,
     )
+  // (Prepared: the satay sachets first, then the prepared materials by name — same rule.)
   const archived = useQuery({
     queryKey: inventoryKeys.materials({ include_archived: true }),
     queryFn: async () =>
@@ -279,7 +280,11 @@ function StockTab({
           <ul className={GRID}>
             {shown.map((item) => (
               <li key={item.code}>
-                <ItemCard item={item} onOpen={onOpen} onAdd={item.material && canStock ? onAdd : undefined} />
+                <ItemCard
+                  item={item}
+                  onOpen={onOpen}
+                  onAdd={item.origin === 'manual' && canStock ? onAdd : undefined}
+                />
               </li>
             ))}
           </ul>

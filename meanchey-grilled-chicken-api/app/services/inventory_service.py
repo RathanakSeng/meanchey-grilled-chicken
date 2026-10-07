@@ -40,6 +40,14 @@ Production rules (tracked batches only, `production_batches.inventory_tracked`):
   `reversal_of` set (unique: a movement is reversed at most once) and `reason` "reopen" / "cancel".
   A material's reversal is written in the material's current unit (it may have switched kg <-> g
   since), and materials are left out of the "stock already used in orders" guard.
+
+**Prepared items** (section `prepared`, origin `preparation`): the satay sachets (catalog) and
+the prepared twin of every packaging material (`<material item_code>_prepared`, resolved from the
+material: same names and unit, `prepared_def`). Only preparations move them
+(services/preparation_service.py: `source = preparation`, `preparation_id` set); their
+breakdown (`item_detail`) lists preparations instead of batches. A twin follows its material's
+kg <-> g switch (material_service). In the overview an archived material's twin stays only
+while it has stock.
 """
 
 import hashlib
@@ -65,6 +73,7 @@ from app.inventory.catalog import (
     MATERIAL_PREFIX,
     PACKS_BIG,
     PACKS_SMALL,
+    PREPARED_SUFFIX,
     SECTIONS,
     THIGHS,
     WASTED_THIGHS,
@@ -75,6 +84,9 @@ from app.inventory.catalog import (
     byproduct_packed,
     byproduct_processed,
     is_material,
+    is_prepared_twin,
+    prepared_code,
+    twin_base,
     wasted_byproduct,
     wasted_for,
 )
@@ -83,6 +95,7 @@ from app.models import (
     InventoryMaterial,
     InventoryMovement,
     Order,
+    Preparation,
     ProductionBatch,
     User,
     utcnow,
@@ -96,11 +109,13 @@ from app.schemas.inventory import (
     InventorySectionOut,
     InventoryUnit,
     ItemMaterialOut,
+    ItemPreparationSourceOut,
     ItemSourceOut,
     MovementBatch,
     MovementOrder,
     MovementOut,
     MovementPage,
+    MovementPreparation,
     MovementSource,
     SetValueIn,
     StockChangeOut,
@@ -126,6 +141,7 @@ class Delta:
     # Per movement; `apply_movements(batch_id=...)` is the default for the batch.
     batch_id: uuid.UUID | None = None
     order_id: uuid.UUID | None = None
+    preparation_id: uuid.UUID | None = None
 
 
 def _kg(value: Decimal | None) -> Decimal:
@@ -152,6 +168,22 @@ def material_def(m: InventoryMaterial) -> ItemDef:
     )
 
 
+def prepared_def(m: InventoryMaterial) -> ItemDef:
+    """A packaging material's prepared twin: the material's names and unit, Prepared section."""
+    return ItemDef(
+        prepared_code(m.item_code),
+        m.name_en,
+        m.name_km,
+        "prepared",
+        "prepared",
+        tracks_count=m.unit == "count",
+        tracks_kg=m.unit == "kg",
+        order=60,  # after the satay sachets
+        origin="preparation",
+        tracks_g=m.unit == "g",
+    )
+
+
 def unit_of(item: ItemDef) -> InventoryUnit:
     """A material's single unit; production items report their main unit (count first)."""
     if item.tracks_g:
@@ -172,11 +204,23 @@ async def materials_by_code(
     return {m.item_code: m for m in await session.scalars(stmt)}
 
 
+async def twin_materials(
+    session: AsyncSession, codes: list[str] | set[str]
+) -> dict[str, InventoryMaterial]:
+    """For prepared twin codes, the material each belongs to (archived included)."""
+    bases = {twin_base(c): c for c in codes if is_prepared_twin(c)}
+    if not bases:
+        return {}
+    return {bases[code]: m for code, m in (await materials_by_code(session, list(bases))).items()}
+
+
 async def resolve(session: AsyncSession, codes: list[str] | set[str]) -> dict[str, ItemDef]:
-    """Catalog items and materials for `codes` (unknown codes are left out)."""
+    """Catalog items, materials and prepared twins for `codes` (unknown codes are left out)."""
     result = {c: ITEMS_BY_CODE[c] for c in codes if c in ITEMS_BY_CODE}
     for code, m in (await materials_by_code(session, codes)).items():
         result[code] = material_def(m)
+    for code, m in (await twin_materials(session, codes)).items():
+        result[code] = prepared_def(m)
     return result
 
 
@@ -197,10 +241,15 @@ def _blank(item: ItemDef) -> dict[str, Any]:
 
 
 async def ensure_balances(session: AsyncSession, codes: list[str] | None = None) -> None:
-    """A zero balance row for every catalog item and material (or `codes`) that has none.
-    Idempotent."""
+    """A zero balance row for every catalog item, material and packaging material's prepared twin
+    (or `codes`) that has none. Idempotent."""
     if codes is None:
-        items = [*ITEMS, *(material_def(m) for m in (await materials_by_code(session)).values())]
+        materials = list((await materials_by_code(session)).values())
+        items = [
+            *ITEMS,
+            *(material_def(m) for m in materials),
+            *(prepared_def(m) for m in materials if m.prep_role == "packaging"),
+        ]
     else:
         resolved = await resolve(session, codes)
         items = [resolved[c] for c in codes if c in resolved]
@@ -276,6 +325,7 @@ async def apply_movements(
     *,
     source: MovementSource,
     batch_id: uuid.UUID | None = None,
+    preparation_id: uuid.UUID | None = None,
 ) -> list[InventoryMovement]:
     """Lock, check, apply and record. Raises INVENTORY_INSUFFICIENT; never commits."""
     items = await resolve(session, {d.item_code for d in deltas})
@@ -329,6 +379,7 @@ async def apply_movements(
             source=source,
             batch_id=d.batch_id or batch_id,
             order_id=d.order_id,
+            preparation_id=d.preparation_id or preparation_id,
             step=d.step,
             reversal_of=d.reversal_of,
             reason=d.reason,
@@ -829,6 +880,7 @@ def _material_out(m: InventoryMaterial | None) -> ItemMaterialOut | None:
         archived=m.archived_at is not None,
         icon_key=m.icon_key,
         icon_url=material_icon_url(m),
+        prep_role=m.prep_role,  # type: ignore[arg-type]
     )
 
 
@@ -873,6 +925,13 @@ async def item_detail(session: AsyncSession, item_code: str) -> InventoryItemDet
             InventoryMovement.item_code == item.code
         )
     )
+    if item.origin == "preparation":
+        twin_of = (await twin_materials(session, [item.code])).get(item.code)
+        return InventoryItemDetailOut(
+            **_item_out(item, bal, last, twin_of).model_dump(),
+            sources=[],
+            preparation_sources=await _preparation_sources(session, item),
+        )
     if material is not None:
         return InventoryItemDetailOut(
             **_item_out(item, bal, last, material).model_dump(), sources=[]
@@ -914,8 +973,46 @@ async def item_detail(session: AsyncSession, item_code: str) -> InventoryItemDet
     return InventoryItemDetailOut(**_item_out(item, bal, last).model_dump(), sources=sources)
 
 
+async def _preparation_sources(
+    session: AsyncSession, item: ItemDef
+) -> list[ItemPreparationSourceOut]:
+    """Per preparation, the net quantity it currently adds to a prepared item (its movements,
+    reversals included): non-zero only, oldest first. The totals equal the balance."""
+    rows = await session.execute(
+        select(
+            Preparation.id,
+            Preparation.code,
+            Preparation.prepared_date,
+            func.coalesce(func.sum(InventoryMovement.count_delta), 0),
+            func.coalesce(func.sum(InventoryMovement.kg_delta), 0),
+            func.coalesce(func.sum(InventoryMovement.g_delta), 0),
+        )
+        .join(Preparation, Preparation.id == InventoryMovement.preparation_id)
+        .where(InventoryMovement.item_code == item.code)
+        .group_by(Preparation.id, Preparation.code, Preparation.prepared_date)
+        .order_by(func.min(InventoryMovement.created_at), Preparation.code)
+    )
+    return [
+        ItemPreparationSourceOut(
+            preparation_id=p_id,
+            code=code,
+            prepared_date=prepared_date,
+            count=int(count) if item.tracks_count else None,
+            kg=Decimal(kg) if item.tracks_kg else None,
+            g=Decimal(g) if item.tracks_g else None,
+        )
+        for p_id, code, prepared_date, count, kg, g in rows
+        if (item.tracks_count and count) or (item.tracks_kg and kg) or (item.tracks_g and g)
+    ]
+
+
+def _has_stock(bal: InventoryBalance | None) -> bool:
+    return bal is not None and bool(bal.count or bal.kg or bal.g)
+
+
 async def overview(session: AsyncSession) -> InventoryOut:
-    """Every catalog item and every active material (Raw, after Chicken), by section."""
+    """Every catalog item and every active material (Raw, after Chicken), by section; the
+    prepared twins after the satay sachets (an archived material's only while it has stock)."""
     balances = {b.item_code: b for b in await session.scalars(select(InventoryBalance))}
     # Last change = the latest movement (a balance row alone may just have been created).
     last = {
@@ -926,10 +1023,16 @@ async def overview(session: AsyncSession) -> InventoryOut:
             )
         )
     }
-    materials = sorted(
-        (m for m in (await materials_by_code(session)).values() if m.archived_at is None),
-        key=lambda m: m.name_en.lower(),
+    every_material = sorted(
+        (await materials_by_code(session)).values(), key=lambda m: m.name_en.lower()
     )
+    materials = [m for m in every_material if m.archived_at is None]
+    twins = [
+        m
+        for m in every_material
+        if (m.archived_at is None and m.prep_role == "packaging")
+        or _has_stock(balances.get(prepared_code(m.item_code)))
+    ]
     sections = []
     for section in SECTIONS:
         items = []
@@ -940,6 +1043,10 @@ async def overview(session: AsyncSession) -> InventoryOut:
                     _item_out(material_def(m), balances.get(m.item_code), last.get(m.item_code), m)
                     for m in materials
                 ]
+        if section == "prepared":
+            for m in twins:
+                code = prepared_code(m.item_code)
+                items.append(_item_out(prepared_def(m), balances.get(code), last.get(code), m))
         sections.append(InventorySectionOut(section=section, items=items))
     return InventoryOut(sections=sections)
 
@@ -958,6 +1065,7 @@ async def movements(
     batch_id: uuid.UUID | None = None,
     batch_code: str | None = None,
     order_id: uuid.UUID | None = None,
+    preparation_id: uuid.UUID | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     page: int = 1,
@@ -970,9 +1078,15 @@ async def movements(
         in_section = InventoryMovement.item_code.in_(
             [i.code for i in ITEMS if i.section == section]
         )
-        # Materials are all in stock (Raw).
+        # Materials are all in stock (Raw); their prepared twins in prepared.
+        is_material_code = InventoryMovement.item_code.like(f"{MATERIAL_PREFIX}%")
+        is_twin_code = and_(
+            is_material_code, InventoryMovement.item_code.like(f"%{PREPARED_SUFFIX}")
+        )
         if section == "stock":
-            in_section = or_(in_section, InventoryMovement.item_code.like(f"{MATERIAL_PREFIX}%"))
+            in_section = or_(in_section, and_(is_material_code, ~is_twin_code))
+        elif section == "prepared":
+            in_section = or_(in_section, is_twin_code)
         conditions.append(in_section)
     if source:
         conditions.append(InventoryMovement.source == source)
@@ -980,6 +1094,8 @@ async def movements(
         conditions.append(InventoryMovement.batch_id == batch_id)
     if order_id:
         conditions.append(InventoryMovement.order_id == order_id)
+    if preparation_id:
+        conditions.append(InventoryMovement.preparation_id == preparation_id)
     if batch_code:
         conditions.append(
             InventoryMovement.batch_id.in_(
@@ -1032,6 +1148,17 @@ async def movements(
         if order_ids
         else {}
     )
+    preparation_ids = {m.preparation_id for m in rows if m.preparation_id}
+    preparations = (
+        {
+            p.id: p.code
+            for p in await session.execute(
+                select(Preparation.id, Preparation.code).where(Preparation.id.in_(preparation_ids))
+            )
+        }
+        if preparation_ids
+        else {}
+    )
     items = await resolve(session, {m.item_code for m in rows})
     user_ids = {m.created_by for m in rows if m.created_by}
     users = (
@@ -1057,6 +1184,11 @@ async def movements(
                 else None,
                 order=MovementOrder(id=m.order_id, code=orders[m.order_id])
                 if m.order_id in orders
+                else None,
+                preparation=MovementPreparation(
+                    id=m.preparation_id, code=preparations[m.preparation_id]
+                )
+                if m.preparation_id in preparations
                 else None,
                 step=m.step,
                 reversal_of=m.reversal_of,

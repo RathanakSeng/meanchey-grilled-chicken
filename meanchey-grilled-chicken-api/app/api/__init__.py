@@ -9,6 +9,7 @@ from app.api import (
     notifications,
     orders,
     permissions,
+    preparations,
     production,
     production_plans,
     settings,
@@ -29,5 +30,6 @@ api_router.include_router(production.router)
 api_router.include_router(production_plans.router)
 api_router.include_router(inventory.router)
 api_router.include_router(orders.router)
+api_router.include_router(preparations.router)
 api_router.include_router(notifications.router)
 api_router.include_router(settings.router)

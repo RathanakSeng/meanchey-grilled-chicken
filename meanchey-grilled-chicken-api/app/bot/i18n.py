@@ -128,6 +128,35 @@ TEXTS: dict[str, dict[Language, str]] = {
         Language.KM: "🧾 បើកការបញ្ជាទិញ",
         Language.EN: "🧾 Open order",
     },
+    # --- Preparation alerts (app/bot/notify.py) ---
+    "preparation_finished": {
+        Language.KM: "🧂 <b>{code}</b>៖ ការរៀបចំបានបញ្ចប់{again} — {summary}។",
+        Language.EN: "🧂 <b>{code}</b>: preparation finished{again} — {summary}.",
+    },
+    "prep_sachets_first": {
+        Language.KM: "សាតេកញ្ចប់ {count} (កញ្ចប់ {size} ដុំ)",
+        Language.EN: "{count} satay sachets ({size}-piece)",
+    },
+    "prep_sachets_more": {
+        Language.KM: "{count} (កញ្ចប់ {size} ដុំ)",
+        Language.EN: "{count} ({size}-piece)",
+    },
+    "unit_kg": {
+        Language.KM: " គ.ក",
+        Language.EN: " kg",
+    },
+    "unit_g": {
+        Language.KM: " ក្រាម",
+        Language.EN: " g",
+    },
+    "unit_count": {
+        Language.KM: "",
+        Language.EN: "",
+    },
+    "open_preparation": {
+        Language.KM: "🧂 បើកការរៀបចំ",
+        Language.EN: "🧂 Open preparation",
+    },
     # The customer of a direct order (no saved customer, so no name).
     "direct_order": {
         Language.KM: "ការបញ្ជាទិញផ្ទាល់ · {phone}",

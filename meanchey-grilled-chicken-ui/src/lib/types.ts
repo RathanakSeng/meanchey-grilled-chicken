@@ -92,7 +92,7 @@ export interface UserPermissions {
 }
 
 export type PartnerEntityType = 'supplier' | 'customer'
-export type AuditEntityType = PartnerEntityType | 'production_batch'
+export type AuditEntityType = PartnerEntityType | 'production_batch' | 'preparation'
 
 /** Non-user record an audit entry is about. `name` is its current name (or the logged one). */
 export interface AuditEntityRef {
@@ -385,6 +385,7 @@ export type NotificationType =
   | 'order.delivered'
   | 'order.return_pending'
   | 'order.returns_reviewed'
+  | 'preparation.finished'
 
 export interface AppNotification {
   id: string
@@ -395,7 +396,9 @@ export interface AppNotification {
    * completed: {code, matches, planned_big, planned_small, actual_big, actual_small, comment, repeat};
    * order.*: {code, customer (null for a direct order), customer_type, customer_phone (readable),
    * white, black (delivering), returned + reason (return_pending),
-   * outcome + to_stock + to_wasted (returns_reviewed)}; items are OrderAlertItem[]. */
+   * outcome + to_stock + to_wasted (returns_reviewed)}; items are OrderAlertItem[];
+   * preparation.finished: {code, type, sachets_2, sachets_4, materials: PreparationAlertMaterial[],
+   * repeat}. */
   payload: Record<string, unknown>
   actor: UserRef | null
   created_at: string
@@ -446,8 +449,10 @@ export const ROLE_LIMIT_MAX = 999
 
 // --- Inventory --------------------------------------------------------------------------------
 
-export type InventorySection = 'stock' | 'wasted'
-export type InventoryGroup = 'raw' | 'processed' | 'packed' | 'wasted'
+export type InventorySection = 'stock' | 'prepared' | 'wasted'
+export type InventoryGroup = 'raw' | 'processed' | 'packed' | 'prepared' | 'wasted'
+/** What a preparation may do with a material (not editable in the UI yet). */
+export type PrepRole = 'none' | 'packaging' | 'satay_sauce' | 'zip_bag_2' | 'zip_bag_4'
 /** order: stock out at Delivering; order_return: returned items at the review. */
 export type MovementSource =
   | 'production'
@@ -457,6 +462,7 @@ export type MovementSource =
   | 'material_add'
   | 'material_remove'
   | 'material_unit_change'
+  | 'preparation'
 
 /** Set on materials (origin manual): what the Raw cards and sheets need. */
 export interface ItemMaterial {
@@ -469,6 +475,8 @@ export interface ItemMaterial {
   icon_key: string | null
   /** The uploaded icon (API path, versioned; load with the API client), shown first; or null. */
   icon_url: string | null
+  /** packaging: has a prepared twin; satay_sauce / zip_bag_*: satay sachet inputs; none. */
+  prep_role?: PrepRole
 }
 
 /** An item and its balance. `count` / `kg` are null for a unit the item doesn't track. */
@@ -482,8 +490,9 @@ export interface InventoryItem extends Localized {
   tracks_g: boolean
   /** Its kg is estimated from the batch's average piece weight (wasted pieces). */
   kg_estimated: boolean
-  /** `production`: changes only through production and orders; `manual`: a material. */
-  origin: 'production' | 'manual'
+  /** `production`: changes only through production and orders; `manual`: a material;
+   * `preparation`: made by preparations (satay sachets, prepared twins of materials). */
+  origin: 'production' | 'manual' | 'preparation'
   count: number | null
   kg: string | null
   g: string | null
@@ -502,6 +511,7 @@ export interface Material {
   system_code: string | null
   icon_key: string | null
   icon_url: string | null
+  prep_role: PrepRole
   count: number | null
   kg: string | null
   g: string | null
@@ -533,6 +543,18 @@ export interface ItemSource {
 export interface InventoryItemDetail extends InventoryItem {
   /** Oldest batch first; adds up to the balance. */
   sources: ItemSource[]
+  /** Prepared items: the same per preparation (oldest first). */
+  preparation_sources?: ItemPreparationSource[]
+}
+
+/** What one preparation currently adds to a prepared item. */
+export interface ItemPreparationSource {
+  preparation_id: string
+  code: string
+  prepared_date: string | null
+  count: number | null
+  kg: string | null
+  g: string | null
 }
 
 export interface InventoryOverview {
@@ -552,6 +574,8 @@ export interface InventoryMovement extends Localized {
   batch: { id: string; code: string } | null
   /** Order and return movements: the order. */
   order?: { id: string; code: string } | null
+  /** Preparation movements: the preparation. */
+  preparation?: { id: string; code: string } | null
   step: StepNumber | null
   /** Set on a reversal: the movement it undoes (`reason` is then "reopen" or "cancel"). */
   reversal_of: number | null
@@ -756,3 +780,98 @@ export const BUSINESS_NAME_MAX_LENGTH = 200
 export const BUSINESS_ADDRESS_MAX_LENGTH = 500
 export const BUSINESS_FOOTER_MAX_LENGTH = 300
 export const LOGO_MAX_BYTES = 500 * 1024
+
+// --- Preparations -----------------------------------------------------------------------------
+
+export type PreparationType = 'satay_sachet' | 'packaging_material'
+export type PreparationStatus = 'draft' | 'finished' | 'cancelled'
+export type PackSize = 2 | 4
+
+export const PREPARATION_NOTE_MAX_LENGTH = 1000
+export const PREPARATION_REASON_MAX_LENGTH = 500
+
+/** A material a preparation uses, with its stock now (a string in the unit's precision). */
+export interface PreparationMaterial extends Localized {
+  id: string
+  item_code: string
+  unit: QuantityUnit
+  prep_role: PrepRole
+  icon_key: string | null
+  icon_url: string | null
+  archived: boolean
+  stock: string
+  /** Packaging materials: the prepared twin's stock. */
+  prepared_stock: string | null
+}
+
+export interface PreparationLine {
+  id: string
+  pack_size: PackSize | null
+  satay_g: string | null
+  zip_bag_qty: string | null
+  sachets: number | null
+  material: PreparationMaterial | null
+  quantity: string | null
+  /** Unit of `zip_bag_qty` / `quantity`. */
+  unit: QuantityUnit | null
+}
+
+/** One item a preparation takes or makes. */
+export interface PreparationItem extends Localized {
+  item_code: string
+  unit: QuantityUnit
+  quantity: string
+  material_id: string | null
+  icon_key: string | null
+}
+
+export interface Preparation {
+  id: string
+  code: string
+  type: PreparationType
+  status: PreparationStatus
+  prepared_date: string | null
+  note: string | null
+  cancel_reason: string | null
+  version: number
+  lines: PreparationLine[]
+  satay_materials: {
+    satay_sauce: PreparationMaterial | null
+    zip_bag_2: PreparationMaterial | null
+    zip_bag_4: PreparationMaterial | null
+  } | null
+  inputs: PreparationItem[]
+  outputs: PreparationItem[]
+  created_by: UserRef | null
+  created_at: string
+  updated_by: UserRef | null
+  updated_at: string
+  finished_by: UserRef | null
+  finished_at: string | null
+  cancelled_by: UserRef | null
+  cancelled_at: string | null
+}
+
+export interface PreparationListItem {
+  id: string
+  code: string
+  type: PreparationType
+  status: PreparationStatus
+  prepared_date: string | null
+  created_at: string
+  outputs: PreparationItem[]
+  created_by: UserRef | null
+}
+
+export interface PreparationStats {
+  drafts: number
+  finished_this_month: number
+  sachets_2_this_month: number
+  sachets_4_this_month: number
+}
+
+/** A packaging line in a preparation alert's payload. */
+export interface PreparationAlertMaterial extends Localized {
+  quantity: string
+  unit: QuantityUnit
+}

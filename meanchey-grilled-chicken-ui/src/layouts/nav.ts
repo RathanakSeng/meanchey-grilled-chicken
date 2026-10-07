@@ -55,6 +55,13 @@ export const NAV_ITEMS: NavItem[] = [
         permission: 'customers.view',
       },
       {
+        to: paths.preparations,
+        labelKey: 'nav.preparations',
+        descriptionKey: 'preparations.description',
+        icon: 'beaker',
+        permission: 'preparation.view',
+      },
+      {
         to: paths.production,
         labelKey: 'nav.production',
         descriptionKey: 'production.description',

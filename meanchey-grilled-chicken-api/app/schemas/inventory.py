@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
@@ -16,7 +16,8 @@ GOut = Annotated[Decimal, PlainSerializer(lambda v: f"{v:.1f}", return_type=str)
 InventoryUnit = Literal["count", "kg", "g"]
 
 # order: stock out at Delivering; order_return: returned items (stock or wasted) at the review;
-# material_add / material_remove: materials by hand; material_unit_change: kg <-> g switch.
+# material_add / material_remove: materials by hand; material_unit_change: kg <-> g switch;
+# preparation: a preparation finished, reopened or cancelled.
 MovementSource = Literal[
     "production",
     "adjustment",
@@ -25,7 +26,10 @@ MovementSource = Literal[
     "material_add",
     "material_remove",
     "material_unit_change",
+    "preparation",
 ]
+# What a preparation may do with a material (models/inventory.PREP_ROLES).
+PrepRole = Literal["none", "packaging", "satay_sauce", "zip_bag_2", "zip_bag_4"]
 # Why a reversal movement was written (stored in `reason`).
 ReversalCause = Literal["reopen", "cancel"]
 
@@ -43,6 +47,9 @@ class ItemMaterialOut(BaseModel):
     # The uploaded icon (GET, inventory.view), versioned so a new upload changes it; null if none.
     # Shown before `icon_key`.
     icon_url: str | None
+    # packaging: has a prepared twin (Prepared section); satay_sauce / zip_bag_*: satay sachet
+    # inputs; none: not preparable. Not editable in the UI yet.
+    prep_role: PrepRole = "packaging"
 
 
 class InventoryItemOut(BaseModel):
@@ -78,10 +85,23 @@ class ItemSourceOut(BaseModel):
     last_step: int
 
 
+class ItemPreparationSourceOut(BaseModel):
+    """What one preparation currently adds to a prepared item (net of its reversals)."""
+
+    preparation_id: uuid.UUID
+    code: str
+    prepared_date: date | None
+    count: int | None
+    kg: KgOut | None
+    g: GOut | None
+
+
 class InventoryItemDetailOut(InventoryItemOut):
     # Production items: the net contribution of each batch (non-zero only), oldest batch first.
     # The totals equal the balance.
     sources: list[ItemSourceOut]
+    # Prepared items: the same per preparation (the satay sachets, the prepared twins).
+    preparation_sources: list[ItemPreparationSourceOut] = []
 
 
 class InventorySectionOut(BaseModel):
@@ -103,6 +123,11 @@ class MovementOrder(BaseModel):
     code: str
 
 
+class MovementPreparation(BaseModel):
+    id: uuid.UUID
+    code: str
+
+
 class MovementOut(BaseModel):
     id: int
     item_code: str
@@ -118,6 +143,8 @@ class MovementOut(BaseModel):
     batch: MovementBatch | None
     # Order / order_return movements: the order.
     order: MovementOrder | None = None
+    # Preparation movements: the preparation.
+    preparation: MovementPreparation | None = None
     step: int | None
     # Set on a reversal: the movement it undoes; `reason` is then "reopen" or "cancel".
     reversal_of: int | None

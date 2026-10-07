@@ -55,6 +55,10 @@ const ACTIONS = [
   'material.restore',
   'material.stock_add',
   'material.stock_remove',
+  'preparation.create',
+  'preparation.finish',
+  'preparation.reopen',
+  'preparation.cancel',
   // A GM given Business info sees its own changes.
   'settings.business_update',
 ]
@@ -62,7 +66,7 @@ const ACTIONS = [
 const SUPERADMIN_ACTIONS = ['settings.role_limit_update']
 // Detailed permission entries are listed by the API for the superadmin only.
 const PERMISSION_ACTIONS = ['permission.grant', 'permission.revoke']
-const ENTITY_TYPES = ['supplier', 'customer', 'production_batch', 'order', 'material'] as const
+const ENTITY_TYPES = ['supplier', 'customer', 'production_batch', 'order', 'material', 'preparation'] as const
 const STEP_LABELS = ['production.steps.rawMaterial', 'production.steps.produced', 'production.steps.standardize']
 const PAGE_SIZE = 50
 
@@ -94,12 +98,17 @@ function EntityRef({ entity }: { entity: AuditEntityRef }) {
   const { t } = useTranslation()
   const config = PARTNER_CONFIGS[entity.type as keyof typeof PARTNER_CONFIGS]
   const name = entity.name ?? t('common.none')
-  if (entity.type === 'production_batch' || entity.type === 'order') {
+  if (entity.type === 'production_batch' || entity.type === 'order' || entity.type === 'preparation') {
+    const to =
+      entity.type === 'order'
+        ? paths.order(entity.id)
+        : entity.type === 'preparation'
+          ? paths.preparation(entity.id)
+          : paths.productionBatch(entity.id)
     return (
       <span className="block">
         <span className="block text-xs text-stone-400">{t(`audit.entityTypes.${entity.type}`)}</span>
-        <Link
-          to={entity.type === 'order' ? paths.order(entity.id) : paths.productionBatch(entity.id)} className="font-medium tabular-nums text-stone-800 hover:underline">
+        <Link to={to} className="font-medium tabular-nums text-stone-800 hover:underline">
           {name}
         </Link>
       </span>
@@ -227,6 +236,24 @@ function Details({ log }: { log: AuditLog }) {
         {t('plans.packsShort', { big: String(d.expected_big ?? '—'), small: String(d.expected_small ?? '—') })}
       </span>
     )
+  }
+  if (log.action === 'preparation.cancel') {
+    return (
+      <span className="block text-sm text-stone-700">
+        {t('audit.cancelReason', { reason: String(d.reason ?? '') })}
+      </span>
+    )
+  }
+  if (log.action === 'preparation.finish') {
+    // Satay: the sachets made; packaging: each material moved.
+    const sachets = ([2, 4] as const)
+      .filter((size) => d[`sachets_${size}`])
+      .map((size) => t('preparations.auditSachets', { n: Number(d[`sachets_${size}`]), size }))
+    const materials = (Array.isArray(d.materials) ? (d.materials as Record<string, string>[]) : []).map(
+      (m) => `${m.name_en} ${m.quantity}${m.unit === 'count' ? '' : ` ${m.unit}`}`,
+    )
+    const parts = [...sachets, ...materials]
+    return parts.length ? <span className="block text-sm text-stone-700">{parts.join(', ')}</span> : null
   }
   if (log.action === 'order.cancel') {
     return (

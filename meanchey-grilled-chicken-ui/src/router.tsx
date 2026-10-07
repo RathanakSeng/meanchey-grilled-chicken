@@ -47,6 +47,15 @@ const ProductionBatchPage = lazy(() =>
 const InventoryPage = lazy(() =>
   import('@/pages/workstation/inventory/InventoryPage').then((m) => ({ default: m.InventoryPage })),
 )
+// Preparations: a lazy chunk for holders of preparation.view.
+const PreparationListPage = lazy(() =>
+  import('@/pages/workstation/preparations/PreparationListPage').then((m) => ({
+    default: m.PreparationListPage,
+  })),
+)
+const PreparationPage = lazy(() =>
+  import('@/pages/workstation/preparations/PreparationPage').then((m) => ({ default: m.PreparationPage })),
+)
 // Orders: a lazy chunk for holders of orders.view.
 const OrderListPage = lazy(() =>
   import('@/pages/workstation/orders/OrderListPage').then((m) => ({ default: m.OrderListPage })),
@@ -193,6 +202,28 @@ export const router = createBrowserRouter([
                           <OrderFormPage key="edit" mode="edit" />
                         </PageLoading>
                       </RequireAccess>
+                    ),
+                  },
+                ],
+              },
+              {
+                path: 'preparations',
+                element: <RequireAccess permission="preparation.view" />,
+                children: [
+                  {
+                    index: true,
+                    element: (
+                      <PageLoading>
+                        <PreparationListPage />
+                      </PageLoading>
+                    ),
+                  },
+                  {
+                    path: ':preparationId',
+                    element: (
+                      <PageLoading>
+                        <PreparationPage />
+                      </PageLoading>
                     ),
                   },
                 ],

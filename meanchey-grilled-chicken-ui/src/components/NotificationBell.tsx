@@ -7,7 +7,7 @@ import { useIsMobileLayout } from '@/layouts/useIsMobileLayout'
 import { api } from '@/lib/api'
 import { useFormatDate } from '@/lib/format'
 import { paths } from '@/lib/paths'
-import type { AppNotification, NotificationPage, OrderAlertItem } from '@/lib/types'
+import type { AppNotification, NotificationPage, OrderAlertItem, PreparationAlertMaterial } from '@/lib/types'
 import { Icon } from './icons'
 import { Sheet } from './Sheet'
 import { Button, Spinner, cx } from './ui'
@@ -36,6 +36,7 @@ function isOrderAlert(n: AppNotification): boolean {
  * orders: 🚚 out for delivery · ✅ delivered · ↩️ returned · 📦 return reviewed. */
 function emoji(n: AppNotification): string {
   if (isOrderAlert(n)) return ORDER_EMOJI[n.type] ?? '🧾'
+  if (n.type === 'preparation.finished') return '🧂'
   if (n.type === 'production.processing_finished') return '✅'
   return n.payload.matches ? '🎉' : '⚠️'
 }
@@ -86,6 +87,30 @@ export function useNotificationText() {
         comment: null,
       }
     }
+    if (n.type === 'preparation.finished') {
+      // "40 satay sachets (2-piece), 25 (4-piece) | Skewer 2.000 kg, String 0.500 kg".
+      const sachets = ([2, 4] as const)
+        .filter((size) => p[`sachets_${size}`])
+        .map((size, i) =>
+          t(i === 0 ? 'notifications.prepSachetsFirst' : 'notifications.prepSachetsMore', {
+            n: Number(p[`sachets_${size}`]),
+            size,
+          }),
+        )
+      const materials = (Array.isArray(p.materials) ? (p.materials as PreparationAlertMaterial[]) : []).map((m) => {
+        const name = (i18n.language === 'en' ? m.name_en : m.name_km) || m.name_en
+        return m.unit === 'count' ? `${name} ${m.quantity}` : `${name} ${t(`notifications.prepUnit_${m.unit}`, { value: m.quantity })}`
+      })
+      const groups = [sachets.join(', '), materials.join(', ')].filter(Boolean)
+      return {
+        text: t('notifications.preparationFinished', {
+          code: p.code,
+          again,
+          summary: groups.length ? groups.join(' | ') : t('notifications.orderNothing'),
+        }),
+        comment: null,
+      }
+    }
     if (n.type === 'production.processing_finished') {
       return {
         text: t('notifications.processingFinished', {
@@ -120,6 +145,7 @@ export function useNotificationText() {
 
 function targetOf(n: AppNotification): string {
   if (isOrderAlert(n)) return paths.order(n.entity_id)
+  if (n.type === 'preparation.finished') return paths.preparation(n.entity_id)
   return n.type === 'production.processing_finished'
     ? paths.productionPlan(n.entity_id)
     : paths.productionBatch(n.entity_id, 3)

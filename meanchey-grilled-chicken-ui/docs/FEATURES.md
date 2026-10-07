@@ -2,7 +2,7 @@
 
 What the Mean Chey Grilled Chicken UI (មាន់អាំងមានជ័យ) offers today. One React app serves both the **PC dashboard** and the **Telegram Mini App**.
 
-Phase 1 covers sign-in, user management and access control (feature access levels), plus the **Workstation** features: **Suppliers**, **Customers**, **Production** (batches in three steps, with autosave), the **Production plan** (packaging plans between steps 2 and 3) and **Inventory** (stock updated automatically by production), with production alerts in the header bell and on Telegram.
+Phase 1 covers sign-in, user management and access control (feature access levels), plus the **Workstation** features: **Suppliers**, **Customers**, **Production** (batches in three steps, with autosave), the **Production plan** (packaging plans between steps 2 and 3), **Inventory** (stock updated automatically by production), **Orders** and **Preparation** (satay sachets and packaging materials made ready from raw materials), with production, order and preparation alerts in the header bell and on Telegram.
 
 > The UI hides what a user can't do, for a cleaner experience. **The API enforces every rule**, so hiding things in the UI is never the security boundary.
 
@@ -97,7 +97,8 @@ Home                      everyone
 │   ├── Production        production.view   /workstation/production  (batch: /workstation/production/:id?step=1|2|3)
 │   ├── Production plan   production_plan.view  /workstation/production-plans  (plan: /workstation/production-plans/:batchId)
 │   ├── Inventory         inventory.view    /workstation/inventory  (?tab=history)
-│   └── Orders            orders.view       /workstation/orders  (new: /new; order: /:id; edit: /:id/edit)
+│   ├── Orders            orders.view       /workstation/orders  (new: /new; order: /:id; edit: /:id/edit)
+│   └── Preparation       preparation.view  /workstation/preparations  (preparation: /:id)
 └── Settings              everyone          /settings
     ├── Users             users.view        /settings/users
     ├── Audit log         superadmin, GM    /settings/audit-logs
@@ -140,6 +141,7 @@ A hub with one card per Workstation page the user may open, built from the same 
 | Production plan | holders of `production_plan.view` (with the number of plans waiting) |
 | Inventory | holders of `inventory.view` |
 | Orders | holders of `orders.view` |
+| Preparation | holders of `preparation.view` |
 
 With no visible cards (staff by default) it shows *"You don't have access to any workstation features yet"* with a hint to ask a manager.
 
@@ -249,13 +251,14 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
 
 "again" is added when a step was finished again after a reopen. Tapping one marks it read and opens it; **Mark all as read** clears the count. Empty: *"No notifications yet."*
 
+| 🧂 | A preparation finished (§6.7) | *"PP-…: preparation finished — 40 satay sachets (2-piece), 25 (4-piece) | Skewer 2.000 kg."* ("again" after a reopen) | the preparation |
 | 🚚 ✅ ↩️ 📦 | An order out for delivery, delivered, returned, return reviewed (§6.6) | e.g. *"OR-…: Dara Shop returned items — 2 × 4-Piece Packs. Review the return."* and the reason | the order |
 
-**Who gets them:** production alerts go to everyone with Production plan access, order alerts to everyone with **Order returns** (general managers, supervisors given access, and the system account), also on **Telegram** when their Telegram account is linked, with an **Open plan** / **Open batch** / **Open order** button into the Mini App. Staff get none.
+**Who gets them:** production alerts go to everyone with Production plan access, preparation alerts to everyone with **Preparation management**, order alerts to everyone with **Order returns** (general managers, supervisors given access, and the system account), also on **Telegram** when their Telegram account is linked, with an **Open plan** / **Open batch** / **Open order** button into the Mini App. Staff get none.
 
 ### 6.5 Inventory (ស្តុក)
 
-**Path:** `/workstation/inventory`: main tabs **Stock** (ស្តុក, `?tab=stock&section=raw|processed|packed|wasted`) and **History** (ប្រវត្តិ, `?tab=history`). **Who can open it:** `inventory.view` (GM and supervisors by default; staff when given *View only*). Lazy-loaded.
+**Path:** `/workstation/inventory`: main tabs **Stock** (ស្តុក, `?tab=stock&section=raw|processed|packed|prepared|wasted`) and **History** (ប្រវត្តិ, `?tab=history`). **Who can open it:** `inventory.view` (GM and supervisors by default; staff when given *View only*). Lazy-loaded.
 
 **Production items are read-only.** Every production item changes only through production (Finish, reopen, cancel) and orders (Start delivery, return review, §6.6); nobody sets their stock by hand. **Materials** (string, skewers, stickers, sauces, bags…) are the exception: see *Materials* below. **History** (every movement) needs **Inventory history** (`inventory.history`), which is off by default: without it there is no tab bar and Stock shows directly, item sheets show no recent changes, and batch pages show no Stock changes.
 
@@ -263,7 +266,7 @@ Stock updates **automatically** as production steps are finished; reopening a st
 
 **Stock tab**: four sub-tabs, each a grid of item cards, like a menu of products.
 
-- **Sub-tabs:** **Raw** (វត្ថុធាតុដើម: Chicken, then the materials) · **Processed** (ផលិត: Wings, Thighs, Gizzard, Liver, Heart, Head) · **Packed** (វេចខ្ចប់: 4-Piece Packs, 2-Piece Packs, Gizzard, Liver, Heart, Head) · **Wasted** (ខូចខាត: Wings, Thighs, 4-Piece Packs, 2-Piece Packs, by-products). Which tab an item belongs to comes from the API, so a new by-product appears in the right one on its own.
+- **Sub-tabs:** **Raw** (វត្ថុធាតុដើម: Chicken, then the materials) · **Processed** (ផលិត: Wings, Thighs, Gizzard, Liver, Heart, Head) · **Packed** (វេចខ្ចប់: 4-Piece Packs, 2-Piece Packs, Gizzard, Liver, Heart, Head) · **Prepared** (រៀបចំរួច: Satay sachets 2-piece and 4-piece, then each packaging material's prepared stock, §6.7) · **Wasted** (ខូចខាត: Wings, Thighs, 4-Piece Packs, 2-Piece Packs, by-products). Which tab an item belongs to comes from the API, so a new by-product appears in the right one on its own.
 - **Pill bar**, lighter than the main tabs (pills on a grey track, no underline): full width with equal pills on phones and in the Mini App (scrolls sideways if a label doesn't fit), compact and left-aligned from tablets. The selected Wasted pill is muted red, so it's never mistaken for stock.
 - **Stock badge** on each pill: how many items in that tab have stock (count or kg above 0); no badge at 0 or while loading. It updates in place when production changes stock.
 - The selected sub-tab is in the URL (`?tab=stock&section=processed`; default **Raw**), so refresh, Back (e.g. after opening a batch from an item's history) and shared links keep it. Switching to History and back keeps it too.
@@ -287,6 +290,12 @@ Stock updates **automatically** as production steps are finished; reopening a st
 - **Add material** (solid orange button in the header of Raw, with Inventory materials) and **Edit**: Khmer name, English name, unit (**kg · g · count**: three equal options that always fit the sheet, on phones, in the Mini App and in the desktop drawer, in both languages), and an optional **Icon** (រូបតំណាង): a preview, **Upload** / **Change** and **Remove** (PNG, JPEG or WebP up to 1 MB; the server stores it as a square). Editing uploads or removes it right away; a new material's icon is uploaded right after the material is created (if that upload fails the material is saved anyway and the sheet stays open on it, with *"The material was saved, but its icon wasn't uploaded."*). Removing an upload brings back the default picture. Not an image → *"The icon must be a PNG, JPEG or WebP image."*; too big → *"…at most 1 MB."* The unit explains: *kg ↔ g converts the stock automatically; switching to or from count is only possible before the first stock entry* (count is disabled with that tooltip once the material has moved; Marinade sauce can never be counted). Saving kg → g converts the balance (e.g. 3.750 kg → 3,750.0 g) and the history shows *"Unit changed"* with both values; older rows keep their unit. A name already used → *"Another material already has this name."*
 - **Archive:** a confirmation that warns when stock is left (*"There is still 3,750.0 g in stock…"*). Archived materials leave Raw. **Show archived** (managers; Khmer *បង្ហាញសម្ភារៈដែលបានលុបចោល*) lists them dimmed under *Archived materials* with an *Archived* badge and **Restore**. In Khmer, archive is **លុបចោល** and restore **ស្ដារវិញ** everywhere (menu, confirmation *"លុបចោលសម្ភារៈនេះ? ស្តុក និងប្រវត្តិនៅតែរក្សាទុក ហើយអាចស្ដារវិញបាន។"*, badge *បានលុបចោល*, audit labels, errors). The audit log shows icon changes as *Icon changed* / *Icon removed*.
 - **History:** *Added*, *Removed — reason*, *Unit changed*, and step 2's marinade (*PR-… · Processing −350.0 g*); the type filter has the three material types.
+
+**Prepared (រៀបចំរួច)**
+
+- **Cards:** the satay sachets (a sachet picture with a *2* / *4* badge) and one card per packaging material (String, Skewer, Stickers, Vacuum bag, materials created in the app): the material's own picture (uploaded icon or bundled picture) with a small green **រៀបចំរួច / Prepared** badge, so it's never mistaken for the raw stock; the amount in the material's unit. An archived material's prepared card stays while it still has stock. **No Add / Remove / Edit** on them: only preparations change them.
+- **Item sheet:** **From preparations** (ពីការរៀបចំ) instead of From production: one row per preparation that currently adds to it (its code, linking to the preparation, and its prepared date) with the amount, then a Total equal to the balance; *"Nothing from preparations right now."* when empty. Recent changes with Inventory history as usual.
+- History rows: *"Preparation PP-…"* (links to it) or *"Reversed: reopen / cancelled · PP-…"*; prepared items read *"Prepared: Skewer"*. The area filter has **Prepared**, the type filter **Preparation**.
 
 **History tab**
 
@@ -357,6 +366,34 @@ Created ──► Delivering ──► Delivered ─┬─► Success           
 - **Production batch page:** reopening or cancelling a batch whose packs already left in orders is refused: *"4-Piece Packs from this batch were already delivered in OR-20261003-001 — can't reopen or cancel it."*
 - **Bell and Telegram** (holders of Order returns): 🚚 *"OR-…: for Dara Shop is out for delivery — 2 white / 1 black boxes."* · ✅ *"…delivered to Dara Shop, everything accepted."* · ↩️ *"…Dara Shop returned items — 2 × 4-Piece Packs. Review the return."* (with the reason) · 📦 *"…return reviewed — Partly returned (1 × 4-Piece Packs to stock, 1 × 4-Piece Packs wasted)."* Each opens the order. A direct order reads *"Direct order · 012 345 678"* (*"ការបញ្ជាទិញផ្ទាល់ · 012 345 678"*) instead of a name, here, in the Start delivery confirmation, on the delivery note and in the Telegram caption.
 - **Audit log:** Order created / edited / cancelled (reason) / out for delivery / delivered (*Everything accepted* or *Items returned* with the reason) / return reviewed (partly / fully) / **Delivery note printed** (*Original* or *Copy #2*, *Downloaded / printed* or *Sent to Telegram*), with the order code linking to the order; record type **Order** in the filter. *Order edited* lists the changed fields: customer, customer type (*Saved customer → Direct order*), phone, location (old → new), delivery date, driver, note, and *Boxes*.
+
+### 6.7 Preparation (ការរៀបចំ)
+
+**Paths:** `/workstation/preparations` (list) and `/workstation/preparations/<id>` (a preparation). **Who can open them:** `preparation.view` (Preparation *View only* or *Record*: GM and supervisors by default; staff when given it). Lazy-loaded (one chunk per page). Menu icon: beaker.
+
+Raw materials made **ready to use**. **Not production step 3 (Standardize)**: preparations only convert materials. A **preparation** (code `PP-YYYYMMDD-NNN`) has one type:
+
+- **ធ្វើសាតេកញ្ចប់ / Make satay sachets**: satay sauce and zip bags 7 → satay sachets, a line per pack size (2-piece and / or 4-piece).
+- **រៀបចំសម្ភារៈវេចខ្ចប់ / Prepare packaging materials**: skewers, string, stickers, bags… moved **1:1** from Raw to Prepared, a line per material.
+
+**List**
+
+- **Figures:** Drafts · Finished this month · Sachets (2-piece) this month · Sachets (4-piece) this month (Cambodia calendar), 2 × 2 on phones.
+- **Filters** (in the URL: `?type=&status=&from=&to=&q=&cancelled=1&page=`): type, status (*Draft and finished* · Draft · Finished), a **Date** range (the prepared date, or the day it was started while not finished), search (code or material name), and **Show cancelled** (cancelled preparations are left out otherwise). 20 per page, newest first.
+- Rows (table on PCs, cards on phones): code, type badge (orange *Satay sachets*, blue *Packaging materials*), what it makes (*"40 × Satay sachets (2-piece packs)"*, *"Skewer 2.000 kg"*), status badge (Draft amber, Finished green, Cancelled grey) and the prepared date (cards: *"Prepared 6 Oct"* / *"Started 6 Oct"*).
+- **New preparation** (`preparation.create`): a sheet with **two big option cards** (one per type, with a picture and a one-line description); choosing one creates the draft and opens it.
+
+**Preparation page**
+
+- **Header:** the code, the type, status and type badges, the prepared date (*"Prepared 6 Oct 2026"*, or *"Started …"*), and **⋮** with **Reopen** (`preparation.update`, finished ones: a confirmation says the stock is put back) and **Cancel preparation** (`preparation.cancel`, draft or finished: a sheet with a required **reason**; a finished one's stock is put back first). Refusals (e.g. the outputs are no longer in stock) are translated per item.
+- **Satay sachets form:** two line cards, *Satay sachets (2-piece packs)* and *(4-piece packs)*, each with its picture and an **Include** checkbox; an included line has **Satay sauce used (g)**, **Zip bag 7 used** (in that material's unit) and **Sachets made**, with *"Available: 1,500.0 g"* under each input, **red** when the entered amount is more (the two lines' sauce counts together).
+- **Packaging materials form:** the hint *"Moves the same amount from Raw to Prepared."*, one card per material (picture, name, the quantity in its unit, *Available*, **×** to remove), and **Add material**: a sheet listing the preparable materials not in the list yet, each with its picture and balance.
+- *"Finishing makes: …"* previews the outputs; a **Note**; *"The prepared date is recorded when you finish."*
+- **Autosave** exactly like production steps (*Saving… / Saved just now / Offline — saved on this device / Couldn't save — retrying*): debounced, sent when the Mini App is hidden or closed, kept on the device, **Restore unsaved changes?**, and *Someone else saved … first* with **Keep my values** / **Use their version**.
+- **Finish preparation** (sticky above the bottom bar on phones) with a confirmation (*"The stock moves now and the preparation is locked. Only a manager can reopen or cancel it."*); the list under the form says what's missing: *Add at least one line*, *Fill in every value (more than 0)*, *Not enough Satay sauce in stock*. The API checks everything again (a shortage → *"Not enough … in stock: … available, … needed."*).
+- **Finished / cancelled:** a read-only summary: **Used** and **Made** (pictures, names, amounts), *Finished by … · time*, *Cancelled by … · time* and the note; a cancelled one shows its reason on top. With *View only*, a draft reads as a summary too (with a notice).
+
+**Elsewhere:** Inventory's **Prepared** sub-tab (§6.5); the bell and Telegram (🧂, holders of Preparation management, §6.4); the audit log (*Preparation started / finished / reopened / cancelled*, the cancel reason, the sachets or materials of a Finish, linked to the preparation; record type **Preparation**). `prep_role` (which materials are preparable) isn't shown or editable yet.
 
 ## 7. Settings
 
@@ -516,10 +553,11 @@ Supervisors never see detailed permissions; they see feature levels only on the 
   - suppliers and customers added, edited, deactivated and reactivated;
   - production: batch started, step finished and step reopened (*"Step 1 · Intake"*, plus *"Also back to draft: step 2, 3"* when later steps were reopened with it), batch cancelled (with the reason). Draft saves aren't logged;
   - packaging plans: *Edited packaging plan* (field changes in the details) and *Confirmed packaging plan* (*"148 × 4-piece · 4 × 2-piece"*), linked to the batch;
+  - preparations: started, finished (the sachets made or the materials moved), reopened, cancelled (with the reason), linked to the preparation;
   - orders: created, edited, cancelled (with the reason), out for delivery, delivered (*Everything accepted* / *Items returned* and the reason), return reviewed (*Partly* / *Fully returned*), delivery note printed (*Original* / *Copy #n*, downloaded or sent to Telegram), linked to the order;
   - business info changed (the changed fields; the superadmin's changes are hidden from general managers);
   - the system account linking or unlinking its Telegram (superadmin only).
-- **Filters:** record type (All · Suppliers · Customers · Production batches · Orders) and action type.
+- **Filters:** record type (All · Suppliers · Customers · Production batches · Orders · Materials · Preparations) and action type.
 - Each entry shows:
   - the time, in the current language's format;
   - the action, as a translated badge, red for failures and locks;
@@ -617,8 +655,12 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 | Create orders, Start delivery, Mark delivered (incl. returns) | ✅ | Orders = Record (default) | Orders = Record (default) | Orders = Record |
 | Edit / cancel Created orders | ✅ | Order management = Full (default) | Order management = Full (default Off) | ❌ never |
 | Review returns; order alerts (bell, Telegram) | ✅ | Order returns = Full (default) | Order returns = Full (default Off) | ❌ never |
+| Workstation → Preparation (list, preparation page, figures) | ✅ | Preparation ≥ View only (default Record) | Preparation ≥ View only (default Record) | Preparation ≥ View only (default Off) |
+| Create, fill in and finish preparations | ✅ | Preparation = Record (default) | Preparation = Record (default) | Preparation = Record |
+| Reopen / cancel preparations; preparation alerts (bell, Telegram) | ✅ | Preparation management = Full (default) | Preparation management = Full (default Off) | ❌ never |
+| Inventory → Prepared sub-tab (sachets, prepared materials; no manual changes) | ✅ | Inventory ≥ View only | Inventory ≥ View only | Inventory ≥ View only |
 | Delivery note: Print / Send to my Telegram (any status) | ✅ | Orders ≥ View only | Orders ≥ View only | Orders ≥ View only |
-| Header bell | ✅ | ✅ | ✅ (empty without plan or order returns access) | ✅ (always empty) |
+| Header bell | ✅ | ✅ | ✅ (empty without plan, order returns or preparation management access) | ✅ (always empty) |
 | My profile → Telegram card | ✅ | ❌ | ❌ | ❌ |
 
 "Suppliers = Full" etc. refers to the levels a general manager (for staff also their supervisor) sets on the Access tab (§10). "(default)" is the level a new account starts with.

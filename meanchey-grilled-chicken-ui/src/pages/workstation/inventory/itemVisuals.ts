@@ -12,6 +12,10 @@
  * materialIcons.ts) comes first, then the bundled picture of their `icon_key`
  * (`src/assets/inventory/materials/<key>.svg`, the default materials have one), then a generic
  * icon by unit — a scale for kg / g, a number tag for counted ones.
+ *
+ * Prepared items (section `prepared`): the satay sachets (`satay_sachet_2` / `_4`, a sachet
+ * with a 2 / 4 badge) and the prepared twins of packaging materials (`<material>_prepared`,
+ * carrying their material: the material's picture plus a small "Prepared" badge).
  */
 import chicken from '@/assets/inventory/chicken.svg'
 import gizzard from '@/assets/inventory/gizzard.svg'
@@ -20,6 +24,8 @@ import heart from '@/assets/inventory/heart.svg'
 import liver from '@/assets/inventory/liver.svg'
 import pack2 from '@/assets/inventory/pack2.svg'
 import pack4 from '@/assets/inventory/pack4.svg'
+import sachet2 from '@/assets/inventory/sachet_2.svg'
+import sachet4 from '@/assets/inventory/sachet_4.svg'
 import thigh from '@/assets/inventory/thigh.svg'
 import wing from '@/assets/inventory/wing.svg'
 import marinade from '@/assets/inventory/materials/marinade.svg'
@@ -44,6 +50,8 @@ const PICTURES: Record<string, string> = {
   liver,
   heart,
   head,
+  satay_sachet_2: sachet2,
+  satay_sachet_4: sachet4,
 }
 
 /** A material's `icon_key` (from the API) → bundled picture. An unknown key → the unit icon. */
@@ -67,8 +75,9 @@ export function materialPicture(iconKey: string | null | undefined): string | nu
 /** Short names (no "(processed)" / "(packed)": the Stock sub-tab says it) for these base codes. */
 const SHORT_NAMES = new Set(Object.keys(PICTURES))
 
-/** Only wasted items get a badge: the Stock sub-tab already says raw / processed / packed. */
-export type ItemBadge = 'wasted'
+/** Wasted items and prepared materials get a badge (the sub-tab says raw / processed / packed;
+ * a prepared twin looks like its raw material otherwise). */
+export type ItemBadge = 'wasted' | 'prepared'
 
 export interface ItemVisual {
   /** The base item: `chicken`, `wings`, … or the by-product code (`liver`). */
@@ -96,7 +105,7 @@ export function itemVisual(item: Pick<InventoryItem, 'code' | 'section'> & Parti
       base: item.code,
       picture: materialPicture(item.material.icon_key),
       iconUrl: item.material.icon_url ?? null,
-      badge: null,
+      badge: item.section === 'prepared' ? 'prepared' : null,
       shortNameKey: null,
       wasted: false,
       icon: item.material.unit === 'count' ? 'hash' : 'scale',

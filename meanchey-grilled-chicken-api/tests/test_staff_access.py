@@ -114,7 +114,14 @@ async def test_supervisor_sets_staff_levels_within_its_own(client, session, make
     staff = await make_user(Role.STAFF)
 
     features = await _features(client, sup, staff)
-    assert set(features) == {"suppliers", "customers", "production", "inventory", "orders"}
+    assert set(features) == {
+        "suppliers",
+        "customers",
+        "production",
+        "inventory",
+        "orders",
+        "preparation",
+    }
     assert all(f["can_edit"] for f in features.values())
     assert all(all(_allowed(f).values()) for f in features.values())
 

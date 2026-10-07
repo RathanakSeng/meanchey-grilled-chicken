@@ -15,6 +15,7 @@ NotificationType = Literal[
     "order.delivered",
     "order.return_pending",
     "order.returns_reviewed",
+    "preparation.finished",
 ]
 TelegramStatus = Literal["pending", "sent", "failed", "not_linked", "bot_off"]
 

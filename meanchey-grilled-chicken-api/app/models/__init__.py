@@ -9,6 +9,7 @@ from app.models.notification import Notification, TelegramLinkToken
 from app.models.order import Order, OrderBox, OrderBoxItem, OrderCounter, OrderReturnItem
 from app.models.partner import Customer, PartnerMixin, Supplier
 from app.models.permission import Permission, UserPermission
+from app.models.preparation import Preparation, PreparationCounter, PreparationLine
 from app.models.production import (
     ProductionBatch,
     ProductionBatchCounter,
@@ -41,6 +42,9 @@ __all__ = [
     "OrderReturnItem",
     "PartnerMixin",
     "Permission",
+    "Preparation",
+    "PreparationCounter",
+    "PreparationLine",
     "ProductionBatch",
     "ProductionBatchCounter",
     "ProductionByproduct",

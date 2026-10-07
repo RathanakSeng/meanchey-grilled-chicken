@@ -12,7 +12,7 @@ import { inventoryKeys } from './api'
 import { MovementRow } from './MovementRow'
 
 const PAGE_SIZE = 50
-// `area` (stock / wasted), not `section`: that one is the Stock tab's sub-tab, kept in the URL.
+// `area` (stock / prepared / wasted), not `section`: that one is the Stock tab's sub-tab, kept in the URL.
 const FILTERS = ['item', 'area', 'source', 'from', 'to', 'batch'] as const
 
 /**
@@ -87,6 +87,7 @@ export function HistoryTab({ items }: { items: InventoryItem[] }) {
             <Select id={id} value={get('area')} onChange={(e) => update({ area: e.target.value })}>
               <option value="">{t('inventory.filters.all')}</option>
               <option value="stock">{t('inventory.sections.stock')}</option>
+              <option value="prepared">{t('inventory.sections.prepared')}</option>
               <option value="wasted">{t('inventory.sections.wasted')}</option>
             </Select>
           )}
@@ -101,6 +102,7 @@ export function HistoryTab({ items }: { items: InventoryItem[] }) {
               <option value="material_add">{t('inventory.sources.material_add')}</option>
               <option value="material_remove">{t('inventory.sources.material_remove')}</option>
               <option value="material_unit_change">{t('inventory.sources.material_unit_change')}</option>
+              <option value="preparation">{t('inventory.sources.preparation')}</option>
             </Select>
           )}
         </Field>

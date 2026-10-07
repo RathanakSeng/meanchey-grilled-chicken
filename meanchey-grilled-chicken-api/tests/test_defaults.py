@@ -48,6 +48,8 @@ async def test_gm_gets_all_phase1_partner_and_production_permissions(client, sup
         # Inventory Record, Inventory materials Full; not inventory.history (Off).
         | {"inventory.view", "inventory.materials_stock", "inventory.materials_manage"}
         | ORDERS  # Orders Record, management Full, returns Full
+        # Preparation Record, preparation management Full.
+        | {"preparation.view", "preparation.create", "preparation.update", "preparation.cancel"}
     )
 
 
@@ -69,6 +71,9 @@ async def test_supervisor_defaults(client, superadmin, make_user) -> None:
         # Orders Record; editing, cancelling and reviewing returns are Off.
         "orders.view",
         "orders.create",
+        # Preparation Record; reopening and cancelling are Off.
+        "preparation.view",
+        "preparation.create",
     }
 
 
