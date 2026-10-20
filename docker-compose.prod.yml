@@ -38,10 +38,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-meanchey}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meanchey}
     # Migrate -> bootstrap (registry sync, seeds, webhook registration) -> serve.
     # Trust X-Forwarded-* from nginx; the port is not published, only `web` can reach it.
-    command: >
-      sh -c "alembic upgrade head && python -m app.bootstrap &&
-             uvicorn app.main:app --host 0.0.0.0 --port 8000
-             --proxy-headers --forwarded-allow-ips='*'"
+    # Keep the whole command on ONE line: a folded (>) scalar keeps line breaks on indented lines.
+    command: ["sh", "-c", "alembic upgrade head && python -m app.bootstrap && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]
     expose:
       - "8000"
     depends_on:
