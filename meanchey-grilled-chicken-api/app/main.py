@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -6,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
+from app.attendance.scheduler import run_forever
 from app.bootstrap import bootstrap
 from app.bot.runtime import create_runtime
 from app.bot.webhook import router as telegram_webhook_router
@@ -24,9 +27,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.telegram = telegram
     async with SessionLocal() as session:
         await bootstrap(session, telegram)
+    # Attendance: absent records, forgot check-out and reminders, every minute (one worker at a
+    # time through an advisory lock).
+    scheduler = None
+    if get_settings().attendance_scheduler_enabled:
+        scheduler = asyncio.create_task(run_forever(lambda: app.state.telegram))
     try:
         yield
     finally:
+        if scheduler is not None:
+            scheduler.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await scheduler
         if telegram is not None:
             await telegram.close()
         app.state.telegram = None

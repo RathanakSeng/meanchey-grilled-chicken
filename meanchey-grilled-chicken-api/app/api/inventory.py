@@ -125,8 +125,9 @@ async def create_material(
 async def update_material(
     material_id: uuid.UUID, body: MaterialUpdate, actor: CanManage, session: SessionDep
 ) -> MaterialOut:
-    """Names and unit. kg <-> g converts the balance; to / from count only before the first
-    movement (MATERIAL_UNIT_LOCKED); system materials never to count (MATERIAL_SYSTEM_LOCKED)."""
+    """Names and unit. kg <-> g converts the balance; to / from count or m2 only before the first
+    movement (MATERIAL_UNIT_LOCKED); system materials never to count or m2
+    (MATERIAL_SYSTEM_LOCKED)."""
     material = await material_service.update_material(session, actor, material_id, body)
     return await material_service.material_out(session, material)
 
@@ -191,7 +192,7 @@ async def delete_material_icon(
 async def add_stock(
     material_id: uuid.UUID, body: StockAddIn, actor: CanStock, session: SessionDep
 ) -> MaterialOut:
-    """`quantity` > 0 in the material's unit (count whole, kg 3 decimals, g 1 decimal)."""
+    """`quantity` > 0 in the material's unit (count whole, kg 3, g 1, m2 2 decimals)."""
     material = await material_service.add_stock(session, actor, material_id, body)
     return await material_service.material_out(session, material)
 

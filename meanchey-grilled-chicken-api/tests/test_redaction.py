@@ -5,17 +5,53 @@ covered automatically.
 """
 
 import re
+import uuid
 
 import pytest
 from httpx import Response
 from sqlalchemy import select, update
 
 from app.main import app
-from app.models import AuditLog, Role, User
+from app.models import AttendanceRequest, AuditLog, Role, User, utcnow
 from tests.conftest import auth
 from tests.test_business_info import image
 
 SWEEP_PREFIX = "/api/v1"
+
+
+SCHEDULE = {
+    "shifts": [
+        {
+            "code": "morning",
+            "name_km": "វេនព្រឹក",
+            "name_en": "Morning shift",
+            "start_time": "07:00",
+            "end_time": "12:00",
+        },
+        {
+            "code": "afternoon",
+            "name_km": "វេនរសៀល",
+            "name_en": "Afternoon shift",
+            "start_time": "13:00",
+            "end_time": "15:00",
+        },
+    ],
+    "open_before_min": 30,
+    "absent_after_min": 45,
+    "checkout_window_min": 59,
+    "max_accuracy_m": 80,
+    "reminders_enabled": True,
+    "count_early_checkin": True,
+    "count_overtime": True,
+    "workplace_ids": "all",
+}
+HOLIDAY = {
+    "name_km": "ភ្ជុំបិណ្ឌ",
+    "name_en": "Pchum Ben",
+    "start_date": "2026-09-21",
+    "end_date": "2026-09-23",
+    "scope": "all",
+}
 
 
 @pytest.fixture
@@ -135,9 +171,69 @@ async def world(client, session, superadmin, make_user) -> dict:
     dropped = await post("/preparations", {"type": "satay_sachet"})
     await post(f"/preparations/{dropped['id']}/cancel", {"version": 1, "reason": "Not needed"})
     # Its step 1 finish above also wrote inventory movements with created_by = the superadmin.
+    # Attendance: the superadmin set the workplace, created a second one (created_by), changed
+    # the schedule of all (today and an upcoming version: created_by), added a holiday, added a
+    # missing record for the staff member and corrected it (updated_by / corrected_by); the
+    # supervisor sees the day view.
+    workplace = (await client.get("/attendance/workplaces", headers=auth(superadmin))).json()[0]
+    r = await client.patch(
+        f"/attendance/workplaces/{workplace['id']}",
+        json={"latitude": 11.55, "longitude": 104.91, "radius_m": 120},
+        headers=auth(superadmin),
+    )
+    assert r.status_code == 200, r.text
+    branch = await post("/attendance/workplaces", {"name": "Branch 2", "radius_m": 200})
+    for body in (SCHEDULE, {**SCHEDULE, "effective_from": "2099-01-01", "max_accuracy_m": 90}):
+        r = await client.put("/attendance/scheduling/shifts", json=body, headers=auth(superadmin))
+        assert r.status_code == 200, r.text
+    holiday = (await post("/attendance/holidays", HOLIDAY))["holiday"]
+    attendance = await post(
+        "/attendance/records",
+        {
+            "user_id": staff_id,
+            "work_date": "2026-10-01",
+            "shift_code": "morning",
+            "status": "present",
+            "check_in_time": "07:05",
+            "reason": "Checked in on paper",
+        },
+    )
+    r = await client.patch(
+        f"/attendance/records/{attendance['id']}",
+        json={"status": "present", "check_in_time": "07:00", "reason": "Fixed the time"},
+        headers=auth(superadmin),
+    )
+    assert r.status_code == 200, r.text
+    await client.put(
+        f"/users/{sup_id}/features/attendance", json={"level": "view"}, headers=auth(superadmin)
+    )
     # Superadmin-targeted audit entries (its own sign-in, a failed one).
     await client.post("/auth/login", json={"username": "superadmin", "password": "wrong"})
     await client.post("/auth/login", json={"username": "superadmin", "password": "superadmin"})
+    # A request the superadmin approved (reviewed_by): everyone else reads "System".
+    request = AttendanceRequest(
+        user_id=uuid.UUID(staff_id),
+        year=2026,
+        month=9,
+        status="approved",
+        missing_minutes=90,
+        extra_minutes=0,
+        absent_minutes=90,
+        late_minutes=0,
+        balance_minutes=-90,
+        requested_salary_cut_minutes=30,
+        requested_unpaid_work_minutes=60,
+        approved_salary_cut_minutes=90,
+        approved_unpaid_work_minutes=0,
+        type="both",
+        approved_with_changes=True,
+        review_comment="Changed",
+        reviewed_by=superadmin.id,
+        reviewed_at=utcnow(),
+    )
+    session.add(request)
+    await session.flush()
+    request_id = str(request.id)
     # Users the sweep acts as: skip the forced first-login password change.
     await session.execute(
         update(User).where(User.role != Role.SUPERADMIN).values(must_change_password=False)
@@ -159,6 +255,11 @@ async def world(client, session, superadmin, make_user) -> dict:
         "orders": [order["id"], cancelled["id"]],
         "string": string,
         "preparations": [prepared["id"], dropped["id"]],
+        "workplace": workplace["id"],
+        "branch": branch["id"],
+        "attendance_record": attendance["id"],
+        "holiday": holiday["id"],
+        "request": request_id,
     }
 
 
@@ -201,6 +302,12 @@ def _fill(path: str, world: dict) -> list[str]:
         return [path.replace("{material_id}", world["string"]["id"])]
     if "{batch_id}" in path:
         return [path.replace("{batch_id}", world[k]) for k in ("batch", "planned")]
+    if "{workplace_id}" in path:
+        return [path.replace("{workplace_id}", world["workplace"])]
+    if "{holiday_id}" in path:
+        return [path.replace("{holiday_id}", world["holiday"])]
+    if "{request_id}" in path:
+        return [path.replace("{request_id}", world["request"])]
     assert not re.search(r"\{\w+\}", path), f"sweep doesn't know how to fill {path}"
     return [path]
 
@@ -229,6 +336,22 @@ EXTRA_QUERIES = [
     "/inventory/movements?section=prepared",
     "/audit-logs?action=preparation.finish",
     "/audit-logs?entity_type=preparation",
+    "/attendance/day?date=2026-10-01",
+    "/audit-logs?action=attendance.correct",
+    "/audit-logs?action=attendance.schedule_update",
+    "/audit-logs?action=workplace.create",
+    "/audit-logs?action=workplace.update",
+    "/attendance/workplaces?include_archived=true",
+    "/attendance/calendar?year=2026&month=9",
+    "/attendance/holidays?year=2026",
+    "/audit-logs?action=attendance.holiday_create",
+    "/audit-logs?action=attendance.weekdays_update",
+    "/attendance/requests",
+    "/attendance/requests?status=approved",
+    "/attendance/requests?status=no_request",
+    "/attendance/requests/me?year=2026",
+    "/attendance/settings/requests",
+    "/audit-logs?action=attendance.settings_update",
 ]
 
 
@@ -244,6 +367,9 @@ async def test_no_response_reveals_the_superadmin(
     urls += EXTRA_QUERIES + [
         f"/audit-logs?actor_id={sa.id}",
         f"/audit-logs?target_user_id={sa.id}",
+        # The month with the record the superadmin added and corrected (corrected_by).
+        f"/attendance/users/{world['staff'].id}/summary?year=2026&month=10",
+        "/attendance/me/summary?year=2026&month=10",
     ]
     assert "/auth/me" in urls and "/audit-logs" in urls  # the sweep really covers the app
     for url in urls:
@@ -283,6 +409,24 @@ async def test_no_response_reveals_the_superadmin(
             headers=auth(viewer),
         ),
         client.post(f"/orders/{world['orders'][0]}/document/send-telegram", headers=auth(viewer)),
+        client.patch(
+            f"/attendance/records/{world['attendance_record']}",
+            json={"status": "present", "check_in_time": "07:00", "reason": "Fixed the time"},
+            headers=auth(viewer),
+        ),
+        client.patch(
+            f"/attendance/workplaces/{world['workplace']}",
+            json={"radius_m": 120},
+            headers=auth(viewer),
+        ),
+        client.put("/attendance/scheduling/shifts", json=SCHEDULE, headers=auth(viewer)),
+        client.patch(
+            f"/attendance/holidays/{world['holiday']}",
+            json={**HOLIDAY, "note": "Checked"},
+            headers=auth(viewer),
+        ),
+        client.post("/attendance/workplaces", json={"name": "Branch 3"}, headers=auth(viewer)),
+        client.post(f"/attendance/workplaces/{world['branch']}/restore", headers=auth(viewer)),
         client.patch(f"/users/{world['staff'].id}", json={"phone": "012"}, headers=auth(viewer)),
         client.patch(f"/users/{sa.id}", json={"full_name": "x"}, headers=auth(viewer)),
         client.post(f"/users/{sa.id}/reset-password", headers=auth(viewer)),

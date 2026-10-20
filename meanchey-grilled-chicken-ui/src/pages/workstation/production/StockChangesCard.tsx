@@ -61,6 +61,9 @@ export function StockChangesCard({ batch }: { batch: ProductionBatch }) {
                       {c.g_delta !== null && c.g_delta !== undefined && (
                         <span className={deltaTone(c.g_delta)}>{fmt.g(c.g_delta, true)}</span>
                       )}
+                      {c.m2_delta !== null && c.m2_delta !== undefined && (
+                        <span className={deltaTone(c.m2_delta)}>{fmt.m2(c.m2_delta, true)}</span>
+                      )}
                     </span>
                   </li>
                 ))}

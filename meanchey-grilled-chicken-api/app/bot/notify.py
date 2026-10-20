@@ -37,6 +37,10 @@ from app.services.notification_service import (
     ORDER_RETURNS_REVIEWED,
     PREPARATION_FINISHED,
     PROCESSING_FINISHED,
+    REQUEST_APPROVED,
+    REQUEST_REJECTED,
+    REQUEST_REMINDER,
+    REQUEST_SUBMITTED,
 )
 
 log = logging.getLogger(__name__)
@@ -129,11 +133,112 @@ def preparation_summary(lang: Language, p: dict[str, Any]) -> str:
     material_parts = []
     for m in p.get("materials") or []:
         name = escape(str(m.get("name_km" if lang == Language.KM else "name_en", "")))
-        unit = t(lang, f"unit_{m.get('unit')}") if m.get("unit") in ("kg", "g", "count") else ""
+        unit = (
+            t(lang, f"unit_{m.get('unit')}") if m.get("unit") in ("kg", "g", "m2", "count") else ""
+        )
         material_parts.append(f"{name} {m.get('quantity')}{unit}")
     if material_parts:
         groups.append(", ".join(material_parts))
     return " | ".join(groups) if groups else t(lang, "order_nothing")
+
+
+MONTHS = {
+    Language.EN: [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ],
+    Language.KM: [
+        "មករា",
+        "កុម្ភៈ",
+        "មីនា",
+        "មេសា",
+        "ឧសភា",
+        "មិថុនា",
+        "កក្កដា",
+        "សីហា",
+        "កញ្ញា",
+        "តុលា",
+        "វិច្ឆិកា",
+        "ធ្នូ",
+    ],
+}
+REQUEST_TYPES = (REQUEST_SUBMITTED, REQUEST_APPROVED, REQUEST_REJECTED, REQUEST_REMINDER)
+
+
+def duration_text(lang: Language, minutes: int) -> str:
+    """ "6 h 45", "2 h", "45 min" (km: ម៉ោង / នាទី)."""
+    h, m = divmod(max(0, int(minutes)), 60)
+    if h and m:
+        return t(lang, "duration_hm", h=h, m=m)
+    return t(lang, "duration_h", h=h) if h else t(lang, "duration_m", m=m)
+
+
+def month_text(lang: Language, year: int, month: int) -> str:
+    return f"{MONTHS[lang][month - 1]} {year}"
+
+
+def split_text(lang: Language, salary_cut: int, unpaid_work: int) -> str:
+    parts = []
+    if salary_cut:
+        parts.append(t(lang, "request_cut", duration=duration_text(lang, salary_cut)))
+    if unpaid_work:
+        parts.append(t(lang, "request_work", duration=duration_text(lang, unpaid_work)))
+    return ", ".join(parts)
+
+
+def _request_message(row: Notification, lang: Language) -> tuple[str, str, str]:
+    """(text, button label key, path) of an attendance request alert."""
+    p: dict[str, Any] = row.payload
+    month = month_text(lang, int(p.get("year", 1)), int(p.get("month", 1)))
+    split = split_text(lang, p.get("salary_cut_minutes", 0), p.get("unpaid_work_minutes", 0))
+    path = f"/attendance/requests?request={row.entity_id}"
+    if row.type == REQUEST_SUBMITTED:
+        text = t(
+            lang,
+            "request_submitted",
+            name=escape(str(p.get("name", ""))),
+            month=month,
+            missing=duration_text(lang, p.get("missing_minutes", 0)),
+            split=split,
+        )
+        return text, "open_request", path
+    if row.type == REQUEST_APPROVED:
+        changes = ""
+        if p.get("with_changes"):
+            comment = escape(p.get("comment") or "")
+            changes = t(
+                lang, "request_approved_changes", comment=f": “{comment}”" if comment else ""
+            )
+        return (
+            t(lang, "request_approved", month=month, split=split, changes=changes),
+            "open_request",
+            path,
+        )
+    if row.type == REQUEST_REJECTED:
+        return (
+            t(lang, "request_rejected", month=month, reason=escape(str(p.get("reason") or ""))),
+            "open_request",
+            path,
+        )
+    day, mon = p.get("deadline_day", 7), MONTHS[lang][int(p.get("deadline_month", 1)) - 1]
+    text = t(
+        lang,
+        "request_reminder",
+        month=month_text(lang, int(p.get("year", 1)), int(p.get("month", 1))),
+        missing=duration_text(lang, p.get("missing_minutes", 0)),
+        deadline=f"{day} {mon}",
+    )
+    return text, "create_request", "/attendance/requests"
 
 
 def message_for(row: Notification, lang: Language) -> tuple[str, InlineKeyboardMarkup | None]:
@@ -141,7 +246,9 @@ def message_for(row: Notification, lang: Language) -> tuple[str, InlineKeyboardM
     p: dict[str, Any] = row.payload
     again = t(lang, "again") if p.get("repeat") else ""
     code = escape(str(p.get("code", "")))
-    if row.type in ORDER_TYPES:
+    if row.type in REQUEST_TYPES:
+        text, button, path = _request_message(row, lang)
+    elif row.type in ORDER_TYPES:
         text = _order_message(row, lang)
         button, path = "open_order", f"/workstation/orders/{row.entity_id}"
     elif row.type == PREPARATION_FINISHED:

@@ -20,8 +20,10 @@ from tests.test_production import ok
 ICON_KEYS = {
     "String": "string",
     "Skewer": "skewer",
-    "Sticker (2-piece packs)": "sticker_2",
-    "Sticker (4-piece packs)": "sticker_4",
+    "Sticker (2-piece packs) · kg": "sticker_2",
+    "Sticker (4-piece packs) · kg": "sticker_4",
+    "Sticker (2-piece packs) · m²": "sticker_2_m2",
+    "Sticker (4-piece packs) · m²": "sticker_4_m2",
     "Marinade sauce": "marinade",
     "Satay sauce": "satay",
     "Zip bag 7 (2-piece packs)": "zip_bag_2",

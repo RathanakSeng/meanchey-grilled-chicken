@@ -50,6 +50,14 @@ async def test_gm_gets_all_phase1_partner_and_production_permissions(client, sup
         | ORDERS  # Orders Record, management Full, returns Full
         # Preparation Record, preparation management Full.
         | {"preparation.view", "preparation.create", "preparation.update", "preparation.cancel"}
+        # Attendance view + corrections + request review, the workplace view only (not its
+        # editing or shifts).
+        | {
+            "attendance.view",
+            "attendance.correct",
+            "attendance.workplace_view",
+            "attendance.requests_review",
+        }
     )
 
 

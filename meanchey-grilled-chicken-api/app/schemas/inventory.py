@@ -13,10 +13,13 @@ from app.schemas.common import UserRef
 KgOut = Annotated[Decimal, PlainSerializer(lambda v: f"{v:.3f}", return_type=str)]
 # Grams: a string with 1 decimal ("350.0"), like production's marinade_g.
 GOut = Annotated[Decimal, PlainSerializer(lambda v: f"{v:.1f}", return_type=str)]
-InventoryUnit = Literal["count", "kg", "g"]
+# Square metres: a string with 2 decimals ("12.50").
+M2Out = Annotated[Decimal, PlainSerializer(lambda v: f"{v:.2f}", return_type=str)]
+InventoryUnit = Literal["count", "kg", "g", "m2"]
 
 # order: stock out at Delivering; order_return: returned items (stock or wasted) at the review;
-# material_add / material_remove: materials by hand; material_unit_change: kg <-> g switch;
+# material_add / material_remove: materials by hand; material_unit_change: kg <-> g switch (or
+# an empty balance to / from m²);
 # preparation: a preparation finished, reopened or cancelled.
 MovementSource = Literal[
     "production",
@@ -62,6 +65,8 @@ class InventoryItemOut(BaseModel):
     tracks_kg: bool
     # Materials measured in grams.
     tracks_g: bool = False
+    # Materials measured in square metres.
+    tracks_m2: bool = False
     # The kg of this item is estimated (wasted pieces: rejected count x average piece weight).
     kg_estimated: bool
     # `production`: changes only through production and orders; `manual`: a material.
@@ -69,6 +74,7 @@ class InventoryItemOut(BaseModel):
     count: int | None
     kg: KgOut | None
     g: GOut | None = None
+    m2: M2Out | None = None
     updated_at: datetime | None
     material: ItemMaterialOut | None = None
 
@@ -94,6 +100,7 @@ class ItemPreparationSourceOut(BaseModel):
     count: int | None
     kg: KgOut | None
     g: GOut | None
+    m2: M2Out | None = None
 
 
 class InventoryItemDetailOut(InventoryItemOut):
@@ -137,6 +144,7 @@ class MovementOut(BaseModel):
     count_delta: int | None
     kg_delta: KgOut | None
     g_delta: GOut | None = None
+    m2_delta: M2Out | None = None
     kg_estimated: bool
     source: MovementSource
     # Production: the batch. Orders: the batch the quantity is attributed to (FIFO).
@@ -153,6 +161,7 @@ class MovementOut(BaseModel):
     balance_count_after: int | None
     balance_kg_after: KgOut | None
     balance_g_after: GOut | None = None
+    balance_m2_after: M2Out | None = None
     created_by: UserRef | None
     created_at: datetime
 
@@ -191,4 +200,5 @@ class StockChangeOut(BaseModel):
     count_delta: int | None
     kg_delta: KgOut | None
     g_delta: GOut | None = None
+    m2_delta: M2Out | None = None
     kg_estimated: bool

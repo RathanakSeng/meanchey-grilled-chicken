@@ -26,14 +26,20 @@ export function invalidateInventory(queryClient: QueryClient) {
 /**
  * Display helpers for stock amounts (the shared unit rule, lib/quantity.ts): counts as whole
  * numbers with thousands separators, kg always with 3 decimals ("12.500 kg"), g with 1
- * ("2,350.0 g"). `signed` adds "+" to positive values (movements).
+ * ("2,350.0 g"), m² with 2 ("12.50 m²"). `signed` adds "+" to positive values (movements);
+ * `m2Short` writes "m²" in Khmer too (cards).
  */
 export function useStockFormat() {
   const format = useQuantityFormat()
   const count = useCallback((value: number, signed = false) => format(value, 'count', signed), [format])
   const kg = useCallback((value: string | number, signed = false) => format(value, 'kg', signed), [format])
   const g = useCallback((value: string | number, signed = false) => format(value, 'g', signed), [format])
-  return { count, kg, g }
+  const m2 = useCallback((value: string | number, signed = false) => format(value, 'm2', signed), [format])
+  const m2Short = useCallback(
+    (value: string | number, signed = false) => format(value, 'm2', signed, true),
+    [format],
+  )
+  return { count, kg, g, m2, m2Short }
 }
 
 /** Tone of a signed amount: green when stock goes up, red when it goes down. */

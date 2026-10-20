@@ -30,12 +30,14 @@ async def list_users(
     position: Annotated[str | None, Query(max_length=POSITION_MAX_LENGTH)] = None,
     status: UserStatus = "active",
     q: Annotated[str | None, Query(max_length=100)] = None,
+    workplace_id: uuid.UUID | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> UserPage:
     """Users within the actor's scope.
 
-    `position` matches case-insensitively; `q` searches name, Telegram, phone and position.
+    `position` matches case-insensitively; `q` searches name, Telegram, phone and position;
+    `workplace_id` keeps the staff and supervisors assigned to that attendance workplace.
     """
     items, total = await user_service.list_users(
         session,
@@ -44,6 +46,7 @@ async def list_users(
         position=position,
         status=status,
         q=q,
+        workplace_id=workplace_id,
         page=page,
         page_size=page_size,
     )

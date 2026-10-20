@@ -1,7 +1,8 @@
 """Registering the Telegram webhook (setWebhook / deleteWebhook / getWebhookInfo).
 
 Telegram's getWebhookInfo never returns the secret token, so we store a SHA-256 fingerprint of
-what we last registered (URL, secret, allowed updates, drop-pending flag) in `app_settings`.
+what we last registered (URL, secret, allowed updates, drop-pending flag, the menu button's
+Mini App URL) in `app_settings`.
 setWebhook is only called when Telegram's URL / allowed updates or that fingerprint differ.
 """
 
@@ -15,9 +16,10 @@ from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot.handlers import menu_button
 from app.bot.setup import BOT_COMMANDS
 from app.config import get_settings
-from app.models import AppSetting, utcnow
+from app.models import AppSetting, Language, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -26,10 +28,17 @@ TELEGRAM_TIMEOUT_SECONDS = 10
 
 
 def webhook_fingerprint(
-    url: str, secret: str, allowed_updates: list[str], drop_pending: bool
+    url: str, secret: str, allowed_updates: list[str], drop_pending: bool, mini_app_url: str = ""
 ) -> str:
     payload = json.dumps(
-        {"url": url, "secret": secret, "allowed": sorted(allowed_updates), "drop": drop_pending},
+        {
+            "url": url,
+            "secret": secret,
+            "allowed": sorted(allowed_updates),
+            "drop": drop_pending,
+            # The menu button opens the Mini App: a new URL must be registered again.
+            "mini_app": mini_app_url,
+        },
         sort_keys=True,
     )
     return hashlib.sha256(payload.encode()).hexdigest()
@@ -50,6 +59,15 @@ async def _stored_fingerprint(session: AsyncSession) -> str | None:
     return row.value if row else None
 
 
+async def set_commands_and_menu(bot: Bot) -> None:
+    """The command list and the default menu button (**Open app** → MINI_APP_URL, in Khmer;
+    each chat gets its own language on /start and /lang)."""
+    await bot.set_my_commands(BOT_COMMANDS, request_timeout=TELEGRAM_TIMEOUT_SECONDS)
+    await bot.set_chat_menu_button(
+        menu_button=menu_button(Language.KM), request_timeout=TELEGRAM_TIMEOUT_SECONDS
+    )
+
+
 async def set_webhook(bot: Bot, dp: Dispatcher, session: AsyncSession) -> None:
     """Unconditionally register the webhook from settings. Raises on Telegram errors.
 
@@ -66,7 +84,7 @@ async def set_webhook(bot: Bot, dp: Dispatcher, session: AsyncSession) -> None:
         drop_pending_updates=s.telegram_drop_pending_updates,
         request_timeout=TELEGRAM_TIMEOUT_SECONDS,
     )
-    await bot.set_my_commands(BOT_COMMANDS, request_timeout=TELEGRAM_TIMEOUT_SECONDS)
+    await set_commands_and_menu(bot)
     await _store_fingerprint(
         session,
         webhook_fingerprint(
@@ -74,6 +92,7 @@ async def set_webhook(bot: Bot, dp: Dispatcher, session: AsyncSession) -> None:
             s.telegram_webhook_secret,
             allowed,
             s.telegram_drop_pending_updates,
+            s.mini_app_url,
         ),
     )
     log.info("Telegram webhook registered: %s (updates: %s)", s.telegram_webhook_url, allowed)
@@ -91,6 +110,7 @@ async def ensure_webhook(bot: Bot, dp: Dispatcher, session: AsyncSession) -> boo
         s.telegram_webhook_secret,
         allowed,
         s.telegram_drop_pending_updates,
+        s.mini_app_url,
     )
     try:
         info = await bot.get_webhook_info(request_timeout=TELEGRAM_TIMEOUT_SECONDS)

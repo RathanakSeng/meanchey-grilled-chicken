@@ -10,7 +10,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.models.inventory import ADJUST_REASON_MAX_LENGTH, MATERIAL_NAME_MAX_LENGTH
 from app.schemas.common import UserRef
-from app.schemas.inventory import GOut, InventoryUnit, KgOut, PrepRole
+from app.schemas.inventory import GOut, InventoryUnit, KgOut, M2Out, PrepRole
 
 _SPACES = re.compile(r"\s+")
 
@@ -47,8 +47,8 @@ class MaterialCreate(_Body):
 
 
 class MaterialUpdate(_Body):
-    """Partial. A unit change: kg <-> g always (the balance is converted); to / from count only
-    before the material's first movement."""
+    """Partial. A unit change: kg <-> g always (the balance is converted); to / from count or m²
+    only before the material's first movement."""
 
     name_km: MaterialName | None = None
     name_en: MaterialName | None = None
@@ -82,11 +82,12 @@ class MaterialOut(BaseModel):
     # zip_bag_2 / zip_bag_4: satay sachet inputs; none). New materials are packaging; not
     # editable in the UI yet.
     prep_role: PrepRole
-    # The balance, in the material's unit (the other two are null).
+    # The balance, in the material's unit (the others are null).
     count: int | None
     kg: KgOut | None
     g: GOut | None
-    # Any movement yet: switching to / from count is then locked (kg <-> g stays allowed).
+    m2: M2Out | None = None
+    # Any movement yet: switching to / from count or m² is then locked (kg <-> g stays allowed).
     has_movements: bool
     archived_at: datetime | None
     archived_by: UserRef | None

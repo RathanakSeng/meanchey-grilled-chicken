@@ -3,17 +3,18 @@
 - **Stock** (`inventory.materials_stock`): `add_stock` (quantity > 0) and `remove_stock`
   (quantity > 0 and a reason), through `inventory_service.apply_movements`, so balances never go
   below zero (INVENTORY_INSUFFICIENT). Quantities follow the material's unit
-  (app/inventory/units.py: count whole, kg 3 decimals, g 1 decimal).
+  (app/inventory/units.py: count whole, kg 3 decimals, g 1 decimal, m2 2 decimals).
 - **Managing** (`inventory.materials_manage`): create, edit (names, unit), archive, restore.
   - Names are unique among active materials, per language, case-insensitive
     (DUPLICATE_MATERIAL_NAME; partial unique indexes are the safety net).
   - Unit kg <-> g: always; the balance is converted (rounded to the new unit's precision) and one
     `material_unit_change` movement records the old unit out and the new unit in. To / from
-    count: only before the first movement (MATERIAL_UNIT_LOCKED).
+    count or m2 (square metres, which convert to nothing): only before the first movement
+    (MATERIAL_UNIT_LOCKED).
   - Archived materials keep their balance and history but leave the Raw list and the pickers;
     their stock can't change (MATERIAL_ARCHIVED). Restore checks the names again.
   - System materials (`system_code`, e.g. Marinade sauce): renamable, kg <-> g allowed; never
-    archived or switched to count (MATERIAL_SYSTEM_LOCKED).
+    archived or switched to count or m2 (MATERIAL_SYSTEM_LOCKED).
 - Every write locks the material row (`FOR UPDATE`), so a unit change, an archive and a stock
   change on the same material take turns; step 2 reads the marinade row with a share lock.
 - **Defaults** are seeded once (`ensure_defaults`, at startup, flag in `app_settings`); Marinade
@@ -63,12 +64,42 @@ ENTITY = "material"
 SEEDED_KEY = "inventory_materials_seeded"
 # (system_code, name_km, name_en, unit, icon_key, prep_role). All start at 0. The icon keys are
 # pictures bundled with the UI (src/assets/inventory/materials/); migration 0015 backfilled them,
-# migration 0017 the preparation roles.
+# migration 0017 the preparation roles; migration 0023 renamed the kg stickers, added the m2 ones.
 DEFAULTS: tuple[tuple[str | None, str, str, units.Unit, str, str], ...] = (
     (None, "ខ្សែ", "String", "kg", "string", "packaging"),
     (None, "ចង្កាក់", "Skewer", "kg", "skewer", "packaging"),
-    (None, "ស្ទីកគ័រ (កញ្ចប់ ២ ដុំ)", "Sticker (2-piece packs)", "kg", "sticker_2", "packaging"),
-    (None, "ស្ទីកគ័រ (កញ្ចប់ ៤ ដុំ)", "Sticker (4-piece packs)", "kg", "sticker_4", "packaging"),
+    (
+        None,
+        "ស្ទីកគ័រ (កញ្ចប់ ២ ដុំ) · គ.ក",
+        "Sticker (2-piece packs) · kg",
+        "kg",
+        "sticker_2",
+        "packaging",
+    ),
+    (
+        None,
+        "ស្ទីកគ័រ (កញ្ចប់ ៤ ដុំ) · គ.ក",
+        "Sticker (4-piece packs) · kg",
+        "kg",
+        "sticker_4",
+        "packaging",
+    ),
+    (
+        None,
+        "ស្ទីកគ័រ (កញ្ចប់ ២ ដុំ) · ម៉ែត្រការ៉េ",
+        "Sticker (2-piece packs) · m²",
+        "m2",
+        "sticker_2_m2",
+        "packaging",
+    ),
+    (
+        None,
+        "ស្ទីកគ័រ (កញ្ចប់ ៤ ដុំ) · ម៉ែត្រការ៉េ",
+        "Sticker (4-piece packs) · m²",
+        "m2",
+        "sticker_4_m2",
+        "packaging",
+    ),
     (MARINADE, "ទឹកប្រឡាក់", "Marinade sauce", "g", "marinade", "none"),
     (None, "សាតេ", "Satay sauce", "g", "satay", "satay_sauce"),
     (None, "ថង់ Zip 7 (កញ្ចប់ ២ ដុំ)", "Zip bag 7 (2-piece packs)", "kg", "zip_bag_2", "zip_bag_2"),
@@ -270,6 +301,9 @@ async def materials_out(
                 if m.unit == "kg"
                 else None,
                 g=(bal.g if bal and bal.g is not None else Decimal(0)) if m.unit == "g" else None,
+                m2=(bal.m2 if bal and bal.m2 is not None else Decimal(0))
+                if m.unit == "m2"
+                else None,
                 has_movements=m.item_code in moved,
                 archived_at=m.archived_at,
                 archived_by=ref(m.archived_by),
@@ -366,7 +400,7 @@ async def create_material(
 
 
 def _amount(bal: InventoryBalance, unit: units.Unit) -> Decimal:
-    value = {"count": bal.count, "kg": bal.kg, "g": bal.g}[unit]
+    value = {"count": bal.count, "kg": bal.kg, "g": bal.g, "m2": bal.m2}[unit]
     return Decimal(value or 0)
 
 
@@ -375,6 +409,7 @@ def _set_amount(bal: InventoryBalance, unit: units.Unit, value: Decimal) -> None
     bal.count = int(value) if unit == "count" else None
     bal.kg = value if unit == "kg" else None
     bal.g = value if unit == "g" else None
+    bal.m2 = value if unit == "m2" else None
 
 
 async def _change_unit(
@@ -382,8 +417,8 @@ async def _change_unit(
 ) -> dict[str, str]:
     """Switch the unit; returns the balance before / after for the audit entry."""
     old: units.Unit = m.unit  # type: ignore[assignment]
-    if m.system_code and new == "count":
-        raise _system_locked("A material the app relies on can't be counted in pieces")
+    if m.system_code and new in ("count", "m2"):
+        raise _system_locked("A material the app relies on can't be counted in pieces or in m²")
     twin = prepared_code(m.item_code)
     # The prepared twin (when it has a balance row) has the material's unit: it switches too.
     has_twin = await session.get(InventoryBalance, twin) is not None
@@ -404,7 +439,7 @@ async def _change_unit(
             if code == twin and not amount_before:
                 # An empty twin just switches unit: no history row.
                 continue
-            deltas: dict[str, Decimal | None] = {"count": None, "kg": None, "g": None}
+            deltas: dict[str, Decimal | None] = {"count": None, "kg": None, "g": None, "m2": None}
             deltas[old] = -amount_before
             deltas[new] = amount_after
             session.add(
@@ -413,10 +448,12 @@ async def _change_unit(
                     count_delta=None,
                     kg_delta=deltas["kg"],
                     g_delta=deltas["g"],
+                    m2_delta=deltas["m2"],
                     source="material_unit_change",
                     reason=f"{old} -> {new}",
                     balance_kg_after=row.kg,
                     balance_g_after=row.g,
+                    balance_m2_after=row.m2,
                     created_by=actor.id,
                     created_at=now,
                 )
@@ -426,7 +463,7 @@ async def _change_unit(
             raise AppError(
                 409,
                 ErrorCode.MATERIAL_UNIT_LOCKED,
-                "Switching to or from count is only possible before the first stock entry",
+                "Switching to or from count or m² is only possible before the first stock entry",
                 {"unit": old},
             )
         for code in codes:
@@ -584,6 +621,7 @@ def _check_quantity(unit: units.Unit, quantity: Decimal) -> Decimal:
             "count": "Whole numbers only",
             "kg": "At most 3 decimals",
             "g": "At most 1 decimal",
+            "m2": "At most 2 decimals",
         }[unit]
     elif quantity > units.MAX_QUANTITY[unit]:
         msg = "The quantity is too large"
@@ -607,6 +645,7 @@ def _delta(m: InventoryMaterial, signed: Decimal, reason: str | None = None):
         count=int(signed) if unit == "count" else None,
         kg=signed if unit == "kg" else None,
         g=signed if unit == "g" else None,
+        m2=signed if unit == "m2" else None,
         reason=reason,
     )
 

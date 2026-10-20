@@ -16,6 +16,15 @@ export const paths = {
   editOrder: (id: string) => `/workstation/orders/${id}/edit`,
   preparations: '/workstation/preparations',
   preparation: (id: string) => `/workstation/preparations/${id}`,
+  attendance: '/attendance',
+  attendanceCheck: '/attendance/check',
+  myAttendance: '/attendance/me',
+  attendanceEmployee: (id: string) => `/attendance/employees/${id}`,
+  attendanceToday: '/attendance/today',
+  attendanceRequests: '/attendance/requests',
+  attendanceScheduling: '/attendance/scheduling',
+  /** One workplace's scheduling. */
+  attendanceSchedulingFor: (workplaceId: string) => `/attendance/scheduling/${workplaceId}`,
   settings: '/settings',
   users: '/settings/users',
   newUser: '/settings/users/new',
@@ -24,6 +33,9 @@ export const paths = {
   auditLogs: '/settings/audit-logs',
   userLimits: '/settings/user-limits',
   businessInfo: '/settings/business-info',
+  attendanceWorkplaces: '/settings/attendance/workplaces',
+  newAttendanceWorkplace: '/settings/attendance/workplaces/new',
+  attendanceWorkplace: (id: string) => `/settings/attendance/workplaces/${id}`,
   profile: '/settings/profile',
 } as const
 

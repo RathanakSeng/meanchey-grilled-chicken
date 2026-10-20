@@ -1,14 +1,16 @@
 import uuid
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.attendance.workplaces import TRACKED_ROLES, assign_workplace, today
 from app.core.errors import AppError, ErrorCode
 from app.core.security import hash_password
 from app.core.usernames import normalize_telegram_username
-from app.models import Role, User, utcnow
+from app.models import AttendanceUntrackedPeriod, Role, User, utcnow
 from app.permissions.hierarchy import MANAGEABLE_ROLES, ensure_can_manage, ensure_can_manage_role
 from app.permissions.service import grant_defaults, reset_to_role_defaults
 from app.schemas.user import (
@@ -74,6 +76,79 @@ def _check_position(role: Role, position: str | None) -> None:
         raise AppError(422, ErrorCode.POSITION_NOT_ALLOWED, "Only staff have a position")
 
 
+def _field_error(field: str, msg: str, code: str | None = None) -> AppError:
+    details: dict[str, Any] = {
+        "fields": [{"loc": ["body", field], "type": "value_error", "msg": msg}]
+    }
+    if code is not None:
+        details["code"] = code
+    return AppError(422, ErrorCode.VALIDATION_ERROR, msg, details)
+
+
+def _start_date(value: date | None) -> date:
+    """A new attendance start date: today when omitted, never in the past."""
+    now = today()
+    if value is None:
+        return now
+    if value < now:
+        raise _field_error(
+            "attendance_start_date",
+            "The attendance start date can't be in the past",
+            "ATTENDANCE_START_IN_PAST",
+        )
+    return value
+
+
+def _edit_start_date(target: User, value: date) -> bool:
+    """Change a staff member's or supervisor's start date: only while the current one is still in
+    the future (else 409 ATTENDANCE_START_LOCKED). Returns whether it changed."""
+    if target.role not in TRACKED_ROLES:
+        raise _field_error(
+            "attendance_start_date", "Only staff and supervisors have an attendance start date"
+        )
+    if value == target.attendance_start_date:
+        return False
+    current = target.attendance_start_date
+    if current is not None and current <= today():
+        raise AppError(
+            409,
+            ErrorCode.ATTENDANCE_START_LOCKED,
+            "Attendance has already started: the start date can't be changed",
+            {"start_date": current.isoformat()},
+        )
+    target.attendance_start_date = _start_date(value)
+    return True
+
+
+def _set_tracking(actor: User, target: User, tracked: bool) -> bool:
+    """Switch a supervisor's attendance off or on from today (see tracking.py). Off opens a
+    period from today; on closes it at yesterday, or removes it when it began today (or later).
+    Returns whether anything changed."""
+    now = today()
+    open_period = next((p for p in target.untracked_periods if p.to_date is None), None)
+    if not tracked:
+        if open_period is not None and not target.attendance_tracked:
+            return False
+        target.attendance_tracked = False
+        if open_period is None:
+            target.untracked_periods.append(
+                AttendanceUntrackedPeriod(user_id=target.id, from_date=now, set_by=actor.id)
+            )
+        return True
+    changed = not target.attendance_tracked or open_period is not None
+    target.attendance_tracked = True
+    if open_period is not None:
+        if open_period.from_date >= now:
+            target.untracked_periods.remove(open_period)
+        else:
+            open_period.to_date = now - timedelta(days=1)
+    return changed
+
+
+def _iso(value: date | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
 def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
@@ -86,6 +161,7 @@ async def list_users(
     position: str | None,
     status: UserStatus,
     q: str | None,
+    workplace_id: uuid.UUID | None = None,
     page: int,
     page_size: int,
 ) -> tuple[list[User], int]:
@@ -98,6 +174,9 @@ async def list_users(
     position = normalize_position(position)
     if position is not None:
         conditions.append(func.lower(User.position) == position.lower())
+    if workplace_id is not None:
+        conditions.append(User.workplace_id == workplace_id)
+        conditions.append(User.role.in_(TRACKED_ROLES))
     if status == "active":
         conditions.append(User.is_active)
     elif status == "inactive":
@@ -165,7 +244,17 @@ async def create_user(session: AsyncSession, actor: User, data: UserCreate) -> U
         must_change_password=True,
         language=data.language,
         creator=actor,
+        untracked_periods=[],
     )
+    # Staff and supervisors are tracked by attendance: the chosen workplace, else the default,
+    # from the start date (default today).
+    await assign_workplace(session, user, data.workplace_id)
+    if data.role in TRACKED_ROLES:
+        user.attendance_start_date = _start_date(data.attendance_start_date)
+    elif data.attendance_start_date is not None:
+        raise _field_error(
+            "attendance_start_date", "Only staff and supervisors have an attendance start date"
+        )
     session.add(user)
     await _flush_or_conflict(session)
     defaults = await grant_defaults(session, actor, user)
@@ -178,6 +267,7 @@ async def create_user(session: AsyncSession, actor: User, data: UserCreate) -> U
             "role": user.role.value,
             "position": user.position,
             "telegram_username": username,
+            "attendance_start_date": _iso(user.attendance_start_date),
             "default_permissions": defaults,
         },
     )
@@ -213,6 +303,24 @@ async def update_user(session: AsyncSession, actor: User, target: User, data: Us
             _set("telegram_username", username)
             # A new username may belong to a different Telegram account: drop the binding.
             target.telegram_user_id = None
+    if "workplace_id" in fields and data.workplace_id is not None:
+        before = target.workplace.name if target.workplace else None
+        if await assign_workplace(session, target, data.workplace_id):
+            changes["workplace"] = [before, target.workplace.name if target.workplace else None]
+    if "attendance_start_date" in fields and data.attendance_start_date is not None:
+        before = _iso(target.attendance_start_date)
+        if _edit_start_date(target, data.attendance_start_date):
+            changes["attendance_start_date"] = [before, _iso(target.attendance_start_date)]
+    if "attendance_tracked" in fields and data.attendance_tracked is not None:
+        before_tracked = target.attendance_tracked
+        if target.role == Role.SUPERVISOR:
+            if _set_tracking(actor, target, data.attendance_tracked):
+                changes["attendance_tracked"] = [before_tracked, target.attendance_tracked]
+        elif not (target.role == Role.STAFF and data.attendance_tracked):
+            # Staff are always tracked; the others have no attendance.
+            raise _field_error(
+                "attendance_tracked", "Only a supervisor's attendance can be switched off"
+            )
 
     if changes:
         await _flush_or_conflict(session)
@@ -249,8 +357,25 @@ async def change_role(session: AsyncSession, actor: User, target: User, data: Ro
         await ensure_slot(session, data.role)
 
     old_role, old_position = target.role, target.position
+    old_start = target.attendance_start_date
     target.role = data.role
     target.position = data.position
+    await assign_workplace(session, target, data.workplace_id)
+    if data.role in TRACKED_ROLES:
+        if old_role in TRACKED_ROLES:
+            if data.attendance_start_date is not None:
+                _edit_start_date(target, data.attendance_start_date)
+        else:
+            target.attendance_start_date = _start_date(data.attendance_start_date)
+    elif data.attendance_start_date is not None:
+        raise _field_error(
+            "attendance_start_date", "Only staff and supervisors have an attendance start date"
+        )
+    else:
+        target.attendance_start_date = None
+    if data.role != Role.SUPERVISOR:
+        # Staff are always tracked; others have no attendance: an open switch-off ends today.
+        _set_tracking(actor, target, True)
     await _flush_or_conflict(session)
     added, removed = await reset_to_role_defaults(session, actor, target)
     record(
@@ -263,6 +388,11 @@ async def change_role(session: AsyncSession, actor: User, target: User, data: Ro
             "to": target.role.value,
             "position_from": old_position,
             "position_to": target.position,
+            "attendance_start_date_from": _iso(old_start),
+            "attendance_start_date_to": _iso(target.attendance_start_date),
+            "workplace": target.workplace.name
+            if target.role in TRACKED_ROLES and target.workplace
+            else None,
             "permissions_added": added,
             "permissions_removed": removed,
         },
@@ -308,6 +438,7 @@ async def reactivate_user(session: AsyncSession, actor: User, target: User) -> U
     target.deleted_at = None
     target.failed_login_count = 0
     target.locked_until = None
+    await assign_workplace(session, target)
     await _flush_or_conflict(session)
     record(session, "user.reactivate", actor_id=actor.id, target_user_id=target.id)
     await session.commit()

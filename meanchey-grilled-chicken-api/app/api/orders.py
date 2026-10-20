@@ -14,6 +14,7 @@ from app.core.errors import AppError, ErrorCode
 from app.core.phones import format_phone
 from app.deps import SessionDep, require_any_permission, require_permission
 from app.models import Order, User
+from app.schemas.business import BusinessSupplierOut
 from app.schemas.order import (
     AvailableItem,
     CustomerOption,
@@ -31,7 +32,7 @@ from app.schemas.order import (
     OrderVersionIn,
     ReviewIn,
 )
-from app.services import document_service, notification_service
+from app.services import business_service, document_service, notification_service
 from app.services import order_service as svc
 
 log = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ CanRecord = Annotated[User, Depends(require_permission("orders.create"))]
 CanEdit = Annotated[User, Depends(require_permission("orders.update"))]
 CanCancel = Annotated[User, Depends(require_permission("orders.cancel"))]
 CanReview = Annotated[User, Depends(require_permission("orders.review_returns"))]
+CanExport = Annotated[User, Depends(require_permission("orders.export_delivery_note"))]
 # The pickers of the order form (create or edit); no Customers access needed.
 CanFillForm = Annotated[User, Depends(require_any_permission("orders.create", "orders.update"))]
 
@@ -95,6 +97,21 @@ async def list_orders(
 
 
 # Declared before /{order_id} so these aren't parsed as UUIDs.
+@router.get("/delivery-note/supplier", response_model=BusinessSupplierOut)
+async def delivery_note_supplier(_: CanExport, session: SessionDep) -> BusinessSupplierOut:
+    """The supplier block of the Excel delivery note (Business info name, address, phone) for
+    anyone allowed to export it, without Business info access. The Excel is built in the browser."""
+    row = await business_service.get_row(session)
+    return BusinessSupplierOut(
+        name_km=row.name_km,
+        name_en=row.name_en,
+        address_km=row.address_km,
+        address_en=row.address_en,
+        phone=row.phone,
+        phone_display=format_phone(row.phone),
+    )
+
+
 @router.get("/stats", response_model=OrderStats)
 async def get_stats(_: CanView, session: SessionDep) -> OrderStats:
     """Created, delivering, return pending (now) and delivered this month (BUSINESS_TIMEZONE)."""

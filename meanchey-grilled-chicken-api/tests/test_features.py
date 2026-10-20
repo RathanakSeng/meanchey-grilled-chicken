@@ -80,7 +80,7 @@ def test_grant_and_reset_password_belong_to_no_feature() -> None:
 
 
 def test_menus() -> None:
-    assert registry.MENUS == ("workstation", "settings")
+    assert registry.MENUS == ("workstation", "attendance", "settings")
     # "production" is reserved for a future feature; the suppliers/customers section is Workstation.
     assert all(f.menu != "production" for f in registry.FEATURES)
     assert {f.code: f.menu for f in registry.FEATURES if f.menu == "workstation"} == {
@@ -94,6 +94,7 @@ def test_menus() -> None:
         "orders": "workstation",
         "order_management": "workstation",
         "order_returns": "workstation",
+        "order_export": "workstation",
         "preparation": "workstation",
         "preparation_management": "workstation",
     }
@@ -175,6 +176,7 @@ async def test_gm_sees_staff_features_off_by_default(client, make_user) -> None:
         "production",
         "inventory",
         "orders",
+        "order_export",
         "preparation",
     ]
     assert all(f["current_level"] == "off" and f["can_edit"] for f in features)
@@ -203,13 +205,19 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
                 "orders",
                 "order_management",
                 "order_returns",
+                "order_export",
                 "preparation",
                 "preparation_management",
             ],
         ),
+        ("attendance", ["attendance", "attendance_corrections", "attendance_requests"]),
         ("settings", ["staff_management", "staff_access"]),
     ]
     levels = {code: f["current_level"] for code, f in (await _features(client, gm, sup)).items()}
+    # Attendance and its corrections are Off for supervisors until the GM allows them.
+    assert levels.pop("attendance") == "off"
+    assert levels.pop("attendance_corrections") == "off"
+    assert levels.pop("attendance_requests") == "off"
     # Workstation at full access, except the production plan (Off by default); staff
     # management View only; Staff access Full.
     assert levels.pop("production_plan") == "off"
@@ -223,6 +231,7 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
     assert levels.pop("orders") == "record"
     assert levels.pop("order_management") == "off"
     assert levels.pop("order_returns") == "off"
+    assert levels.pop("order_export") == "off"
     assert set(levels.values()) == {"full"}
 
 

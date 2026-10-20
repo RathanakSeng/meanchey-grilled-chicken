@@ -101,7 +101,7 @@ export function InventoryPage() {
 }
 
 function hasStock(item: InventoryItem): boolean {
-  return (item.count ?? 0) > 0 || Number(item.kg ?? 0) > 0 || Number(item.g ?? 0) > 0
+  return (item.count ?? 0) > 0 || Number(item.kg ?? 0) > 0 || Number(item.g ?? 0) > 0 || Number(item.m2 ?? 0) > 0
 }
 
 /** An archived material as a card item (it isn't in the overview). */
@@ -115,11 +115,13 @@ function archivedItem(m: Material): InventoryItem {
     tracks_count: m.unit === 'count',
     tracks_kg: m.unit === 'kg',
     tracks_g: m.unit === 'g',
+    tracks_m2: m.unit === 'm2',
     kg_estimated: false,
     origin: 'manual',
     count: m.count,
     kg: m.kg,
     g: m.g,
+    m2: m.m2,
     // When it was archived (its last change).
     updated_at: m.archived_at ?? m.updated_at,
     material: {

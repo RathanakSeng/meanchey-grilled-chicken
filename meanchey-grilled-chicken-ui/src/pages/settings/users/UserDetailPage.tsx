@@ -21,7 +21,7 @@ import {
 import { api } from '@/lib/api'
 import { paths } from '@/lib/paths'
 import { useErrorMessage } from '@/lib/errors'
-import { useFormatDate } from '@/lib/format'
+import { useFormatDate, useFormatDay } from '@/lib/format'
 import { isSuperadmin } from '@/lib/roles'
 import type { User, UserFeatures } from '@/lib/types'
 import { invalidateRoleCapacity } from '@/lib/useRoleCapacity'
@@ -41,6 +41,7 @@ export function UserDetailPage() {
   const queryClient = useQueryClient()
   const errorMessage = useErrorMessage()
   const formatDate = useFormatDate()
+  const formatDay = useFormatDay()
   const { me } = useAuth()
   const createdUsername = (location.state as { created?: string } | null)?.created
 
@@ -229,6 +230,17 @@ export function UserDetailPage() {
               <Item label={t('userForm.position')}>{user.position}</Item>
             )}
             <Item label={t('userForm.phone')}>{user.phone ?? t('common.none')}</Item>
+            {user.workplace && <Item label={t('userForm.workplace')}>{user.workplace.name}</Item>}
+            {user.attendance_start_date && (
+              <Item label={t('userDetail.attendanceStart')}>{formatDay(user.attendance_start_date)}</Item>
+            )}
+            {user.role === 'supervisor' && (
+              <Item label={t('userDetail.attendance')}>
+                {user.attendance_tracked === false
+                  ? t('userDetail.attendanceUntracked', { date: formatDay(user.attendance_untracked_since) })
+                  : t('userDetail.attendanceTracked')}
+              </Item>
+            )}
             <Item label={t('userForm.language')}>{t(`languages.${user.language}`)}</Item>
             <Item label={t('userDetail.createdAt')}>{formatDate(user.created_at)}</Item>
             <Item label={t('userDetail.updatedAt')}>{formatDate(user.updated_at)}</Item>

@@ -17,14 +17,18 @@ export interface AccessRule {
   permission?: string
   /** Allowed roles. */
   roles?: Role[]
+  /** Passes when ANY of these rules passes (e.g. Attendance: tracked roles or attendance.view). */
+  anyOf?: AccessRule[]
 }
 
 export function useCanAccess() {
   const { me } = useAuth()
-  return ({ permission, roles }: AccessRule): boolean => {
+  const check = ({ permission, roles, anyOf }: AccessRule): boolean => {
     if (!me) return false
     if (permission && !me.permissions.includes(permission)) return false
     if (roles && !roles.includes(me.user.role)) return false
+    if (anyOf && !anyOf.some(check)) return false
     return true
   }
+  return check
 }

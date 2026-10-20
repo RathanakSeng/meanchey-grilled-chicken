@@ -216,7 +216,7 @@ export function ItemSheet({ item, onClose }: { item: InventoryItem | null; onClo
           open={mode === 'archive'}
           title={t('materials.archiveTitle', { name: d.fullName })}
           body={
-            Number(item.count ?? item.kg ?? item.g ?? 0) > 0
+            Number(item.count ?? item.kg ?? item.g ?? item.m2 ?? 0) > 0
               ? t('materials.archiveWithStock', { amount: d.amount })
               : t('materials.archiveBody')
           }
@@ -244,8 +244,16 @@ function PreparationSources({ detail, onNavigate }: { detail: InventoryItemDetai
   if (sources.length === 0) {
     return <p className="py-4 text-sm text-stone-500">{t('inventory.noPreparationStock')}</p>
   }
-  const amount = (s: { count: number | null; kg: string | null; g?: string | null }) =>
-    s.count !== null ? fmt.count(s.count) : s.kg !== null ? fmt.kg(s.kg) : s.g ? fmt.g(s.g) : '—'
+  const amount = (s: { count: number | null; kg: string | null; g?: string | null; m2?: string | null }) =>
+    s.count !== null
+      ? fmt.count(s.count)
+      : s.kg !== null
+        ? fmt.kg(s.kg)
+        : s.g
+          ? fmt.g(s.g)
+          : s.m2
+            ? fmt.m2(s.m2)
+            : '—'
   return (
     <ul className="mt-2 divide-y divide-stone-100 text-sm">
       {sources.map((s) => (

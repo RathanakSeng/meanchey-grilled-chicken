@@ -82,6 +82,7 @@ The tests need PostgreSQL. `TEST_DATABASE_URL` (from the environment or `.env`) 
 | `TELEGRAM_WEBHOOK_AUTO_SET` | `true` | Register or refresh the webhook on startup. It is skipped when already up to date. |
 | `TELEGRAM_DROP_PENDING_UPDATES` | `false` | Discard updates queued at Telegram when the webhook is (re)registered. |
 | `BUSINESS_TIMEZONE` | `Asia/Phnom_Penh` | IANA time zone for business calendars (e.g. "new this month" on suppliers/customers). Validated at startup. |
+| `ATTENDANCE_SCHEDULER_ENABLED` | `true` | Attendance scheduler in the API (absent records, forgot check-out, Telegram reminders), once a minute; one worker at a time (advisory lock). Set `false` to run an API that must not send reminders. |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated. Not needed when the UI proxies `/api`. |
 
 ## Roles, scope and permissions

@@ -49,6 +49,7 @@ MODULES: list[ModuleDef] = [
     ModuleDef("inventory", "Inventory", "ស្តុក"),
     ModuleDef("orders", "Orders", "ការបញ្ជាទិញ"),
     ModuleDef("preparation", "Preparation", "ការរៀបចំ"),
+    ModuleDef("attendance", "Attendance", "វត្តមាន"),
     ModuleDef("settings", "Settings", "ការកំណត់"),
 ]
 
@@ -367,6 +368,15 @@ PERMISSIONS += [
         ),
         assignable_to=_MANAGERS,
     ),
+    PermissionDef(
+        code="orders.export_delivery_note",
+        module="orders",
+        name_en="Export delivery note",
+        name_km="នាំចេញប័ណ្ណដឹកជញ្ជូន",
+        description_en="Download an order's delivery note as an Excel file.",
+        description_km="ទាញយកប័ណ្ណដឹកជញ្ជូនរបស់ការបញ្ជាទិញជាឯកសារ Excel។",
+        assignable_to=_EVERYONE,
+    ),
 ]
 
 _ORDER_CODES = frozenset(p.code for p in PERMISSIONS if p.module == "orders")
@@ -432,15 +442,85 @@ PERMISSIONS += [
     ),
 ]
 
+PERMISSIONS += [
+    PermissionDef(
+        code="attendance.view",
+        module="attendance",
+        name_en="View attendance",
+        name_km="មើលវត្តមាន",
+        description_en="See the attendance of the employees in your scope, day by day.",
+        description_km="មើលវត្តមានរបស់បុគ្គលិកក្នុងដែនគ្រប់គ្រងរបស់អ្នក តាមថ្ងៃ។",
+        assignable_to=_MANAGERS,
+    ),
+    PermissionDef(
+        code="attendance.correct",
+        module="attendance",
+        name_en="Fix attendance",
+        name_km="កែវត្តមាន",
+        description_en="Fix or add attendance records of employees in your scope, with a reason.",
+        description_km="កែ ឬបន្ថែមកំណត់ត្រាវត្តមានរបស់បុគ្គលិកក្នុងដែនគ្រប់គ្រង ដោយបញ្ជាក់មូលហេតុ។",
+        assignable_to=_MANAGERS,
+    ),
+    PermissionDef(
+        code="attendance.workplace_view",
+        module="attendance",
+        name_en="View the workplace",
+        name_km="មើលកន្លែងធ្វើការ",
+        description_en="See the workplaces' location, check-in radius and default.",
+        description_km="មើលទីតាំង រង្វង់ចុះវត្តមាន និងលំនាំដើមរបស់កន្លែងធ្វើការ។",
+        assignable_to=_GM_ONLY,
+    ),
+    PermissionDef(
+        code="attendance.workplace_manage",
+        module="attendance",
+        name_en="Edit the workplace",
+        name_km="កែកន្លែងធ្វើការ",
+        description_en=(
+            "Create and delete workplaces; set their name, address, position on the map, radius "
+            "and the default."
+        ),
+        description_km=("បង្កើត និងលុបកន្លែងធ្វើការ ព្រមទាំងកំណត់ឈ្មោះ អាសយដ្ឋាន ទីតាំងលើផែនទី រង្វង់ និងលំនាំដើម។"),
+        assignable_to=_GM_ONLY,
+    ),
+    PermissionDef(
+        code="attendance.scheduling",
+        module="attendance",
+        name_en="Manage scheduling",
+        name_km="គ្រប់គ្រងកាលវិភាគ",
+        description_en=(
+            "Set tracked weekdays, holidays, shift times and the check-in / check-out rules, for "
+            "one, several or all workplaces."
+        ),
+        description_km=(
+            "កំណត់ថ្ងៃតាមដាន ថ្ងៃឈប់សម្រាក ម៉ោងវេន និងច្បាប់ចុះវត្តមាន / ចុះចេញ សម្រាប់កន្លែងធ្វើការមួយ ច្រើន ឬទាំងអស់។"
+        ),
+        assignable_to=_MANAGERS,
+    ),
+    PermissionDef(
+        code="attendance.requests_review",
+        module="attendance",
+        name_en="Review attendance requests",
+        name_km="ពិនិត្យសំណើវត្តមាន",
+        description_en=(
+            "Approve, change or reject the monthly requests of employees in your scope for "
+            "covering their missing time."
+        ),
+        description_km=("យល់ព្រម កែ ឬបដិសេធសំណើប្រចាំខែរបស់បុគ្គលិកក្នុងដែនគ្រប់គ្រង ដើម្បីជំនួសម៉ោងដែលខ្វះ។"),
+        assignable_to=_MANAGERS,
+    ),
+    # `attendance.shifts_manage` (each workplace's schedule) was replaced by
+    # `attendance.scheduling` (migration 0020 moved its holders). The sync keeps it inactive.
+]
+
 # --- Feature access levels -------------------------------------------------------------------
 
 Level = Literal["off", "view", "record", "full"]
 # Every level in display order. A feature uses "off" first, then any of the others in this order
 # (most omit "record").
 LEVELS: tuple[Level, ...] = ("off", "view", "record", "full")
-Menu = Literal["workstation", "settings"]
+Menu = Literal["workstation", "attendance", "settings"]
 # Display order of the menus (GET /users/{id}/features groups by it).
-MENUS: tuple[Menu, ...] = ("workstation", "settings")
+MENUS: tuple[Menu, ...] = ("workstation", "attendance", "settings")
 
 
 @dataclass(frozen=True)
@@ -639,6 +719,16 @@ FEATURES: list[FeatureDef] = [
         levels=(("off", ()), ("full", ("orders.review_returns",))),
     ),
     FeatureDef(
+        code="order_export",
+        menu="workstation",
+        name_en="Export delivery note",
+        name_km="នាំចេញប័ណ្ណដឹកជញ្ជូន",
+        description_en="Download an order's delivery note as an Excel file.",
+        description_km="ទាញយកប័ណ្ណដឹកជញ្ជូនរបស់ការបញ្ជាទិញជាឯកសារ Excel។",
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF),
+        levels=(("off", ()), ("full", ("orders.export_delivery_note",))),
+    ),
+    FeatureDef(
         code="preparation",
         menu="workstation",
         name_en="Preparation",
@@ -666,6 +756,81 @@ FEATURES: list[FeatureDef] = [
         description_km="បើកឡើងវិញ និងលុបចោលការរៀបចំ ព្រមទាំងទទួលការជូនដំណឹងការរៀបចំ។",
         applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
         levels=(("off", ()), ("full", ("preparation.update", "preparation.cancel"))),
+    ),
+    FeatureDef(
+        code="attendance",
+        menu="attendance",
+        name_en="Attendance",
+        name_km="វត្តមាន",
+        description_en="See each day's attendance of the employees in your scope.",
+        description_km="មើលវត្តមានប្រចាំថ្ងៃរបស់បុគ្គលិកក្នុងដែនគ្រប់គ្រងរបស់អ្នក។",
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
+        levels=(("off", ()), ("view", ("attendance.view",))),
+    ),
+    FeatureDef(
+        code="attendance_corrections",
+        menu="attendance",
+        name_en="Attendance corrections",
+        name_km="កែវត្តមាន",
+        description_en="Fix attendance records or add a missing one, always with a reason.",
+        description_km="កែកំណត់ត្រាវត្តមាន ឬបន្ថែមកំណត់ត្រាដែលខ្វះ ដោយបញ្ជាក់មូលហេតុជានិច្ច។",
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
+        levels=(("off", ()), ("full", ("attendance.correct",))),
+    ),
+    FeatureDef(
+        code="attendance_workplace",
+        menu="attendance",
+        name_en="Workplaces",
+        name_km="កន្លែងធ្វើការ",
+        description_en=(
+            "Where people check in: view only shows the workplaces, full access creates, edits "
+            "and deletes them (location, radius, default). Schedules are in Scheduling."
+        ),
+        description_km=(
+            "កន្លែងដែលបុគ្គលិកចុះវត្តមាន៖ មើលប៉ុណ្ណោះបង្ហាញកន្លែងធ្វើការ ចំណែកសិទ្ធិពេញលេញបង្កើត កែ "
+            "និងលុបពួកវា (ទីតាំង រង្វង់ លំនាំដើម)។"
+        ),
+        # Only the superadmin manages the GM, so only it sets this.
+        applies_to=(Role.GENERAL_MANAGER,),
+        levels=(
+            ("off", ()),
+            ("view", ("attendance.workplace_view",)),
+            ("full", ("attendance.workplace_view", "attendance.workplace_manage")),
+        ),
+    ),
+    FeatureDef(
+        code="attendance_scheduling",
+        menu="attendance",
+        name_en="Attendance scheduling",
+        name_km="កាលវិភាគវត្តមាន",
+        description_en=(
+            "Tracked weekdays, holidays, shift times and rules, per workplace or for all of them. "
+            "Adding a holiday for past days removes the attendance recorded on them."
+        ),
+        description_km=(
+            "ថ្ងៃតាមដាន ថ្ងៃឈប់សម្រាក ម៉ោងវេន និងច្បាប់ តាមកន្លែងធ្វើការ ឬសម្រាប់ទាំងអស់។ "
+            "ការបន្ថែមថ្ងៃឈប់សម្រាកលើថ្ងៃកន្លងមក នឹងលុបវត្តមានដែលបានកត់ត្រានៅថ្ងៃទាំងនោះ។"
+        ),
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
+        levels=(("off", ()), ("full", ("attendance.scheduling",))),
+        # Given by the superadmin, or by a GM who has it: invisible to anyone else.
+        grantor_must_hold=True,
+    ),
+    FeatureDef(
+        code="attendance_requests",
+        menu="attendance",
+        name_en="Attendance requests",
+        name_km="សំណើវត្តមាន",
+        description_en=(
+            "Review the monthly requests of employees in your scope (salary cut / unpaid extra "
+            "work for missing time): approve, approve with changes or reject."
+        ),
+        description_km=(
+            "ពិនិត្យសំណើប្រចាំខែរបស់បុគ្គលិកក្នុងដែនគ្រប់គ្រង (កាត់ប្រាក់ខែ / ធ្វើការបន្ថែមដោយគ្មានប្រាក់ "
+            "ដើម្បីជំនួសម៉ោងដែលខ្វះ)៖ យល់ព្រម យល់ព្រមដោយកែប្រែ ឬបដិសេធ។"
+        ),
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
+        levels=(("off", ()), ("full", ("attendance.requests_review",))),
     ),
     FeatureDef(
         code="staff_management",
@@ -740,7 +905,15 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
     # Orders Record, management Full, returns Full.
     | _ORDER_CODES
     # Preparation Record, preparation management Full.
-    | {"preparation.view", "preparation.create", "preparation.update", "preparation.cancel"},
+    | {"preparation.view", "preparation.create", "preparation.update", "preparation.cancel"}
+    # Attendance view + corrections + request review; the workplace view only (editing it and
+    # scheduling are the superadmin's to allow).
+    | {
+        "attendance.view",
+        "attendance.correct",
+        "attendance.workplace_view",
+        "attendance.requests_review",
+    },
     # Workstation features at full access, except the production plan (off: the GM decides who
     # plans). Staff: view them and set their access; adding or editing staff is the GM's call.
     Role.SUPERVISOR: _feature_defaults(
@@ -759,9 +932,15 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
             "orders": "record",
             "order_management": "off",
             "order_returns": "off",
+            "order_export": "off",
             # Preparation Record; reopening and cancelling are the GM's to allow.
             "preparation": "record",
             "preparation_management": "off",
+            # Attendance: the GM decides which supervisors see and fix their team's attendance.
+            "attendance": "off",
+            "attendance_corrections": "off",
+            "attendance_scheduling": "off",
+            "attendance_requests": "off",
             "staff_management": "view",
             "staff_access": "full",
         },

@@ -299,9 +299,11 @@ async def test_negative_guard_refuses_finish_reopen_and_cancel(
             "available_count": 5,
             "available_kg": "25.500",
             "available_g": None,
+            "available_m2": None,
             "needed_count": 10,
             "needed_kg": "25.500",  # both units are reported; only the count is short
             "needed_g": None,
+            "needed_m2": None,
         }
     ]
     assert_error(await api.reopen(batch, "raw-material"), 409, "INVENTORY_INSUFFICIENT")
