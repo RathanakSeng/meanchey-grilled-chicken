@@ -6,6 +6,7 @@
 .env
 .env.*
 !.env.example
+!.env.prod.example
 
 # --- Local tooling -----------------------------------------------------------
 # Claude Code (launch configs, local settings)

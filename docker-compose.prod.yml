@@ -1,0 +1,74 @@
+# Production stack for a single DigitalOcean droplet behind Cloudflare.
+#
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+#   (or ./deploy/deploy.sh)
+#
+# The api container runs `alembic upgrade head` and `python -m app.bootstrap` on every start,
+# so each deploy migrates the database automatically before serving traffic.
+# Only `web` (nginx: TLS + UI + /api proxy) is published, on 80/443.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-meanchey}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DB: ${POSTGRES_DB:-meanchey}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meanchey} -d ${POSTGRES_DB:-meanchey}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    logging: *logging
+
+  api:
+    build: ./meanchey-grilled-chicken-api
+    env_file: .env.prod
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-meanchey}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meanchey}
+    # Migrate -> bootstrap (registry sync, seeds, webhook registration) -> serve.
+    # Trust X-Forwarded-* from nginx; the port is not published, only `web` can reach it.
+    command: >
+      sh -c "alembic upgrade head && python -m app.bootstrap &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000
+             --proxy-headers --forwarded-allow-ips='*'"
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+    logging: *logging
+
+  web:
+    build: ./meanchey-grilled-chicken-ui
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Cloudflare Origin Certificate: origin.pem + origin.key
+      - ${CERT_DIR:-/etc/ssl/cloudflare}:/etc/ssl/cloudflare:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  pgdata:

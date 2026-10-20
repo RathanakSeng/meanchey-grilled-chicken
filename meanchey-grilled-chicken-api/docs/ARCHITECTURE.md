@@ -994,6 +994,10 @@ uv run ruff check . && uv run ruff format --check .
   2. `api` runs migrations and bootstrap (including webhook registration), then becomes healthy on `/health`.
 - **Polling profile** (`docker compose --profile polling up`, with `BOT_MODE=polling` in `.env`): adds `bot-polling`, which starts after `api` is healthy.
 - **Network:** the `api` container needs **outbound HTTPS to `api.telegram.org`** (for `setWebhook`, `sendMessage` and `sendDocument`), and **inbound HTTPS from Telegram** on the public URL.
+- **Production stack** (`docker-compose.prod.yml` at the repo root, runbook in `deploy/DEPLOY.md`): `postgres` (not published) + `api` (not published) + `web` (nginx from the UI image, the only service on 80/443).
+  - The `api` command is `alembic upgrade head && python -m app.bootstrap && uvicorn … --proxy-headers --forwarded-allow-ips='*'`, so every deploy migrates automatically; `web` starts only after `api` is healthy.
+  - TLS: Cloudflare proxy in **Full (strict)** mode with a Cloudflare Origin Certificate mounted into `web`. `ENVIRONMENT=production` hides the API docs.
+  - Config comes from `.env.prod` (template `.env.prod.example`); compose reads it with `--env-file .env.prod`. `deploy/deploy.sh` pulls, rebuilds and restarts; `deploy/backup.sh` dumps the database.
 - **Production notes:**
   - Put the API behind a TLS-terminating reverse proxy that forwards `/api/*`, including `/api/telegram/webhook`.
   - Serve the UI on the same origin under `/`, and the API under `/api`. Otherwise configure `CORS_ORIGINS`.

@@ -526,7 +526,14 @@ useErrorMessage()(err) → t(`errors.${code}`, { ...details, time, min })
 | `npm run typecheck` | Types only |
 | `npm run check:i18n` | Locale key parity |
 
-**Production**
+**Production image**
+
+- `Dockerfile`: Node 22 builds `dist/` (`VITE_API_BASE_URL` defaults to `/api/v1`), then `nginx:alpine` serves it.
+- `deploy/nginx.conf`: port 80 redirects to HTTPS; port 443 uses the Cloudflare Origin Certificate mounted at `/etc/ssl/cloudflare/{origin.pem,origin.key}`, serves `dist/` with the SPA fallback (`index.html` is `no-cache`, `/assets/` is cached for a year), and proxies `/api/*` and `/health` to `api:8000` (same origin, no CORS).
+- `deploy/cloudflare-real-ip.conf`: restores the visitor IP from `CF-Connecting-IP`.
+- Built and run by `docker-compose.prod.yml` at the repo root (see `deploy/DEPLOY.md`).
+
+**Production (general)**
 
 - Serve `dist/` as static files with an SPA fallback, so unknown paths return `index.html`.
 - Preferably serve the API from the **same origin** under `/api`. That needs no CORS, and a single HTTPS domain serves the Mini App, the API and the Telegram webhook (`/api/telegram/webhook`). Make sure the reverse proxy forwards all of `/api/*`.
