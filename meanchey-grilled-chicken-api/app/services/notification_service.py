@@ -34,6 +34,10 @@ ORDER_RETURN_PENDING = "order.return_pending"
 ORDER_RETURNS_REVIEWED = "order.returns_reviewed"
 PREPARATION_ALERT_PERMISSION = "preparation.update"
 PREPARATION_FINISHED = "preparation.finished"
+REQUEST_SUBMITTED = "attendance.request_submitted"
+REQUEST_APPROVED = "attendance.request_approved"
+REQUEST_REJECTED = "attendance.request_rejected"
+REQUEST_REMINDER = "attendance.request_reminder"
 _QUEUE_KEY = "queued_notifications"
 
 
@@ -99,6 +103,38 @@ async def notify(
             telegram_status="pending",
         )
         for user in await recipients(session, permission)
+    ]
+    session.add_all(rows)
+    ids = [r.id for r in rows]
+    session.info.setdefault(_QUEUE_KEY, []).extend(ids)
+    return ids
+
+
+def notify_users(
+    session: AsyncSession,
+    type_: str,
+    users: list[User],
+    *,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    payload: dict[str, Any],
+) -> list[uuid.UUID]:
+    """Insert one notification for each of `users` (not committed) and queue them for Telegram.
+    For alerts with a fixed audience (the employee, the reviewers in scope) rather than every
+    holder of one permission."""
+    now = utcnow()
+    rows = [
+        Notification(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            type=type_,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            payload={**payload, "repeat": False},
+            created_at=now,
+            telegram_status="pending",
+        )
+        for user in users
     ]
     session.add_all(rows)
     ids = [r.id for r in rows]

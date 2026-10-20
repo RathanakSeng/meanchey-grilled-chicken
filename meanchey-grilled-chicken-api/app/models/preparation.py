@@ -114,7 +114,7 @@ class PreparationLine(Base):
             "AND (sachets IS NULL OR sachets >= 0)",
             name="nonnegative",
         ),
-        CheckConstraint("unit IS NULL OR unit IN ('kg', 'g', 'count')", name="unit"),
+        CheckConstraint("unit IS NULL OR unit IN ('kg', 'g', 'm2', 'count')", name="unit"),
         UniqueConstraint("preparation_id", "pack_size", name="uq_preparation_lines_pack_size"),
         UniqueConstraint("preparation_id", "material_id", name="uq_preparation_lines_material"),
     )

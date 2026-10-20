@@ -1,7 +1,8 @@
 """Idempotent startup tasks: sync the permission registry (backfilling role defaults for newly
 added permissions), seed the superadmin, make sure every role has a limit row (defaults 2 / 3 / 10;
 existing rows are never changed), seed the default inventory materials (once; Marinade sauce on
-every start if missing) and (in webhook mode) register the Telegram webhook.
+every start if missing), the attendance defaults (workplace, shifts, rules) and (in webhook
+mode) register the Telegram webhook.
 
 Run with `python -m app.bootstrap`; also runs on API startup.
 """
@@ -14,6 +15,7 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.attendance.workplaces import ensure_defaults as ensure_attendance_defaults
 from app.config import get_settings
 from app.core.security import hash_password
 from app.models import Role, RoleLimit, User
@@ -86,6 +88,9 @@ async def bootstrap(session: AsyncSession, telegram: "TelegramRuntime | None" = 
     await ensure_default_materials(session)
     # A zero balance for every inventory item (a new by-product gets its rows here).
     await ensure_balances(session)
+    # Attendance: the default workplace, shifts and rules when missing; staff and supervisors
+    # without a workplace get the default one.
+    await ensure_attendance_defaults(session)
     if settings.webhook_enabled and settings.telegram_webhook_auto_set:
         await register_webhook(session, telegram)
     await session.commit()

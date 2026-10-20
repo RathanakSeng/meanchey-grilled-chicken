@@ -4,7 +4,15 @@ import { PublicOnly, RequireAccess, RequireAuth } from '@/auth/guards'
 import { Spinner } from '@/components/ui'
 import { AppShell } from '@/layouts/AppShell'
 import { LEGACY_PREFIXES, paths } from '@/lib/paths'
-import { AUDIT_ROLES, ROLE_LIMIT_ROLES } from '@/lib/roles'
+import {
+  AUDIT_ROLES,
+  REQUESTS_ACCESS,
+  ROLE_LIMIT_ROLES,
+  SCHEDULING_ACCESS,
+  TRACKED_ROLES,
+  WORKPLACE_ACCESS,
+} from '@/lib/roles'
+import { AttendancePage } from '@/pages/attendance/AttendancePage'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
 import { HomePage } from '@/pages/HomePage'
 import { LoginPage } from '@/pages/LoginPage'
@@ -74,6 +82,32 @@ const PlanListPage = lazy(() =>
 )
 const PlanPage = lazy(() =>
   import('@/pages/workstation/production-plans/PlanPage').then((m) => ({ default: m.PlanPage })),
+)
+
+// Attendance: the check screen, Today and the settings pages carry Leaflet / the day view, so
+// they are lazy chunks; the hub, My day and the Home card are small and in the main bundle.
+const CheckPage = lazy(() => import('@/pages/attendance/CheckPage').then((m) => ({ default: m.CheckPage })))
+const MyAttendancePage = lazy(() =>
+  import('@/pages/attendance/MyAttendancePage').then((m) => ({ default: m.MyAttendancePage })),
+)
+const EmployeeAttendancePage = lazy(() =>
+  import('@/pages/attendance/MyAttendancePage').then((m) => ({ default: m.EmployeeAttendancePage })),
+)
+const RequestsPage = lazy(() =>
+  import('@/pages/attendance/requests/RequestsPage').then((m) => ({ default: m.RequestsPage })),
+)
+const TodayPage = lazy(() => import('@/pages/attendance/TodayPage').then((m) => ({ default: m.TodayPage })))
+const SchedulingListPage = lazy(() =>
+  import('@/pages/attendance/scheduling/SchedulingListPage').then((m) => ({ default: m.SchedulingListPage })),
+)
+const SchedulingPage = lazy(() =>
+  import('@/pages/attendance/scheduling/SchedulingPage').then((m) => ({ default: m.SchedulingPage })),
+)
+const WorkplacesPage = lazy(() =>
+  import('@/pages/settings/workplaces/WorkplacesPage').then((m) => ({ default: m.WorkplacesPage })),
+)
+const WorkplacePage = lazy(() =>
+  import('@/pages/settings/workplaces/WorkplacePage').then((m) => ({ default: m.WorkplacePage })),
 )
 
 function PageLoading({ children }: { children: ReactNode }) {
@@ -253,6 +287,83 @@ export const router = createBrowserRouter([
             ],
           },
           {
+            path: paths.attendance,
+            element: <RequireAccess anyOf={[{ roles: TRACKED_ROLES }, ...SCHEDULING_ACCESS, ...REQUESTS_ACCESS]} />,
+            children: [
+              { index: true, element: <AttendancePage /> },
+              {
+                path: 'check',
+                element: (
+                  <RequireAccess roles={TRACKED_ROLES}>
+                    <PageLoading>
+                      <CheckPage />
+                    </PageLoading>
+                  </RequireAccess>
+                ),
+              },
+              {
+                path: 'me',
+                element: (
+                  <RequireAccess roles={TRACKED_ROLES}>
+                    <PageLoading>
+                      <MyAttendancePage />
+                    </PageLoading>
+                  </RequireAccess>
+                ),
+              },
+              {
+                path: 'today',
+                element: (
+                  <RequireAccess permission="attendance.view">
+                    <PageLoading>
+                      <TodayPage />
+                    </PageLoading>
+                  </RequireAccess>
+                ),
+              },
+              {
+                path: 'requests',
+                element: (
+                  <RequireAccess anyOf={REQUESTS_ACCESS}>
+                    <PageLoading>
+                      <RequestsPage />
+                    </PageLoading>
+                  </RequireAccess>
+                ),
+              },
+              {
+                path: 'scheduling',
+                element: (
+                  <RequireAccess anyOf={SCHEDULING_ACCESS}>
+                    <PageLoading>
+                      <SchedulingListPage />
+                    </PageLoading>
+                  </RequireAccess>
+                ),
+              },
+              {
+                path: 'scheduling/:workplaceId',
+                element: (
+                  <RequireAccess anyOf={SCHEDULING_ACCESS}>
+                    <PageLoading>
+                      <SchedulingPage />
+                    </PageLoading>
+                  </RequireAccess>
+                ),
+              },
+              {
+                path: 'employees/:id',
+                element: (
+                  <RequireAccess permission="attendance.view">
+                    <PageLoading>
+                      <EmployeeAttendancePage />
+                    </PageLoading>
+                  </RequireAccess>
+                ),
+              },
+            ],
+          },
+          {
             path: paths.settings,
             children: [
               { index: true, element: <SettingsPage /> },
@@ -305,6 +416,38 @@ export const router = createBrowserRouter([
                     </PageLoading>
                   </RequireAccess>
                 ),
+              },
+              {
+                path: 'attendance/workplaces',
+                element: <RequireAccess anyOf={WORKPLACE_ACCESS} />,
+                children: [
+                  {
+                    index: true,
+                    element: (
+                      <PageLoading>
+                        <WorkplacesPage />
+                      </PageLoading>
+                    ),
+                  },
+                  {
+                    path: 'new',
+                    element: (
+                      <RequireAccess permission="attendance.workplace_manage">
+                        <PageLoading>
+                          <WorkplacePage />
+                        </PageLoading>
+                      </RequireAccess>
+                    ),
+                  },
+                  {
+                    path: ':id',
+                    element: (
+                      <PageLoading>
+                        <WorkplacePage />
+                      </PageLoading>
+                    ),
+                  },
+                ],
               },
               { path: 'profile', element: <ProfilePage /> },
             ],

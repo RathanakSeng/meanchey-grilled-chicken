@@ -29,7 +29,8 @@ from app.models.base import Base, utcnow
 
 # order: stock out at Delivering; order_return: returned items back (stock or wasted);
 # material_add / material_remove: stock of a material added or taken out by hand;
-# material_unit_change: a material switched between kg and g (balance converted);
+# material_unit_change: a material switched between kg and g (balance converted) or, with no
+# movements yet, to / from m² (an empty balance);
 # preparation: a preparation finished (inputs out, outputs in) or reversed (reopen / cancel).
 MOVEMENT_SOURCES = (
     "production",
@@ -45,8 +46,10 @@ ADJUST_REASON_MAX_LENGTH = 500
 INVENTORY_KG = Numeric(12, 3)
 # Grams (materials measured in g), 1 decimal.
 INVENTORY_G = Numeric(14, 1)
+# Square metres (materials measured in m²), 2 decimals.
+INVENTORY_M2 = Numeric(14, 2)
 MATERIAL_NAME_MAX_LENGTH = 100
-MATERIAL_UNITS = ("kg", "g", "count")
+MATERIAL_UNITS = ("kg", "g", "m2", "count")
 # What a preparation may do with a material (services/preparation_service.py): `packaging` moves
 # 1:1 to its prepared twin; `satay_sauce` / `zip_bag_2` / `zip_bag_4` are the satay sachet inputs
 # (one material each); `none` isn't preparable. Not editable in the UI yet.
@@ -60,19 +63,21 @@ def _in(column: str, values: tuple[str, ...]) -> str:
 
 class InventoryBalance(Base):
     """Current stock of one item. A unit the item doesn't track stays null (a material has
-    exactly one of count / kg / g)."""
+    exactly one of count / kg / g / m2)."""
 
     __tablename__ = "inventory_balances"
     __table_args__ = (
         CheckConstraint("count >= 0", name="count"),
         CheckConstraint("kg >= 0", name="kg"),
         CheckConstraint("g >= 0", name="g"),
+        CheckConstraint("m2 >= 0", name="m2"),
     )
 
     item_code: Mapped[str] = mapped_column(String(64), primary_key=True)
     count: Mapped[int | None] = mapped_column(Integer)
     kg: Mapped[Decimal | None] = mapped_column(INVENTORY_KG)
     g: Mapped[Decimal | None] = mapped_column(INVENTORY_G)
+    m2: Mapped[Decimal | None] = mapped_column(INVENTORY_M2)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=func.now()
     )
@@ -96,7 +101,8 @@ class InventoryMovement(Base):
         CheckConstraint(_in("source", MOVEMENT_SOURCES), name="source"),
         CheckConstraint("step IS NULL OR step BETWEEN 1 AND 3", name="step"),
         CheckConstraint(
-            "count_delta IS NOT NULL OR kg_delta IS NOT NULL OR g_delta IS NOT NULL",
+            "count_delta IS NOT NULL OR kg_delta IS NOT NULL OR g_delta IS NOT NULL "
+            "OR m2_delta IS NOT NULL",
             name="has_delta",
         ),
         Index("ix_inventory_movements_item_created", "item_code", "created_at"),
@@ -113,6 +119,7 @@ class InventoryMovement(Base):
     count_delta: Mapped[int | None] = mapped_column(Integer)
     kg_delta: Mapped[Decimal | None] = mapped_column(INVENTORY_KG)
     g_delta: Mapped[Decimal | None] = mapped_column(INVENTORY_G)
+    m2_delta: Mapped[Decimal | None] = mapped_column(INVENTORY_M2)
     # The kg was estimated (wasted pieces: rejected count x the batch's average piece weight).
     kg_estimated: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     source: Mapped[str] = mapped_column(String(24))
@@ -136,6 +143,7 @@ class InventoryMovement(Base):
     balance_count_after: Mapped[int | None] = mapped_column(Integer)
     balance_kg_after: Mapped[Decimal | None] = mapped_column(INVENTORY_KG)
     balance_g_after: Mapped[Decimal | None] = mapped_column(INVENTORY_G)
+    balance_m2_after: Mapped[Decimal | None] = mapped_column(INVENTORY_M2)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )

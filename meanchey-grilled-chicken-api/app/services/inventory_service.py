@@ -16,7 +16,8 @@ the adjustments made before this rule.
 **Materials** (`inventory_materials`, `origin = manual`, group raw) are items resolved from the
 database (`resolve`): their stock changes by hand (`material_service`: add / remove, through
 `apply_movements` like everything else) and, for Marinade sauce, by step 2. A material has one
-unit: count, kg or g (grams in the `g` / `g_delta` columns, app/inventory/units.py).
+unit: count, kg, g or m2 (grams in the `g` / `g_delta` columns, square metres in `m2` /
+`m2_delta`, app/inventory/units.py).
 
 Per-batch attribution: every movement of a production item carries the batch its quantity
 belongs to, so a batch's current contribution to an item is the sum of its movements (any
@@ -127,13 +128,14 @@ MOVEMENTS_PAGE_SIZE = 50
 
 @dataclass
 class Delta:
-    """One movement to write. `count` / `kg` / `g` are signed; None for a unit the item doesn't
-    track."""
+    """One movement to write. `count` / `kg` / `g` / `m2` are signed; None for a unit the item
+    doesn't track."""
 
     item_code: str
     count: int | None = None
     kg: Decimal | None = None
     g: Decimal | None = None
+    m2: Decimal | None = None
     kg_estimated: bool = False
     step: int | None = None
     reversal_of: int | None = None
@@ -152,6 +154,10 @@ def _g(value: Decimal | None) -> Decimal:
     return units.quantize("g", value or Decimal(0))
 
 
+def _m2(value: Decimal | None) -> Decimal:
+    return units.quantize("m2", value or Decimal(0))
+
+
 def material_def(m: InventoryMaterial) -> ItemDef:
     """A material as an inventory item: Raw group, origin manual, exactly one unit."""
     return ItemDef(
@@ -165,6 +171,7 @@ def material_def(m: InventoryMaterial) -> ItemDef:
         order=15,  # after Chicken (10), before the processed items
         origin="manual",
         tracks_g=m.unit == "g",
+        tracks_m2=m.unit == "m2",
     )
 
 
@@ -181,6 +188,7 @@ def prepared_def(m: InventoryMaterial) -> ItemDef:
         order=60,  # after the satay sachets
         origin="preparation",
         tracks_g=m.unit == "g",
+        tracks_m2=m.unit == "m2",
     )
 
 
@@ -188,6 +196,8 @@ def unit_of(item: ItemDef) -> InventoryUnit:
     """A material's single unit; production items report their main unit (count first)."""
     if item.tracks_g:
         return "g"
+    if item.tracks_m2:
+        return "m2"
     return "count" if item.tracks_count else "kg"
 
 
@@ -237,6 +247,7 @@ def _blank(item: ItemDef) -> dict[str, Any]:
         "count": 0 if item.tracks_count else None,
         "kg": Decimal(0) if item.tracks_kg else None,
         "g": Decimal(0) if item.tracks_g else None,
+        "m2": Decimal(0) if item.tracks_m2 else None,
     }
 
 
@@ -286,6 +297,7 @@ def _short_entry(
     needed_count: int | None,
     needed_kg: Decimal | None,
     needed_g: Decimal | None = None,
+    needed_m2: Decimal | None = None,
 ) -> dict[str, Any]:
     return {
         "item_code": item.code,
@@ -295,9 +307,11 @@ def _short_entry(
         "available_count": bal.count,
         "available_kg": str(bal.kg) if bal.kg is not None else None,
         "available_g": str(bal.g) if bal.g is not None else None,
+        "available_m2": str(bal.m2) if bal.m2 is not None else None,
         "needed_count": needed_count,
         "needed_kg": str(needed_kg) if needed_kg is not None else None,
         "needed_g": str(needed_g) if needed_g is not None else None,
+        "needed_m2": str(needed_m2) if needed_m2 is not None else None,
     }
 
 
@@ -312,9 +326,10 @@ def _normalized(delta: Delta, item: ItemDef) -> Delta | None:
     count = delta.count if item.tracks_count else None
     kg = _kg(delta.kg) if item.tracks_kg and delta.kg is not None else None
     g = _g(delta.g) if item.tracks_g and delta.g is not None else None
-    if not count and not kg and not g:
+    m2 = _m2(delta.m2) if item.tracks_m2 and delta.m2 is not None else None
+    if not count and not kg and not g and not m2:
         return None
-    delta.count, delta.kg, delta.g = count, kg, g
+    delta.count, delta.kg, delta.g, delta.m2 = count, kg, g, m2
     return delta
 
 
@@ -336,17 +351,24 @@ async def apply_movements(
     balances = await lock_balances(session, codes)
 
     # Net change per item: refuse before writing anything if one would go below zero.
-    net: dict[str, tuple[int, Decimal, Decimal]] = {}
+    zero = Decimal(0)
+    net: dict[str, tuple[int, Decimal, Decimal, Decimal]] = {}
     for d in rows:
-        c, k, g = net.get(d.item_code, (0, Decimal(0), Decimal(0)))
-        net[d.item_code] = (c + (d.count or 0), k + (d.kg or Decimal(0)), g + (d.g or Decimal(0)))
+        c, k, g, a = net.get(d.item_code, (0, zero, zero, zero))
+        net[d.item_code] = (
+            c + (d.count or 0),
+            k + (d.kg or zero),
+            g + (d.g or zero),
+            a + (d.m2 or zero),
+        )
     short = []
     for code in codes:
-        bal, (dc, dk, dg) = balances[code], net[code]
+        bal, (dc, dk, dg, da) = balances[code], net[code]
         count_short = bal.count is not None and bal.count + dc < 0
         kg_short = bal.kg is not None and bal.kg + dk < 0
         g_short = bal.g is not None and bal.g + dg < 0
-        if count_short or kg_short or g_short:
+        m2_short = bal.m2 is not None and bal.m2 + da < 0
+        if count_short or kg_short or g_short or m2_short:
             short.append(
                 _short_entry(
                     items[code],
@@ -354,6 +376,7 @@ async def apply_movements(
                     -dc if bal.count is not None and dc < 0 else None,
                     -dk if bal.kg is not None and dk < 0 else None,
                     -dg if bal.g is not None and dg < 0 else None,
+                    -da if bal.m2 is not None and da < 0 else None,
                 )
             )
     if short:
@@ -369,12 +392,15 @@ async def apply_movements(
             bal.kg = (bal.kg or Decimal(0)) + d.kg
         if d.g is not None:
             bal.g = (bal.g or Decimal(0)) + d.g
+        if d.m2 is not None:
+            bal.m2 = (bal.m2 or Decimal(0)) + d.m2
         bal.updated_at = now
         movement = InventoryMovement(
             item_code=d.item_code,
             count_delta=d.count,
             kg_delta=d.kg,
             g_delta=d.g,
+            m2_delta=d.m2,
             kg_estimated=d.kg_estimated,
             source=source,
             batch_id=d.batch_id or batch_id,
@@ -386,6 +412,7 @@ async def apply_movements(
             balance_count_after=bal.count,
             balance_kg_after=bal.kg,
             balance_g_after=bal.g,
+            balance_m2_after=bal.m2,
             created_by=actor.id if actor else None,
             created_at=now,
         )
@@ -500,7 +527,7 @@ async def marinade_stock(session: AsyncSession) -> tuple[InventoryUnit, Decimal]
     unit = unit_of(item)
     if bal is None:
         return unit, Decimal(0)
-    return unit, Decimal({"count": bal.count, "kg": bal.kg, "g": bal.g}[unit] or 0)
+    return unit, Decimal({"count": bal.count, "kg": bal.kg, "g": bal.g, "m2": bal.m2}[unit] or 0)
 
 
 def _open_movements(batch_id: uuid.UUID) -> Select[tuple[InventoryMovement]]:
@@ -540,6 +567,7 @@ async def reverse(
                 -m.count_delta if m.count_delta is not None else None,
                 -m.kg_delta if m.kg_delta is not None else None,
                 -m.g_delta if m.g_delta is not None else None,
+                -m.m2_delta if m.m2_delta is not None else None,
                 kg_estimated=m.kg_estimated,
                 step=m.step,
                 reversal_of=m.id,
@@ -822,6 +850,7 @@ async def stock_changes(session: AsyncSession, batch: ProductionBatch) -> list[S
             count_delta=m.count_delta,
             kg_delta=m.kg_delta,
             g_delta=m.g_delta,
+            m2_delta=m.m2_delta,
             kg_estimated=m.kg_estimated,
         )
         for m in rows
@@ -899,11 +928,13 @@ def _item_out(
         tracks_count=item.tracks_count,
         tracks_kg=item.tracks_kg,
         tracks_g=item.tracks_g,
+        tracks_m2=item.tracks_m2,
         kg_estimated=item.kg_estimated,
         origin=item.origin,
         count=(bal.count if bal and bal.count is not None else 0) if item.tracks_count else None,
         kg=(bal.kg if bal and bal.kg is not None else Decimal(0)) if item.tracks_kg else None,
         g=(bal.g if bal and bal.g is not None else Decimal(0)) if item.tracks_g else None,
+        m2=(bal.m2 if bal and bal.m2 is not None else Decimal(0)) if item.tracks_m2 else None,
         # None: never changed.
         updated_at=last_change,
         material=_material_out(material),
@@ -986,6 +1017,7 @@ async def _preparation_sources(
             func.coalesce(func.sum(InventoryMovement.count_delta), 0),
             func.coalesce(func.sum(InventoryMovement.kg_delta), 0),
             func.coalesce(func.sum(InventoryMovement.g_delta), 0),
+            func.coalesce(func.sum(InventoryMovement.m2_delta), 0),
         )
         .join(Preparation, Preparation.id == InventoryMovement.preparation_id)
         .where(InventoryMovement.item_code == item.code)
@@ -1000,14 +1032,18 @@ async def _preparation_sources(
             count=int(count) if item.tracks_count else None,
             kg=Decimal(kg) if item.tracks_kg else None,
             g=Decimal(g) if item.tracks_g else None,
+            m2=Decimal(m2) if item.tracks_m2 else None,
         )
-        for p_id, code, prepared_date, count, kg, g in rows
-        if (item.tracks_count and count) or (item.tracks_kg and kg) or (item.tracks_g and g)
+        for p_id, code, prepared_date, count, kg, g, m2 in rows
+        if (item.tracks_count and count)
+        or (item.tracks_kg and kg)
+        or (item.tracks_g and g)
+        or (item.tracks_m2 and m2)
     ]
 
 
 def _has_stock(bal: InventoryBalance | None) -> bool:
-    return bal is not None and bool(bal.count or bal.kg or bal.g)
+    return bal is not None and bool(bal.count or bal.kg or bal.g or bal.m2)
 
 
 async def overview(session: AsyncSession) -> InventoryOut:
@@ -1177,6 +1213,7 @@ async def movements(
                 count_delta=m.count_delta,
                 kg_delta=m.kg_delta,
                 g_delta=m.g_delta,
+                m2_delta=m.m2_delta,
                 kg_estimated=m.kg_estimated,
                 source=m.source,  # type: ignore[arg-type]
                 batch=MovementBatch(id=m.batch_id, code=codes[m.batch_id])
@@ -1196,6 +1233,7 @@ async def movements(
                 balance_count_after=m.balance_count_after,
                 balance_kg_after=m.balance_kg_after,
                 balance_g_after=m.balance_g_after,
+                balance_m2_after=m.balance_m2_after,
                 created_by=UserRef.model_validate(users[m.created_by])
                 if m.created_by in users
                 else None,

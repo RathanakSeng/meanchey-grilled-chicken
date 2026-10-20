@@ -10,7 +10,7 @@ demand (and at startup), so no migration is needed.
 
 **Materials** (string, skewers, sauces, bags...) are not in this catalog: they live in the
 `inventory_materials` table (created and archived in the app) and become `ItemDef`s at runtime
-(`inventory_service.resolve`), with `origin = manual`, group `raw` and one unit (count, kg or g).
+(`inventory_service.resolve`), with `origin = manual`, group `raw`, one unit (count, kg, g or m2).
 The Marinade sauce material (`system_code = marinade`) is what step 2's marinade comes from.
 
 **Prepared** (section and group `prepared`, origin `preparation`): what preparations make
@@ -103,6 +103,8 @@ class ItemDef:
     origin: Origin = "production"
     # Materials measured in grams (app/inventory/units.py); production items never.
     tracks_g: bool = False
+    # Materials measured in square metres.
+    tracks_m2: bool = False
 
 
 def _items() -> list[ItemDef]:

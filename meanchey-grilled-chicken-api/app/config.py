@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     # IANA time zone for business calendars (e.g. "new this month" figures).
     business_timezone: str = "Asia/Phnom_Penh"
 
+    # Attendance scheduler (absent records, forgot check-out, reminders) inside the API process.
+    # Off in tests, which run its ticks directly.
+    attendance_scheduler_enabled: bool = True
+
     # Comma-separated list of allowed browser origins.
     cors_origins: str = "http://localhost:5173"
 

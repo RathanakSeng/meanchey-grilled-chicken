@@ -26,7 +26,7 @@ Not production step 3 (Standardize): a preparation only converts materials.
 - **Cancel** (`preparation.cancel`, reason): a draft is just cancelled; a finished one is
   reversed first. Cancelled is read-only.
 - Line quantities are stored in `unit`, the material's unit when the line was saved: a later
-  kg <-> g switch is converted at Finish; a switch to / from count needs the line re-entered.
+  kg <-> g switch is converted at Finish; a switch to / from count or m2 needs the line re-entered.
 - Audit (`entity_type = preparation`, `details.code`): `preparation.create`,
   `preparation.finish`, `preparation.reopen`, `preparation.cancel`. Draft saves aren't audited.
 """
@@ -248,6 +248,7 @@ def _precision_error(unit: str) -> str:
         "count": "Whole numbers only",
         "kg": "At most 3 decimals",
         "g": "At most 1 decimal",
+        "m2": "At most 2 decimals",
     }[unit]
 
 
@@ -390,6 +391,7 @@ def _amount_delta(m: InventoryMaterial, signed: Decimal, code: str | None = None
         count=int(signed) if m.unit == "count" else None,
         kg=signed if m.unit == "kg" else None,
         g=signed if m.unit == "g" else None,
+        m2=signed if m.unit == "m2" else None,
     )
 
 
@@ -544,6 +546,7 @@ async def _reverse(session: AsyncSession, actor: User, p: Preparation, cause: st
                 -m.count_delta if m.count_delta is not None else None,
                 -m.kg_delta if m.kg_delta is not None else None,
                 -m.g_delta if m.g_delta is not None else None,
+                -m.m2_delta if m.m2_delta is not None else None,
                 reversal_of=m.id,
                 reason=cause,
             ),
@@ -713,7 +716,7 @@ async def _balances(session: AsyncSession, codes: set[str]) -> dict[str, Invento
 def _stock(bal: InventoryBalance | None, unit: str) -> str:
     if bal is None:
         return _fmt(unit, 0)
-    return _fmt(unit, {"count": bal.count, "kg": bal.kg, "g": bal.g}[unit])
+    return _fmt(unit, {"count": bal.count, "kg": bal.kg, "g": bal.g, "m2": bal.m2}[unit])
 
 
 def _material_out(

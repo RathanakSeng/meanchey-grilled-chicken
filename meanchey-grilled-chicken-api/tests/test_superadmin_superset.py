@@ -23,6 +23,13 @@ from tests.conftest import auth
 
 PREFIX = "/api/v1"
 # Valid bodies for routes that decide access in the service (after body validation).
+HOLIDAY = {
+    "name_km": "បុណ្យ",
+    "name_en": "Superset day",
+    "start_date": "2099-12-25",
+    "end_date": "2099-12-26",
+    "scope": "all",
+}
 BODIES: dict[tuple[str, str], dict] = {
     ("POST", "/users/{user_id}/role"): {"role": "supervisor"},
     ("PUT", "/users/{user_id}/features/{feature}"): {"level": "view"},
@@ -40,15 +47,61 @@ BODIES: dict[tuple[str, str], dict] = {
     ("POST", "/preparations/{preparation_id}/finish"): {"version": 1},
     ("POST", "/preparations/{preparation_id}/reopen"): {"version": 1},
     ("POST", "/preparations/{preparation_id}/cancel"): {"version": 1, "reason": "Superset"},
+    ("PATCH", "/attendance/records/{record_id}"): {"status": "absent", "reason": "Superset"},
+    ("POST", "/attendance/requests/{request_id}/reject"): {"reason": "Superset"},
+    ("PUT", "/attendance/settings/requests"): {"request_deadline_day": 7},
+    ("PATCH", "/attendance/workplaces/{workplace_id}"): {"radius_m": 150},
+    ("POST", "/attendance/workplaces"): {"name": "Superset"},
+    ("PUT", "/attendance/scheduling/weekdays"): {
+        "workplace_ids": "all",
+        "weekdays": [1, 2, 3, 4, 5, 6, 7],
+    },
+    ("POST", "/attendance/holidays"): HOLIDAY,
+    ("PATCH", "/attendance/holidays/{holiday_id}"): HOLIDAY,
+    ("POST", "/attendance/holidays/copy"): {"from_year": 2099, "to_year": 2100},
+    ("PUT", "/attendance/scheduling/shifts"): {
+        "workplace_ids": "all",
+        "shifts": [
+            {
+                "code": "morning",
+                "name_km": "វេនព្រឹក",
+                "name_en": "Morning shift",
+                "start_time": "07:00",
+                "end_time": "12:00",
+            },
+            {
+                "code": "afternoon",
+                "name_km": "វេនរសៀល",
+                "name_en": "Afternoon shift",
+                "start_time": "13:00",
+                "end_time": "15:00",
+            },
+        ],
+        "open_before_min": 30,
+        "absent_after_min": 45,
+        "checkout_window_min": 59,
+        "max_accuracy_m": 100,
+        "reminders_enabled": True,
+        "count_early_checkin": True,
+        "count_overtime": True,
+    },
 }
 
 
 @pytest.fixture
 async def world(client, session, superadmin, make_user) -> dict:
-    # With Business info (off by default), so its routes are compared too.
+    # With Business info and the attendance workplace / shifts (off by default), so their
+    # routes are compared too.
     gm = await make_user(
         Role.GENERAL_MANAGER,
-        perms=sorted(DEFAULT_PERMISSIONS[Role.GENERAL_MANAGER] | {"settings.business_info"}),
+        perms=sorted(
+            DEFAULT_PERMISSIONS[Role.GENERAL_MANAGER]
+            | {
+                "settings.business_info",
+                "attendance.workplace_manage",
+                "attendance.scheduling",
+            }
+        ),
     )
     target = await make_user(Role.STAFF)  # someone both can manage
     h = auth(gm)
@@ -75,7 +128,46 @@ async def world(client, session, superadmin, make_user) -> dict:
     preparation = (
         await client.post("/preparations", json={"type": "satay_sachet"}, headers=h)
     ).json()
+    record = (
+        await client.post(
+            "/attendance/records",
+            json={
+                "user_id": str(target.id),
+                "work_date": "2026-10-01",
+                "shift_code": "morning",
+                "status": "present",
+                "check_in_time": "07:00",
+                "reason": "Superset",
+            },
+            headers=h,
+        )
+    ).json()
+    workplace = (await client.get("/attendance/workplaces", headers=h)).json()[0]
+    holiday = (await client.post("/attendance/holidays", json=HOLIDAY, headers=h)).json()
+    upcoming = (
+        await client.put(
+            "/attendance/scheduling/weekdays",
+            json={
+                "workplace_ids": "all",
+                "weekdays": [1, 2, 3, 4, 5],
+                "effective_from": "2099-01-01",
+            },
+            headers=h,
+        )
+    ).json()
+    # Every POST /attendance/records after the first answers 409 (exists): never 403.
     return {
+        "record_id": record["id"],
+        "workplace_id": workplace["id"],
+        "holiday_id": holiday["holiday"]["id"],
+        "version_id": upcoming["scheduling"]["workplaces"][0]["upcoming"][0]["id"],
+        "record_body": {
+            "user_id": str(target.id),
+            "work_date": "2026-10-01",
+            "shift_code": "morning",
+            "status": "absent",
+            "reason": "Superset",
+        },
         "preparation_id": preparation["id"],
         "material_id": next(m["id"] for m in materials if m["name_en"] == "String"),
         "gm": gm,
@@ -105,6 +197,12 @@ def _fill(path: str, world: dict) -> str:
     url = url.replace("{order_id}", world["order_id"])
     url = url.replace("{material_id}", world["material_id"])
     url = url.replace("{preparation_id}", world["preparation_id"])
+    url = url.replace("{record_id}", world["record_id"])
+    url = url.replace("{workplace_id}", world["workplace_id"])
+    url = url.replace("{holiday_id}", world["holiday_id"])
+    url = url.replace("{version_id}", world["version_id"])
+    # Someone else's (or no) request: 404 for both, never 403.
+    url = url.replace("{request_id}", str(uuid.uuid4()))
     # Someone else's (or no) notification: 404 for both, never 403.
     url = url.replace("{notification_id}", str(uuid.uuid4()))
     if "{partner_id}" in url:
@@ -128,6 +226,8 @@ async def test_superadmin_is_never_forbidden_where_the_gm_is_allowed(
     for method, path in _routes():
         url = _fill(path, world)
         body = BODIES.get((method, path))
+        if (method, path) == ("POST", "/attendance/records"):
+            body = world["record_body"]
         # Earlier calls (e.g. /me/reset-password) must not lock either account out.
         await session.execute(
             update(User)
@@ -182,5 +282,31 @@ async def test_superadmin_is_never_forbidden_where_the_gm_is_allowed(
         "POST /preparations/{preparation_id}/finish",
         "POST /preparations/{preparation_id}/reopen",
         "POST /preparations/{preparation_id}/cancel",
+        "GET /attendance/day",
+        "GET /attendance/users/{user_id}/summary",
+        "PATCH /attendance/records/{record_id}",
+        "POST /attendance/records",
+        "GET /attendance/workplaces",
+        "GET /attendance/workplace-options",
+        "POST /attendance/workplaces",
+        "GET /attendance/workplaces/{workplace_id}",
+        "PATCH /attendance/workplaces/{workplace_id}",
+        "DELETE /attendance/workplaces/{workplace_id}",
+        "POST /attendance/workplaces/{workplace_id}/restore",
+        "GET /attendance/scheduling",
+        "PUT /attendance/scheduling/weekdays",
+        "PUT /attendance/scheduling/shifts",
+        "DELETE /attendance/scheduling/versions/{version_id}",
+        "GET /attendance/calendar",
+        "GET /attendance/holidays",
+        "POST /attendance/holidays",
+        "POST /attendance/holidays/copy",
+        "GET /attendance/holidays/{holiday_id}",
+        "GET /attendance/requests",
+        "GET /attendance/requests/{request_id}",
+        "POST /attendance/requests/{request_id}/approve",
+        "POST /attendance/requests/{request_id}/reject",
+        "PATCH /attendance/holidays/{holiday_id}",
+        "DELETE /attendance/holidays/{holiday_id}",
     ):
         assert route in checked, route

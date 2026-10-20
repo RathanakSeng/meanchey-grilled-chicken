@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon, type IconName } from './icons'
 import { cx } from './ui'
@@ -5,7 +6,12 @@ import { cx } from './ui'
 export interface Kpi {
   key: string
   label: string
-  value: number | undefined
+  /** A number (formatted for the language) or ready text ("18 shifts"). */
+  value: number | string | undefined
+  /** Classes for the figure (e.g. a color); text figures are a size smaller. */
+  valueClassName?: string
+  /** Smaller lines under the figure. */
+  detail?: ReactNode
   icon: IconName
   /** Icon tile colors, e.g. 'bg-green-50 text-green-700'. */
   tone: string
@@ -51,10 +57,17 @@ export function KpiGrid({ items, loading }: { items: Kpi[]; loading: boolean }) 
               {loading || kpi.value === undefined ? (
                 <span className="mt-1 block h-6 w-10 animate-pulse rounded bg-stone-200" />
               ) : (
-                <span className="block text-xl font-semibold tabular-nums text-stone-900 sm:text-2xl">
-                  {format.format(kpi.value)}
+                <span
+                  className={cx(
+                    'block font-semibold tabular-nums',
+                    typeof kpi.value === 'number' ? 'text-xl sm:text-2xl' : 'text-lg sm:text-xl',
+                    kpi.valueClassName ?? 'text-stone-900',
+                  )}
+                >
+                  {typeof kpi.value === 'number' ? format.format(kpi.value) : kpi.value}
                 </span>
               )}
+              {kpi.detail && !loading && <span className="mt-0.5 block text-xs text-stone-500">{kpi.detail}</span>}
             </span>
           </>
         )

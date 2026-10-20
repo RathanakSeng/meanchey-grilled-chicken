@@ -12,7 +12,7 @@ export interface ItemDisplay {
   /** The API's full name, e.g. "Liver (processed)" (History, sheet title). */
   fullName: string
   badgeLabel: string | null
-  /** The big number: the count for counted items, else the kg (or g) with its unit. */
+  /** The big number: the count for counted items, else the kg (g, m²) with its unit. */
   amount: string
   /** The kg under the count, for items with both units ("≈" when estimated). */
   secondary: string | null
@@ -23,7 +23,7 @@ export interface ItemDisplay {
 export function useItemDisplay() {
   const { t } = useTranslation()
   const localized = useLocalized()
-  const { count: formatCount, kg: formatKg, g: formatG } = useStockFormat()
+  const { count: formatCount, kg: formatKg, g: formatG, m2Short: formatM2 } = useStockFormat()
   return useCallback(
     (item: InventoryItem): ItemDisplay => {
       const visual = itemVisual(item)
@@ -31,16 +31,17 @@ export function useItemDisplay() {
       const counted = item.count !== null
       const kg = item.kg !== null ? formatKg(item.kg) : null
       const g = item.g !== null && item.g !== undefined ? formatG(item.g) : null
+      const m2 = item.m2 !== null && item.m2 !== undefined ? formatM2(item.m2) : null
       return {
         visual,
         fullName,
         shortName: visual.shortNameKey ? t(visual.shortNameKey, { defaultValue: fullName }) : fullName,
         badgeLabel: visual.badge ? t(`inventory.badges.${visual.badge}`) : null,
-        amount: counted ? formatCount(item.count ?? 0) : (kg ?? g ?? '—'),
+        amount: counted ? formatCount(item.count ?? 0) : (kg ?? g ?? m2 ?? '—'),
         secondary: counted && kg !== null ? `${item.kg_estimated ? '≈ ' : ''}${kg}` : null,
-        zero: (item.count ?? 0) === 0 && Number(item.kg ?? 0) === 0 && Number(item.g ?? 0) === 0,
+        zero: (item.count ?? 0) === 0 && Number(item.kg ?? 0) === 0 && Number(item.g ?? 0) === 0 && Number(item.m2 ?? 0) === 0,
       }
     },
-    [t, localized, formatCount, formatKg, formatG],
+    [t, localized, formatCount, formatKg, formatG, formatM2],
   )
 }

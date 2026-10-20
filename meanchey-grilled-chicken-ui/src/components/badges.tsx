@@ -42,6 +42,9 @@ export function UserStatusBadges({ user }: { user: User }) {
           {t('status.locked')}
         </Badge>
       )}
+      {user.is_active && user.role === 'supervisor' && user.attendance_tracked === false && (
+        <Badge>{t('users.notTracked')}</Badge>
+      )}
       {user.is_active && user.must_change_password && (
         <Badge tone="amber">{t('status.mustChangePassword')}</Badge>
       )}

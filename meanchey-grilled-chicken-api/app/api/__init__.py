@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api import (
+    attendance,
     audit,
     auth,
     features,
@@ -33,3 +34,4 @@ api_router.include_router(orders.router)
 api_router.include_router(preparations.router)
 api_router.include_router(notifications.router)
 api_router.include_router(settings.router)
+api_router.include_router(attendance.router)

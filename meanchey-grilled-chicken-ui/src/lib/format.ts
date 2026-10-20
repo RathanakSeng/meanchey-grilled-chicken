@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Localized } from './types'
 
@@ -68,4 +68,26 @@ export function initials(name: string): string {
 /** Same normalization as the API: strip a leading '@', lowercase. */
 export function normalizeUsername(value: string): string {
   return value.trim().replace(/^@/, '').toLowerCase()
+}
+
+/**
+ * Month and weekday names from our own translations (`common.months`, `common.weekdaysShort`):
+ * browsers often lack Khmer data for `Intl.DateTimeFormat`. `day("2026-10-13")` →
+ * "Tue 13 Oct" / "អង្គារ 13 តុលា"; `month(10)` → "October"; `monthYear("2026-10")`.
+ */
+export function useCalendarNames() {
+  const { t } = useTranslation()
+  return useMemo(
+    () => ({
+      month: (m: number) => t(`common.months.${m}`),
+      monthYear: (ym: string) => `${t(`common.months.${Number(ym.slice(5, 7))}`)} ${ym.slice(0, 4)}`,
+      day: (iso: string) => {
+        const d = new Date(`${iso}T00:00:00Z`)
+        return `${t(`common.weekdaysShort.${d.getUTCDay()}`)} ${d.getUTCDate()} ${t(
+          `common.monthsShort.${d.getUTCMonth() + 1}`,
+        )}`
+      },
+    }),
+    [t],
+  )
 }

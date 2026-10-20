@@ -11,7 +11,7 @@
  * Materials (`material_<id>`, created in the app): an uploaded icon (`iconUrl`, loaded by
  * materialIcons.ts) comes first, then the bundled picture of their `icon_key`
  * (`src/assets/inventory/materials/<key>.svg`, the default materials have one), then a generic
- * icon by unit — a scale for kg / g, a number tag for counted ones.
+ * icon by unit — a scale for kg / g, a grid for m², a number tag for counted ones.
  *
  * Prepared items (section `prepared`): the satay sachets (`satay_sachet_2` / `_4`, a sachet
  * with a 2 / 4 badge) and the prepared twins of packaging materials (`<material>_prepared`,
@@ -32,7 +32,9 @@ import marinade from '@/assets/inventory/materials/marinade.svg'
 import satay from '@/assets/inventory/materials/satay.svg'
 import skewer from '@/assets/inventory/materials/skewer.svg'
 import sticker2 from '@/assets/inventory/materials/sticker_2.svg'
+import sticker2M2 from '@/assets/inventory/materials/sticker_2_m2.svg'
 import sticker4 from '@/assets/inventory/materials/sticker_4.svg'
+import sticker4M2 from '@/assets/inventory/materials/sticker_4_m2.svg'
 import string from '@/assets/inventory/materials/string.svg'
 import vacuumBag from '@/assets/inventory/materials/vacuum_bag.svg'
 import zipBag2 from '@/assets/inventory/materials/zip_bag_2.svg'
@@ -60,6 +62,8 @@ const MATERIAL_PICTURES: Record<string, string> = {
   skewer,
   sticker_2: sticker2,
   sticker_4: sticker4,
+  sticker_2_m2: sticker2M2,
+  sticker_4_m2: sticker4M2,
   marinade,
   satay,
   zip_bag_2: zipBag2,
@@ -108,7 +112,7 @@ export function itemVisual(item: Pick<InventoryItem, 'code' | 'section'> & Parti
       badge: item.section === 'prepared' ? 'prepared' : null,
       shortNameKey: null,
       wasted: false,
-      icon: item.material.unit === 'count' ? 'hash' : 'scale',
+      icon: item.material.unit === 'count' ? 'hash' : item.material.unit === 'm2' ? 'grid' : 'scale',
     }
   }
   const base = baseOf(item.code)

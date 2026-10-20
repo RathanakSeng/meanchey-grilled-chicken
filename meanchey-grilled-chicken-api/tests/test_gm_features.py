@@ -53,8 +53,19 @@ async def test_superadmin_sees_the_gm_at_full_access(client, superadmin, make_us
                 "orders",
                 "order_management",
                 "order_returns",
+                "order_export",
                 "preparation",
                 "preparation_management",
+            ],
+        ),
+        (
+            "attendance",
+            [
+                "attendance",
+                "attendance_corrections",
+                "attendance_workplace",
+                "attendance_scheduling",
+                "attendance_requests",
             ],
         ),
         # Staff access is for supervisors only; Business info for the GM only.
@@ -68,6 +79,12 @@ async def test_superadmin_sees_the_gm_at_full_access(client, superadmin, make_us
     assert features.pop("inventory_history")["current_level"] == "off"
     assert features.pop("orders")["current_level"] == "record"
     assert features.pop("preparation")["current_level"] == "record"
+    # Attendance View only; the workplace View only, shifts and rules Off (the superadmin's).
+    assert features.pop("attendance")["current_level"] == "view"
+    assert features.pop("attendance_workplace")["current_level"] == "view"
+    assert features.pop("attendance_scheduling")["current_level"] == "off"
+    # Reviewing attendance requests is on for general managers.
+    assert features.pop("attendance_requests")["current_level"] == "full"
     assert {f["current_level"] for f in features.values()} == {"full"}
     assert all(f["can_edit"] for f in features.values())
     assert [lv["level"] for lv in features["production"]["levels"]] == [
@@ -146,11 +163,15 @@ async def test_gm_still_manages_supervisors_and_staff(client, make_user) -> None
         "orders",
         "order_management",
         "order_returns",
+        "order_export",
         "preparation",
         "preparation_management",
         "staff_management",
         "staff_access",
         "inventory",
         "inventory_materials",
+        "attendance",
+        "attendance_corrections",
+        "attendance_requests",
     }
     assert (await _set(client, gm, sup, "production", "record")).status_code == 200

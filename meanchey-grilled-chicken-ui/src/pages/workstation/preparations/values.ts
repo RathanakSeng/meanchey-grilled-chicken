@@ -93,7 +93,12 @@ export function toPayload(
 
 export type Errors = Record<string, FieldError>
 
-const UNIT_ERROR: Record<QuantityUnit, FieldError> = { count: 'invalidCount', kg: 'invalidKg', g: 'invalidG' }
+const UNIT_ERROR: Record<QuantityUnit, FieldError> = {
+  count: 'invalidCount',
+  kg: 'invalidKg',
+  g: 'invalidG',
+  m2: 'invalidM2',
+}
 
 function check(errors: Errors, key: string, input: string, unit: QuantityUnit, finish: boolean) {
   const parsed = parseAmount(input, unit)

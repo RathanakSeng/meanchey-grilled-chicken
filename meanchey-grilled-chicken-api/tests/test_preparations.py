@@ -78,7 +78,7 @@ async def balances(client, user) -> dict[str, dict]:
 
 
 def amount(item: dict):
-    for unit in ("count", "kg", "g"):
+    for unit in ("count", "kg", "g", "m2"):
         if item.get(unit) is not None:
             return item[unit]
     return None
@@ -115,8 +115,10 @@ async def test_prep_role_seeds_and_twins(client, gm) -> None:
         "Zip bag 7 (4-piece packs)": "zip_bag_4",
         "String": "packaging",
         "Skewer": "packaging",
-        "Sticker (2-piece packs)": "packaging",
-        "Sticker (4-piece packs)": "packaging",
+        "Sticker (2-piece packs) · kg": "packaging",
+        "Sticker (4-piece packs) · kg": "packaging",
+        "Sticker (2-piece packs) · m²": "packaging",
+        "Sticker (4-piece packs) · m²": "packaging",
         "Vacuum bag": "packaging",
     }
     data = ok(await client.get("/inventory", headers=auth(gm)))
@@ -224,6 +226,7 @@ async def test_satay_drafts_finish_and_movements(client, gm, prep, stocked) -> N
             "count": 40,
             "kg": None,
             "g": None,
+            "m2": None,
         }
     ]
     # A finished preparation can't be saved or finished again.

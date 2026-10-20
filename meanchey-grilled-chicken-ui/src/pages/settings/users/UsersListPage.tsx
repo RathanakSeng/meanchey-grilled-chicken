@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthProvider'
 import { Can } from '@/auth/Can'
 import { RoleBadge, UserStatusBadges } from '@/components/badges'
@@ -16,6 +16,7 @@ import type { Page, Role, User } from '@/lib/types'
 import { useDebounced } from '@/lib/useDebounced'
 import { usePositions } from '@/lib/usePositions'
 import { useRoleCapacity } from '@/lib/useRoleCapacity'
+import { useWorkplaceOptions } from '@/pages/attendance/api'
 
 type Status = 'active' | 'inactive' | 'all'
 const PAGE_SIZE = 20
@@ -32,6 +33,10 @@ export function UsersListPage() {
   const [position, setPosition] = useState('')
   const positions = usePositions()
   const [status, setStatus] = useState<Status>('active')
+  // ?workplace= (from a workplace's page): staff and supervisors assigned there.
+  const [searchParams] = useSearchParams()
+  const [workplace, setWorkplace] = useState(searchParams.get('workplace') ?? '')
+  const workplaces = useWorkplaceOptions()
   const [page, setPage] = useState(1)
   const search = useDebounced(q.trim())
   const capacity = useRoleCapacity()
@@ -40,6 +45,7 @@ export function UsersListPage() {
     q: search || undefined,
     role: role || undefined,
     position: position || undefined,
+    workplace_id: workplace || undefined,
     status,
     page,
     page_size: PAGE_SIZE,
@@ -138,6 +144,22 @@ export function UsersListPage() {
             {positions.data?.map((p) => (
               <option key={p} value={p}>
                 {p}
+              </option>
+            ))}
+          </Select>
+        )}
+        {(workplaces.data?.length ?? 0) > 1 && (
+          <Select
+            aria-label={t('users.filterWorkplace')}
+            value={workplace}
+            onChange={(e) => resetPage(setWorkplace)(e.target.value)}
+          >
+            <option value="">
+              {t('users.filterWorkplace')}: {t('common.all')}
+            </option>
+            {workplaces.data?.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
               </option>
             ))}
           </Select>

@@ -85,15 +85,33 @@ app/
 │                        #   Supplier + Customer via PartnerMixin, production batches + steps + plan,
 │                        #   Notification, TelegramLinkToken, InventoryBalance, InventoryMovement,
 │                        #   Order, OrderBox, OrderBoxItem, OrderReturnItem, OrderCounter, BusinessSettings,
-│                        #   Preparation, PreparationLine, PreparationCounter)
+│                        #   Preparation, PreparationLine, PreparationCounter, AttendanceWorkplace,
+│                        #   AttendanceScheduleVersion, AttendanceHoliday, AttendanceHolidayWorkplace,
+│                        #   AttendanceRecord, AttendanceReminder)
 ├── schemas/             # Pydantic request/response models; common.UserRef = the only user-reference shape
+├── attendance/          # attendance rules and background work
+│   ├── clock.py         # now(): the only clock for check-in / check-out and the scheduler (tests patch it)
+│   ├── windows.py       # pure rules: ShiftDef / Rules → ShiftWindows, decide_check_in / _out,
+│   │                    #   next_action, late / early / overtime minutes, haversine_m, validate
+│   ├── summary.py       # pure: period (month / whole year, no future) and KPIs over records
+│   │                    #   (present / absent / late / early / overtime, missing, extra, balance)
+│   ├── workplaces.py    # TRACKED_ROLES, is_tracked, Schedule (a workplace + a schedule version → defs,
+│   │                    #   rules, weekdays, windows), versions_of / version_on, default / copy_version,
+│   │                    #   default / active workplace, assign_workplace (user_service), user_workplace,
+│   │                    #   ensure_defaults (bootstrap)
+│   ├── days.py          # Days: versions + holidays of some workplaces over a range → day_off (holiday /
+│   │                    #   weekday), windows (none on a day off), next_tracked, off_pairs
+│   ├── scheduler.py     # tick (advisory lock; per workplace: days off skipped, absent, forgot check-out,
+│   │                    #   reminders), rerun (passed cutoffs of given workplace / date pairs),
+│   │                    #   run_tick, run_forever
+│   └── telegram.py      # confirmations and reminders: texts, check-screen button, send after commit
 ├── production/
 │   └── catalog.py       # by-products and raw material kinds (code catalogs, no migration to extend)
 ├── inventory/
 │   ├── catalog.py       # inventory items (stock / wasted), by-product items generated from production,
 │   │                    #   ORDERABLE (packs + packed by-products), wasted_for(code), MATERIAL_PREFIX,
 │   │                    #   satay sachets (Prepared), prepared twin codes (prepared_code, twin_base)
-│   └── units.py         # count / kg / g: precision, quantize, kg <-> g convert (the one quantity rule)
+│   └── units.py         # count / kg / g / m2: precision, quantize, kg <-> g convert (the one quantity rule)
 ├── documents/           # delivery notes (later invoices): order → HTML → PDF
 │   ├── delivery_note.py # build_context (what the note shows), labels km/en, DocumentKind + kind_for
 │   │                    #   (delivery note now, invoice once orders have prices), sample_order
@@ -120,6 +138,13 @@ app/
 │   │                       #   too) / archive, add / remove, icon (validate, square 256 px PNG)
 │   ├── preparation_service.py # preparations: drafts + version, finish (movements per line) / reopen /
 │   │                          #   cancel (reversals), codes, list / stats / options, alert
+│   ├── attendance_service.py # me/today, check-in / check-out (ordered checks, refused attempts audited),
+│   │                         #   day view (per workplace), corrections, workplaces (create / update /
+│   │                         #   delete-or-archive / restore, default switch; schedule summary),
+│   │                         #   summaries (mine / an employee's: KPIs and days; days off don't count)
+│   ├── scheduling_service.py # versions (weekdays / shifts from a date, later versions follow, delete
+│   │                         #   upcoming), holidays (CRUD, copy a year), calendar, retroactive effects
+│   │                         #   (off-pair diff: remove records / rerun cutoffs), under the scheduler lock
 │   ├── business_service.py # business info row (get-or-create), text fields, logo (validate, resize)
 │   ├── telegram_link_service.py # superadmin one-time Telegram link (create, consume, unlink)
 │   ├── role_limit_service.py # role limits: ensure_slot (row lock + count), settings, capacity
@@ -131,16 +156,18 @@ app/
 ├── api/                 # thin routers: auth, me, users, permissions (superadmin), features, audit,
 │                        #   partners (build_router(kind) → /suppliers, /customers), production,
 │                        #   production_plans, notifications, settings (role limits, business info), inventory,
-│                        #   orders (incl. document.pdf, document/send-telegram), preparations
+│                        #   orders (incl. document.pdf, document/send-telegram, delivery-note/supplier for the browser-built Excel), preparations, attendance
 └── bot/
     ├── setup.py         # create_bot(), create_dispatcher(): the one place handlers are registered
-    ├── handlers.py      # /start (incl. /start link_<token>), /lang (create_router())
+    ├── handlers.py      # /start (incl. /start link_<token>; Attendance button for tracked employees),
+    │                    #   /lang (create_router()), menu_button, check_keyboard (the check screen's
+    │                    #   web_app button)
     ├── notify.py        # send stored alerts after commit (deliver, resend_failed), bot username,
     │                    #   api_bot (which bot the API sends with), send_document (delivery notes)
     ├── i18n.py          # bot texts (km/en)
     ├── webhook.py       # POST /api/telegram/webhook (secret check → dp.feed_update)
     ├── runtime.py       # TelegramRuntime (Bot + Dispatcher on app.state), create_runtime()
-    ├── registration.py  # ensure_webhook / set / delete / info, fingerprint in app_settings
+    ├── registration.py  # ensure_webhook / set / delete / info, set_commands_and_menu, fingerprint in app_settings
     └── __main__.py      # CLI: polling mode, `webhook set|delete|info`, `notifications resend-failed`
 ```
 
@@ -247,6 +274,18 @@ erDiagram
     users ||--o{ preparations : "created_by / finished_by / … (SET NULL)"
     preparations ||..o{ audit_logs : "entity (no FK)"
     preparations ||..o{ notifications : "entity (no FK)"
+    attendance_workplaces |o--o{ users : "workplace_id (SET NULL)"
+    users ||--o{ attendance_untracked_periods : "user_id (CASCADE); set_by (SET NULL)"
+    users ||--o{ attendance_requests : "user_id (CASCADE); reviewed_by (SET NULL)"
+    users ||--o{ attendance_records : "user_id (CASCADE)"
+    attendance_workplaces |o--o{ attendance_records : "workplace_id (SET NULL)"
+    users ||--o{ attendance_records : "corrected_by (SET NULL)"
+    users ||--o{ attendance_reminders : "user_id (CASCADE)"
+    users ||--o{ attendance_workplaces : "created_by / updated_by"
+    attendance_workplaces ||--|{ attendance_schedule_versions : "workplace_id (CASCADE; one per effective_from)"
+    attendance_schedule_versions ||..o{ attendance_records : "shift code (no FK; times snapshotted)"
+    attendance_holidays ||--o{ attendance_holiday_workplaces : "holiday_id (CASCADE; scope selected)"
+    attendance_workplaces ||--o{ attendance_holiday_workplaces : "workplace_id (CASCADE)"
 
     users {
         uuid id PK
@@ -266,6 +305,8 @@ erDiagram
         timestamptz deleted_at
         int failed_login_count
         timestamptz locked_until
+        date attendance_start_date "staff and supervisors; first tracked day, null for the others"
+        bool attendance_tracked "staff always true; a supervisor can be switched off"
     }
     permissions {
         varchar code PK
@@ -419,6 +460,7 @@ erDiagram
         int count "null if not tracked, >= 0"
         numeric12_3 kg "null if not tracked, >= 0"
         numeric14_1 g "materials in grams, >= 0"
+        numeric14_2 m2 "materials in square metres, >= 0"
         timestamptz updated_at
     }
     inventory_materials {
@@ -426,7 +468,7 @@ erDiagram
         varchar64 item_code UK "material_<8 hex>"
         varchar100 name_km "unique among active (lower)"
         varchar100 name_en "unique among active (lower)"
-        varchar8 unit "kg | g | count"
+        varchar8 unit "kg | g | m2 | count"
         varchar32 system_code UK "marinade"
         varchar32 icon_key "bundled UI picture"
         bytea icon "uploaded, 256 px PNG"
@@ -440,6 +482,7 @@ erDiagram
         int count_delta
         numeric12_3 kg_delta
         numeric14_1 g_delta
+        numeric14_2 m2_delta
         bool kg_estimated
         varchar source "production | order | order_return | material_add | material_remove | material_unit_change | preparation (adjustment: old rows)"
         uuid batch_id FK "orders: the batch the quantity is attributed to"
@@ -451,6 +494,7 @@ erDiagram
         int balance_count_after
         numeric12_3 balance_kg_after
         numeric14_1 balance_g_after
+        numeric14_2 balance_m2_after
         uuid created_by FK
         timestamptz created_at
     }
@@ -528,6 +572,105 @@ erDiagram
         date day PK
         int last_number
     }
+    attendance_workplaces {
+        uuid id PK
+        varchar100 name
+        varchar255 address
+        numeric9_6 latitude "null until set"
+        numeric9_6 longitude
+        int radius_m "10-5000, default 100"
+        bool is_default "exactly one active"
+        bool is_active "false = archived"
+        timestamptz archived_at
+    }
+    attendance_schedule_versions {
+        uuid id PK
+        uuid workplace_id FK "unique with effective_from"
+        date effective_from
+        smallint_array weekdays "ISO 1-7, at least one"
+        jsonb shifts "morning + afternoon: code, names, HH:MM times, position"
+        int open_before_min "30"
+        int absent_after_min "45"
+        int checkout_window_min "59"
+        int max_accuracy_m "100, 10-500"
+        bool reminders_enabled
+        bool count_early_checkin
+        bool count_overtime
+    }
+    attendance_holidays {
+        uuid id PK
+        varchar100 name_km
+        varchar100 name_en
+        date start_date
+        date end_date "start..start+30"
+        varchar16 scope "all | selected"
+        varchar500 note
+    }
+    attendance_holiday_workplaces {
+        uuid holiday_id PK
+        uuid workplace_id PK
+    }
+    attendance_records {
+        uuid id PK
+        uuid user_id FK
+        date work_date "unique with user and shift"
+        varchar16 shift_code
+        uuid workplace_id FK
+        timestamptz scheduled_start "snapshot"
+        timestamptz scheduled_end "snapshot"
+        varchar16 status "present | late | absent"
+        int late_minutes
+        int early_minutes "0 unless early_counts"
+        int overtime_minutes "0 unless overtime_counts"
+        bool early_counts "workplace flag snapshot"
+        bool overtime_counts "workplace flag snapshot"
+        timestamptz check_in_at "and lat, lng, accuracy_m, distance_m"
+        varchar16 checkout_status "checked_out | forgot_checkout | null"
+        timestamptz check_out_at "and lat, lng, accuracy_m, distance_m"
+        varchar16 source "mini_app | auto | correction"
+        bool corrected "and reason, corrected_by, corrected_at"
+    }
+    attendance_reminders {
+        uuid id PK
+        uuid user_id FK
+        date work_date "unique with user, shift and kind"
+        varchar16 shift_code
+        varchar16 kind "check_in | check_out"
+        timestamptz window_closes_at
+        varchar16 telegram_status "pending | sending | sent | failed | not_linked | bot_off | skipped"
+    }
+    attendance_untracked_periods {
+        uuid id PK
+        uuid user_id FK
+        date from_date
+        date to_date "null = ongoing; at most one ongoing per user"
+        uuid set_by FK
+        timestamptz created_at
+    }
+    attendance_requests {
+        uuid id PK
+        uuid user_id FK
+        smallint year
+        smallint month "unique with user_id and year"
+        varchar16 status "pending | approved | rejected"
+        int missing_minutes "snapshot at submission"
+        int extra_minutes
+        int absent_minutes
+        int late_minutes
+        int balance_minutes
+        int requested_salary_cut_minutes
+        int requested_unpaid_work_minutes
+        int approved_salary_cut_minutes "null until approved"
+        int approved_unpaid_work_minutes
+        varchar16 type "salary_cut | unpaid_work | both (of the requested split)"
+        bool approved_with_changes
+        varchar500 note
+        varchar500 review_comment
+        varchar500 reject_reason
+        timestamptz submitted_at
+        uuid reviewed_by FK
+        timestamptz reviewed_at
+    }
     role_limits {
         varchar32 role PK "general_manager | supervisor | staff"
         int max_active "null = unlimited (not for GM), 1-999"
@@ -556,12 +699,19 @@ erDiagram
 - **Role limits** (`role_limits`, migration `0008`): one row per limited role, seeded 2 / 3 / 10 (bootstrap inserts any missing row, never overwrites). CHECKs keep `max_active` null or 1–999 and never null for the general manager. The migration dropped `uq_users_single_active_gm`; `services/role_limit_service.ensure_slot` locks the role's row (`FOR UPDATE`) and counts active users inside the create / reactivate / role-change transaction, so concurrent requests for the last slot are serialized.
 - **Inventory** (migration `0010`): `inventory_balances` (one row per catalog item, created at startup and on demand; CHECK `count >= 0`, `kg >= 0`) and `inventory_movements` (append-only ledger; indexes on (`item_code`, `created_at`) and `batch_id`; unique partial index on `reversal_of`, so a movement is reversed at most once). `production_batches.inventory_tracked` was added as false for every existing batch, then defaults to true. Migration `0011` (data only) removed the adjustment movements and recomputed the balances and `balance_*_after` from production (production items are read-only). Item codes have no FK: the catalog lives in code (`app/inventory/catalog.py`), like permissions and by-products.
 - **Business info and delivery notes** (migration `0013`): `business_settings`, one row (`ck_business_settings_single_row`: `id = 1`; `ck_business_settings_logo_mime`: logo and its MIME type both set or both null), seeded with the business name; the logo is `bytea`, loaded only when asked for (`deferred`). `orders.print_count` (default 0) counts generated delivery notes; it isn't part of the order's `version`.
-- **Materials** (`inventory_materials`, migration `0014`): inventory items added by hand. CHECKs on `unit` and the name lengths; partial unique indexes `uq_inventory_materials_active_name_km` / `_en` on `lower(name)` where `archived_at IS NULL`; `system_code` unique. The migration also added `inventory_balances.g` (CHECK ≥ 0), `inventory_movements.g_delta` / `balance_g_after` (NUMERIC(14,1)), widened `source` to 24 characters with the three material sources and let `has_delta` accept a grams-only movement. Defaults are seeded by bootstrap, not the migration (`app_settings.inventory_materials_seeded`). Migration `0015` added `icon_key` (String(32)), `icon` (bytea) and `icon_mime` (String(16)) with `ck_inventory_materials_icon_mime`, and backfilled `icon_key` for the defaults.
+- **Materials** (`inventory_materials`, migration `0014`): inventory items added by hand. CHECKs on `unit` and the name lengths; partial unique indexes `uq_inventory_materials_active_name_km` / `_en` on `lower(name)` where `archived_at IS NULL`; `system_code` unique. The migration also added `inventory_balances.g` (CHECK ≥ 0), `inventory_movements.g_delta` / `balance_g_after` (NUMERIC(14,1)), widened `source` to 24 characters with the three material sources and let `has_delta` accept a grams-only movement. Defaults are seeded by bootstrap, not the migration (`app_settings.inventory_materials_seeded`). Migration `0015` added `icon_key` (String(32)), `icon` (bytea) and `icon_mime` (String(16)) with `ck_inventory_materials_icon_mime`, and backfilled `icon_key` for the defaults. Migration `0023` added `inventory_balances.m2` (NUMERIC(14,2), CHECK ≥ 0), `inventory_movements.m2_delta` / `balance_m2_after`, widened `has_delta`, the `unit` CHECK and `preparation_lines.unit` with `m2`, renamed the two seeded kg stickers and created the two m² stickers with audit entries (`source: seed`), only when the defaults were already seeded; downgrade removes every m² material, its lines, movements and balances.
 - **Order customers** (migration `0016`): `orders.customer_type` (`saved` \| `direct`, NOT NULL), `customer_id` nullable, and the snapshot `customer_name` (150) / `customer_phone` (20, normalized) / `customer_location` (255), the partners' column sizes. CHECKs `ck_orders_customer_type` and `ck_orders_customer` (`saved` ⇒ `customer_id` NOT NULL; `direct` ⇒ `customer_id` NULL and `customer_phone` NOT NULL). The migration backfilled existing orders as `saved` with their customer's **current** name, phone and location (the best available; earlier values weren't kept). Its downgrade refuses while direct orders exist (they have no customer to point back to, and stock movements reference them).
   - `order_service._resolve_customer` checks a choice and returns a `CustomerSnapshot` (saved: active customer, copied; direct: `core/phones.normalize_phone`, trimmed location); `_set_customer` writes it. Create and every edit while Created set it (an edit without customer fields re-copies the saved customer, `_refreshed`); `start_delivery` refreshes it once more after taking the stock; nothing writes it later, so it's frozen from Delivering on. Every reader (`_customer_brief` for the list and the order, alerts, the delivery note through `OrderOut`, audit details) uses the snapshot; the list no longer joins `customers` and loads them only for `is_active`.
   - Search: `q` matches `code`, `customer_name`, `customer_location` (ILIKE, escaped) and, when it has digits, `customer_phone` containing them (`012 345` → `012345`), like the partner lists.
 - **Preparations** (`models/preparation.py`, migration `0017`): `preparations` (code unique, `ix_preparations_prepared_date`; CHECKs type, status, note length, and `ck_preparations_prepared_date_matches`: finished ⇔ date), `preparation_lines` (CHECK `kind`: a satay line has `pack_size` and no material, a packaging line `material_id` and no satay fields; values ≥ 0; unique (`preparation_id`, `pack_size`) and (`preparation_id`, `material_id`), so a draft save updates lines in place by that key and never collides), `preparation_counters` (codes per day, like production). Lines load with the preparation (`selectin`). The migration also added `inventory_materials.prep_role` (NOT NULL, default `packaging`, CHECK, partial unique index `uq_inventory_materials_prep_role` on the three satay roles) with its backfill, `inventory_movements.preparation_id` (FK SET NULL, indexed), and widened `ck_inventory_movements_source` (`preparation`) and `ck_notifications_type` (`preparation.finished`). The downgrade refuses while preparations exist (their movements explain balances).
 - **Orders** (`models/order.py`, migration `0012`): `orders` (code unique; `ix_orders_status_delivery_date`, `customer_id`, `driver_id` indexed), `order_boxes` (unique `order_id, position`), `order_box_items` (unique `box_id, item_code`; CHECK `count` xor `kg`, > 0), `order_return_items` (unique `order_id, item_code`; CHECKs returned > 0, split ≥ 0, and once reviewed stock + wasted = returned), `order_counters` (codes per day, like production). Boxes, lines and returns load with the order (`selectin`). The migration also added `inventory_movements.order_id` (FK, SET NULL, indexed), widened `ck_inventory_movements_source` to `order` / `order_return` and `ck_notifications_type` to the four order alerts. Item codes are the inventory codes (no FK). The wasted pack items need no migration (balance rows on demand).
+- **Attendance** (`models/attendance.py`, migration `0018`): `attendance_workplaces` (CHECKs on the latitude / longitude ranges, both-or-neither, the radius 10–5000 and every rule's range; `ck_attendance_workplaces_default_active`: the default isn't archived; partial unique indexes `uq_attendance_workplaces_default` on `is_default` where true (one default) and `uq_attendance_workplaces_name_active` on `lower(name)` where active), `attendance_shifts` (per workplace: unique `uq_attendance_shifts_workplace_code`, FK CASCADE, CHECK `start_time < end_time`), `attendance_records` (unique `uq_attendance_records_shift` = user, day, shift; `ix_attendance_records_work_date`; CHECKs: absent ⇔ no check-in, absent ⇒ no check-out, a check-out time only with `checked_out`, `late_minutes >= 0`), `attendance_reminders` (unique `uq_attendance_reminders_once`), and `users.workplace_id` (FK SET NULL; `User.workplace` loads with `selectin`, so `UserOut.workplace` needs no extra code). The migration seeds the default workplace "Mean Chey" without coordinates with the default rules and its two shifts (since `0020` a schedule version), and gives every staff member and supervisor the default workplace; bootstrap re-creates missing seeds (`workplaces.ensure_defaults`). Records keep `workplace_id` (SET NULL), so a workplace with history is archived rather than deleted. Its downgrade refuses while records exist. Records snapshot their shift's start / end as `timestamptz`, so changing the times never rewrites history; positions are `NUMERIC(9,6)`, accuracy and distance `NUMERIC(8,1)` / `NUMERIC(10,1)` metres (floats in the JSON).
+- **Tracking** (migration `0021`, `models/attendance.py` + `models/user.py`): `users.attendance_start_date` (date, nullable: set for staff and supervisors, null for the others; backfilled with the date of `created_at` in `BUSINESS_TIMEZONE`) and `users.attendance_tracked` (bool, default true). `attendance_untracked_periods` (`from_date`, `to_date` null = ongoing; `ck_attendance_untracked_periods_range`: `to_date >= from_date`; partial unique `uq_attendance_untracked_periods_open` on `user_id` where `to_date IS NULL`, so one ongoing period per user; `ix_…_user` on `user_id, from_date`; `user_id` FK CASCADE, `set_by` FK SET NULL). `User.untracked_periods` loads with `selectin` (like `creator`), so `UserOut.attendance_untracked_since` and the tracking helper need no extra query; a User built in code must be given `untracked_periods=[]` (an unloaded collection can't lazy-load in async code). Downgrade drops the table and both columns.
+- **Requests** (migration `0022`, `models/attendance.py`, `services/request_service.py`, pure rules in `attendance/requests.py`): `attendance_requests`, one row per (`user_id`, `year`, `month`) (`uq_attendance_requests_month`), `user_id` FK CASCADE, `reviewed_by` FK SET NULL. CHECKs: `status`, `type`, `month` 1–12, `requested_split` (both ≥ 0 and their sum = `missing_minutes`) and `approved_split` (both null or both ≥ 0 summing to `missing_minutes`). Indexes on (`status`, `submitted_at`) and (`year`, `month`). The migration also widens the `notifications.type` CHECK with the four `attendance.request_*` types; downgrade deletes those notifications and drops the table. The deadline (`attendance.request_deadline_day`, default 7 when absent) and the last month reminded (`attendance.request_reminder_month`) live in `app_settings` (`attendance/request_settings.py`).
+- **Month lock** (`attendance/month_lock.py`): `ensure_unlocked(user, day)` is called by `correct` and `create_record` (`409 ATTENDANCE_MONTH_LOCKED`); `locked_pairs` filters the records `scheduling_service._apply_effects` would remove, and the scheduler's `_mark_absent` leaves locked employee-months out (`month_locked_sql`, an EXISTS), counting them in `skipped_locked` (`Effects`, `TickResult`). `pending` and `approved` lock; a rejection doesn't.
+- **Request notifications:** `notification_service.notify_users` writes one row for each given user (the reviewers in scope: `recipients(…)` filtered by `can_manage`; or the employee) in the action's transaction and queues them for Telegram, like `notify`; `bot/notify.py` builds the texts (`_request_message`). The 1st-of-month reminder is `request_service.queue_reminders`, called by `scheduler.run_tick` after the tick in the same transaction, then delivered after the commit.
+- **Scheduling** (migration `0020`): `attendance_schedule_versions` (unique `uq_attendance_schedule_versions_date` = workplace + `effective_from`, FK CASCADE; CHECKs: `weekdays` a non-empty subset of 1–7 (`cardinality`, `<@`), every rule's range, moved from the workplaces), `attendance_holidays` (CHECKs: `scope`, `end_date >= start_date` and at most 31 days; `ix_attendance_holidays_dates`) and `attendance_holiday_workplaces` (PK holiday + workplace, both FK CASCADE). The migration built one version per workplace from its `attendance_shifts` and rule columns (`effective_from` = creation date in `BUSINESS_TIMEZONE`, all seven weekdays) and dropped the table and columns; it moved `attendance.shifts_manage` grants to `attendance.scheduling` (inserting that permission row first) with a `feature.set` `default_change` audit entry each. Downgrade restores each workplace's latest version into the old shape (holidays and older versions are lost). Bootstrap gives any workplace without a version the default one (`ensure_defaults`).
+- **Early check-in and overtime** (migration `0019`): `attendance_workplaces.count_early_checkin` / `count_overtime` (default true) and `attendance_records.early_minutes` / `overtime_minutes` (CHECK `>= 0`) with the flags' snapshot `early_counts` / `overtime_counts`. The migration backfilled existing records in SQL from their snapshot times (the check-in truncated to the minute, capped by their workplace's `open_before_min` / `checkout_window_min`, 30 / 59 without one; absent and forgot check-out → 0; flags true). Late, early and overtime minutes are stored per record, so a summary is a sum over records.
 - **Uniqueness only counts active users,** so a deactivated user's username can be reused.
 - **`permissions` rows are never deleted.** Removing a permission from the registry flips `is_active`.
 - **`suppliers` / `customers`** share their columns and indexes through `PartnerMixin` (`models/partner.py`), migration `0004`:
@@ -578,7 +728,7 @@ erDiagram
 - **Packaging plan** (`production_plans`, migration `0007`): one row per batch, created by `production_service` when step 2 is finished and reset to `pending` on step 2 re-finish / step 1–2 reopen. CHECKs: `status` in (`pending`, `confirmed`), values ≥ 0, and `ck_production_plans_confirmed_complete` (a confirmed plan has both values). Loaded with the batch (`selectin`). The migration created a `pending` plan for each in-progress batch whose step 2 was finished; completed and cancelled batches have none (`plan_legacy`).
 - **Notifications** (`notifications`, migration `0007`): one row per recipient, indexed on (`user_id`, `read_at`, `created_at`) for the bell. `entity_type` / `entity_id` like `audit_logs` (no FK). `payload` keeps `actor_id`, turned into a `UserRef` when read. CHECKs on `type` and `telegram_status`.
 - **Telegram link tokens** (`telegram_link_tokens`, migration `0007`): SHA-256 of the raw token (unique), 10-minute `expires_at`, `used_at` once consumed.
-- **Weights are `Decimal` end to end:** `NUMERIC(10,3)` for kg and `NUMERIC(10,1)` for grams in the database, `Decimal` in Python (never `float`), accepted by Pydantic from JSON numbers or strings with `max_digits` / `decimal_places`, and serialized as fixed-precision strings (`"12.500"`, `"350.0"`) through a `PlainSerializer`. The UI parses them into scaled integers for exact sums.
+- **Weights are `Decimal` end to end:** `NUMERIC(10,3)` for kg, `NUMERIC(10,1)` for grams and `NUMERIC(14,2)` for square metres in the database, `Decimal` in Python (never `float`), accepted by Pydantic from JSON numbers or strings with `max_digits` / `decimal_places`, and serialized as fixed-precision strings (`"12.500"`, `"350.0"`) through a `PlainSerializer`. The UI parses them into scaled integers for exact sums.
 - **`audit_logs.entity_type` / `entity_id`** (indexed together as `ix_audit_logs_entity`) reference non-user records. There is no foreign key because one column pair points into several tables; the audit listing resolves current names with one query per entity type (`ENTITY_LABELS`: `suppliers.name`, `customers.name`, `production_batches.code`, `orders.code`).
 - **Constraint naming.** All constraints follow a naming convention (`ix_`, `uq_`, `ck_`, `fk_`, `pk_`), which keeps Alembic autogenerate deterministic.
 - **Timestamps** are `timestamptz`. The app sets them in Python (UTC) and also has server defaults. Setting them in Python avoids lazy loads after `commit` under asyncio (`expire_on_commit=False`).
@@ -610,14 +760,14 @@ sequenceDiagram
 
 ### Materials and units
 
-- **One quantity rule** (`app/inventory/units.py`, mirrored by the UI's `lib/quantity.ts`): count whole, kg 3 decimals, g 1 decimal. `quantize`, `has_precision` and `convert` (kg <-> g, half-up to the target precision) are the only places that know it; the material service validates quantities with them and the marinade hook converts with them.
+- **One quantity rule** (`app/inventory/units.py`, mirrored by the UI's `lib/quantity.ts`): count whole, kg 3 decimals, g 1 decimal, m² 2 decimals (`m2`). `quantize`, `has_precision` and `convert` (kg <-> g, half-up to the target precision; m² and count convert to nothing) are the only places that know it; the material service validates quantities with them and the marinade hook converts with them.
 - **Grams have their own columns** instead of a generic quantity: production items keep their typed `count` / `kg` columns and CHECKs untouched, and grams need 0.1 g, which the 3-decimal kg column can't hold. A balance row holds exactly one non-null unit for a material.
 - **Materials are resolved, not cataloged:** `inventory_service.resolve(codes)` returns `ItemDef`s for catalog codes and for `material_*` codes (from the table, `material_def`: group raw, origin manual, `tracks_g`). `apply_movements`, `ensure_balances`, the overview, item detail, the history and a batch's stock changes all go through it, so a material is an ordinary ledger item (locks, no-negative rule, `balance_*_after`).
 - **Unit change** (`material_service._change_unit`) locks the material row and its balance, converts the balance and writes one `material_unit_change` movement with the old unit's negative delta and the new unit's positive one (`balance_*_after` in the new unit). Old movements are never rewritten.
 - **Marinade hook** (`inventory_service.finish_step`, step 2): reads Marinade sauce by `system_code` with `FOR SHARE` (a unit change waits), appends `−marinade_g` in the material's unit to the step's deltas, and `apply_movements` refuses the whole Finish if it isn't there. `reverse` converts a material's reversal to its current unit (`_in_current_unit`) and leaves materials out of `_guard_reversal`.
 - **Icons** (migration `0015`): `icon_key` names a picture the UI bundles (the defaults' keys are in `DEFAULTS`; the migration backfilled them); an upload lives in the row (`icon` bytea, **deferred** so lists never load it, `icon_mime`; CHECK both-or-neither, like the business logo). `prepare_icon` decodes with Pillow (PNG / JPEG / WebP only, ≤ 1 MB in, ≤ 25 MP), applies the EXIF rotation, `ImageOps.fit`s it to 256 × 256 (center crop) and saves an optimized RGBA PNG (a few kB), so serving needs no work and every client gets one size. `inventory_service.material_icon_url` builds `icon_url` with `?v=` = a short SHA-1 of `updated_at` (an upload or removal touches it), which makes the URL a cache key: the route answers `Cache-Control: private, max-age=31536000, immutable`, and the UI caches the blob by URL.
 - **Prepared twins** (`inventory_service.prepared_def`): a packaging material's twin is the item `<item_code>_prepared`, resolved from the material like materials are (`resolve` → `twin_materials`): section and group `prepared`, origin `preparation`, the material's names and unit. No table: the twin's balance row is created by `ensure_balances` (at startup for every packaging material, with the material in `_add`, and on demand by `lock_balances`). `is_material` excludes twin codes (they share the prefix); the history's `section` filter splits them (`material_%` without / with `%_prepared`). `material_service._change_unit` locks and converts the twin's balance too (kg ↔ g, its own movement when it has stock) and checks both codes for movements before a count switch. The overview lists twins after the satay sachets (archived materials' only while in stock); `item_detail` answers `preparation_sources` (sum of movements per `preparation_id`) for origin `preparation`.
-- **Seeding** (`material_service.ensure_defaults`, in bootstrap under the advisory lock): the nine defaults once (flag row in `app_settings`), with their `icon_key` and `prep_role` (a satay role already taken falls back to `packaging`), skipping a name already in use; Marinade sauce on every start if missing (an active material with that English name becomes the system one).
+- **Seeding** (`material_service.ensure_defaults`, in bootstrap under the advisory lock): the eleven defaults once (flag row in `app_settings`; the four stickers: two kg, two m²), with their `icon_key` and `prep_role` (a satay role already taken falls back to `packaging`), skipping a name already in use; Marinade sauce on every start if missing (an active material with that English name becomes the system one).
 
 ### Preparations
 
@@ -642,6 +792,63 @@ sequenceDiagram
 - **Reversals** (`_reverse`): the preparation's open movements (no `reversal_of`, not reversed yet), each negated in its item's **current** unit (`_in_current_unit` with the material, or the twin's material), through `apply_movements`, so a reopen or cancel whose outputs are gone is refused like any shortage. Production's "stock already used in orders" guard doesn't apply: prepared items aren't attributed to batches or orders.
 - **Draft saves** replace the lines but keep rows matched by `pack_size` / `material_id` (update in place, delete the others, insert new keys), so the unique constraints never see a transient duplicate.
 - **Lock order:** the preparation row, then the materials (share), then the balances; a material unit change takes the material row first, then its balances, so the two never wait on each other in opposite orders.
+
+### Attendance
+
+```mermaid
+sequenceDiagram
+    participant P as Phone (Mini App)
+    participant R as POST /attendance/check-in
+    participant S as attendance_service.check
+    participant W as attendance/windows
+    participant DB as PostgreSQL
+    participant B as BackgroundTasks → attendance/telegram
+
+    P->>R: {latitude, longitude, accuracy_m} (GPS, never a time)
+    R->>S: check(user, action)
+    S->>S: tracked? workplace set? (refusal: audit + commit, then the error)
+    S->>W: clock.now() → the employee's workplace Schedule → day_windows → decide_check_in / _out
+    S->>DB: SELECT record FOR UPDATE (duplicates / order)
+    S->>W: accuracy ≤ the workplace's max, haversine_m ≤ its radius
+    S->>DB: INSERT record (snapshot start / end, late minutes) or set check-out; COMMIT
+    R-->>P: {action, record, today}
+    R->>B: send_confirmation(record_id) after the response
+```
+
+- **One clock, pure rules, a schedule per workplace and date.** `attendance/clock.now()` is the only time source (the server's, never the phone's); `days.load_days` loads the versions of some workplaces and the holidays over a date range once, and `Days` answers per (workplace, date): `schedule` (the version in effect, as a `workplaces.Schedule`), `day_off` (holiday wins over weekday), `windows` (none on a day off) and `next_tracked` (the next tracked day's windows, for `next_action` and `ATTENDANCE_DAY_OFF`). `windows.py` turns shifts + rules + a date into `ShiftWindows` (instants in `BUSINESS_TIMEZONE`, closing times exclusive) and decides with plain functions (`decide_check_in`, `decide_check_out`, `next_action`, `late_minutes`), which the API, `me/today` and the scheduler share and the tests cover minute by minute.
+- **The server decides the action.** `next_action` puts a pending check-out before a check-in (the 12:30–12:59 overlap), and `check()` picks the shift from the time, so an old link or a stale screen can't record the wrong shift.
+- **Haversine** (`windows.haversine_m`, mean Earth radius 6 371 008.8 m) gives the distance to the workplace; the UI uses the same formula only for its live status line.
+- **Refused attempts** are audited in their own commit before the `AppError` is raised (like the lockout), so the error rolls nothing back; a double tap racing on the unique constraint becomes `ATTENDANCE_ALREADY_CHECKED_IN`.
+- **Corrections** reuse the record's snapshot for late minutes (and its flags for early / overtime minutes, capped by the windows of the record's workplace's version on its date) and write `attendance.correct` with before / after in the same transaction; scope is `ensure_can_manage` (the role hierarchy), the superadmin's id is `USER_NOT_FOUND` for others.
+
+- **Summaries** (`/attendance/me/summary`, `/attendance/users/{id}/summary`): one query for the period's records of one employee; `summary.kpis` sums them (scheduled minutes from the snapshot times, stored late / early / overtime minutes), and the service lists one day per date from the period start (or the account's creation) to today, newest first, with each shift's record or `none`. The manager route reuses the corrections' target check (`_target`: hidden → 404, scope, tracked roles).
+
+**Scheduling** (`services/scheduling_service.py`):
+
+- **Writes** (`set_weekdays`, `set_shifts`, holidays create / update / delete / copy) take `pg_advisory_xact_lock` on the scheduler's key (blocking), so no tick runs between a change and its retroactive effects; one transaction across every target workplace.
+- **Versions:** `_write_version` writes the changed fields into the version on `effective_from` (replaced, or a `copy_version` of the one in effect then) and into the workplace's later versions; unchanged workplaces are skipped.
+- **Retroactive effects by diff:** each write computes the (workplace, date ≤ today) pairs that are days off before and after it (`Days.off_pairs`, after a flush) and applies the difference: newly off → `DELETE` the records of those workplaces and dates except corrected ones, with one `attendance.records_removed_by_day_off` entry holding their snapshots; back on → `scheduler.rerun`. Holiday writes cover the union of the old and new dates and workplaces (`all` = every active workplace); weekday writes only today, and only when effective today.
+
+**Scheduler** (`attendance/scheduler.py`):
+
+```mermaid
+flowchart TD
+    L[lifespan: asyncio task run_forever] -->|every minute| T[run_tick: own session]
+    T --> K{pg_try_advisory_xact_lock 815002}
+    K -->|taken by another worker| X[skip this minute]
+    K -->|got it| A[for each active workplace not off today, each shift of today's version,<br/>its employees only:<br/>now ≥ cutoff → INSERT absent ON CONFLICT DO NOTHING<br/>now ≥ check-out close → UPDATE open → forgot_checkout<br/>window open and reminders on → INSERT reminders ON CONFLICT DO NOTHING]
+    A --> S[pending with closed window, or of a workplace with reminders off or a day off → skipped<br/>pending → sending RETURNING ids]
+    S --> C[COMMIT]
+    C --> M[send_reminders: api_bot, own session,<br/>re-check needed / window, store outcome]
+```
+
+- **One worker per tick:** `pg_try_advisory_xact_lock` inside the tick's transaction; other workers or replicas skip that minute instead of waiting.
+- **Who is tracked (`attendance/tracking.py`):** one rule, asked everywhere: staff or supervisor, active, date ≥ `attendance_start_date` (null = since forever), date not inside an untracked period. `status_on(user, day, periods)` (Python: check-in / check-out, `me/today`, the bot's `/start`, the day view, the summaries) and `tracked_on_sql(day, …)` (SQL on `User`; `day` may be a column, e.g. a reminder's `work_date`) are the same rule written twice. The scheduler's absent, forgot check-out and reminder queries all go through `tracked_on_sql`, so an employee who is not yet started or switched off gets nothing; waiting reminders of someone no longer tracked on their date are `skipped`. Workplace days off stay in `Days` (§ above).
+- **Per workplace and date:** each active workplace is evaluated with its version for the date (`Days`), skipping days off, for the employees assigned to it (`users.workplace_id`); the default workplace also takes employees without an active one (missing or archived). Absent records get that workplace's id; forgot check-out updates the records made at it.
+- **Idempotent, with catch-up:** every step is keyed on "now ≥ the cutoff" for **today** and protected by unique constraints, so a tick after downtime fills in today's absences and forgotten check-outs, and re-running a tick changes nothing. Absent records only for employees who existed before the cutoff (`created_at`).
+- **Reminder de-duplication:** a reminder row is unique per user / day / shift / kind and created only while its window is open; rows are **claimed** (`pending → sending`) in the locked transaction and sent after the commit, so two workers never send the same one; a row whose window closed before it was sent (crash, downtime), or whose workplace turned reminders off, becomes `skipped`. The send re-checks that it's still needed (no record yet / still open).
+- **Replay for given dates:** `rerun(session, pairs, now)` runs the same absent / forgot steps for (workplace, date) pairs, inside the caller's transaction (which holds the lock), without reminders: Scheduling calls it for days that became tracked again (a holiday removed or shortened, today's weekday tracked again).
+- **Which bot:** `notify.api_bot` like the alerts (the runtime's in webhook mode, a short-lived one in polling mode, none otherwise → `bot_off`). Off with `ATTENDANCE_SCHEDULER_ENABLED=false` (tests call `run_tick(now, runtime)` with a fixed clock).
 
 ### Documents (delivery notes)
 
@@ -812,19 +1019,19 @@ flowchart LR
 1. `SELECT pg_advisory_xact_lock(815001)`: serializes concurrent starts, for example several workers or replicas, or the api and a migration job.
 2. `validate_features()` (also at import) and `sync_registry()`: checks FEATURES against PERMISSIONS, then upserts the registry (including `grantable_by`) and deactivates entries that were removed. It returns the codes it **inserted**.
 3. `backfill_defaults(new_codes)`: grants each newly inserted permission to every active user whose role has it in `DEFAULT_PERMISSIONS` (`granted_by = NULL`, `INSERT … ON CONFLICT DO NOTHING`), with a `permission.grant` audit entry per grant (`details.source = "default_backfill"`). Because it only sees codes inserted by this run, it grants nothing on later starts, and a manual revoke stays revoked.
-4. `seed_superadmin()`: creates the superadmin if none exists, with `must_change_password = false`.
+4. `seed_superadmin()`: creates the superadmin if none exists, with `must_change_password = false`. Then role limits, materials and balances, and the **attendance defaults** (`attendance.workplaces.ensure_defaults`: the default workplace and its two shifts when missing; the default workplace for staff and supervisors without one).
 5. **Webhook registration**, only when `BOT_MODE=webhook`, a token is set and `TELEGRAM_WEBHOOK_AUTO_SET=true`. `ensure_webhook()`:
    1. calls `getWebhookInfo`;
-   2. calls `setWebhook(url, secret_token, allowed_updates=dp.resolve_used_update_types(), drop_pending_updates)` and `setMyCommands` only if **any** of these differ:
+   2. calls `setWebhook(url, secret_token, allowed_updates=dp.resolve_used_update_types(), drop_pending_updates)`, `setMyCommands` and `setChatMenuButton` (the default menu button: `web_app` → `MINI_APP_URL`) only if **any** of these differ:
       - the URL;
       - the allowed updates;
-      - the fingerprint stored in `app_settings`, a SHA-256 of URL, secret, allowed updates and drop-pending. Telegram never returns the secret, so this is the only way to detect a rotated secret.
+      - the fingerprint stored in `app_settings`, a SHA-256 of URL, secret, allowed updates, drop-pending and `MINI_APP_URL`. Telegram never returns the secret, so this is the only way to detect a rotated secret.
    - Every Telegram call has a 10 s timeout. **Any failure is logged and swallowed**, so the API still comes up.
    - Because this runs under the advisory lock, several workers starting together register once. The rest see the matching fingerprint and skip.
 
 It then commits. The whole thing is idempotent.
 
-- It also runs inside the FastAPI lifespan, so a plain `uvicorn` run in development gets the same guarantees.
+- It also runs inside the FastAPI lifespan, so a plain `uvicorn` run in development gets the same guarantees. The lifespan then starts the attendance scheduler task (unless `ATTENDANCE_SCHEDULER_ENABLED=false`) and cancels it on shutdown.
 - The lifespan creates the `TelegramRuntime` first (webhook mode only) and passes it in, so registration and request handling use the same `Bot` and `Dispatcher`.
 - When run as `python -m app.bootstrap`, a short-lived `Bot` is created for registration and then closed.
 
@@ -865,7 +1072,7 @@ sequenceDiagram
 ### 9.2 Polling mode (fallback for local development)
 
 - `BOT_MODE=polling` + `python -m app.bot` (compose: `docker compose --profile polling up`).
-  - It deletes any registered webhook, clears the stored fingerprint, sets the commands, then long-polls with the **same** `create_dispatcher()`.
+  - It deletes any registered webhook, clears the stored fingerprint, sets the commands and the menu button, then long-polls with the **same** `create_dispatcher()`.
   - In this mode the API creates no runtime, so the webhook endpoint returns 404 and nothing is registered at startup.
 - The whole stack must use `BOT_MODE=polling`. If the API still runs in webhook mode, it re-registers the webhook on its next restart, and Telegram then rejects `getUpdates`. The poller logs a warning when it finds a webhook registered.
 - **Only one polling instance** per bot token may run: Telegram rejects concurrent `getUpdates` calls.
@@ -895,6 +1102,7 @@ sequenceDiagram
 - **Same path for orders and preparations:** Delivering, Delivered and the return review call `notify(..., permission="orders.review_returns")` in their transaction, a preparation's Finish `notify(..., permission="preparation.update")` (type `preparation.finished`, button `/workstation/preparations/<id>`, summary text built by `notify.preparation_summary`); the orders router hands the queued ids to the same `deliver` task. `notify` takes the recipients' permission (`production_plan.view` by default), so a new alert family needs no new plumbing; `message_for` picks the text and the button (`/workstation/orders/<id>`) by type.
 - **Stored first, sent after commit.** `notification_service.notify()` adds the rows in the Finish transaction and queues their ids on the session (`session.info`); the router takes them (`take_queued`) and hands them to a FastAPI background task, which runs after the response with its own session. A rolled-back Finish sends nothing (`discard_queued`).
 - **Which bot:** webhook mode uses the runtime's `Bot` (`app.state.telegram`); polling mode creates a short-lived `Bot` (`notify.bot_factory`) because the poller is another process; no token / `BOT_MODE=off` / no runtime → `bot_off`.
+- **Attendance messages** (`attendance/telegram.py`) use the same `api_bot`: the check-in / check-out confirmation is a background task after the response (`send_confirmation`), the reminders are sent by the scheduler after its commit (`send_reminders`); both carry the check screen's `web_app` button (`handlers.check_keyboard`) and never raise.
 - **Never fails the action:** every exception is caught, logged and recorded as `failed` (with the error). There is no retry loop; `python -m app.bot notifications resend-failed` retries the failed rows once with a short-lived bot.
 - **Texts** live in `bot/i18n.py` (km/en, HTML; the code and comment are escaped). The bot username for the superadmin's link comes from `getMe`, cached per process (`notify.bot_username`).
 
@@ -942,6 +1150,12 @@ In webhook mode the API can run **multiple uvicorn workers or replicas**.
 |---|---|---|
 | `BUSINESS_TIMEZONE` | `Asia/Phnom_Penh` | IANA zone for business calendars, e.g. the "new this month" figure on suppliers and customers. Validated at startup. Zone data comes from the `tzdata` package, so it works on Windows and slim images too. |
 
+**Attendance**
+
+| Setting | Default | Notes |
+|---|---|---|
+| `ATTENDANCE_SCHEDULER_ENABLED` | `true` | Run the attendance scheduler (absent, forgot check-out, reminders) in the API process. With several workers it runs in each; the advisory lock lets one work per minute. Tests set `false`. |
+
 **Telegram bot settings**
 
 | Setting | Default | Notes |
@@ -970,7 +1184,8 @@ Settings are read at import time by `app.db` to build the engine. Tests therefor
 | Engine | `DB_NULL_POOL=true` avoids connection reuse across pytest-asyncio event loops. |
 | HTTP | `httpx.AsyncClient` over `ASGITransport(app)`: in-process, no server. |
 | Auth in tests | `auth(user)` mints an access token directly. Login flows have their own tests. |
-| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation; default backfill, `grantable_by` and `reason`; suppliers/customers CRUD, validation, phone rules, duplicates, search/sort/paging, stats month boundary, audit entities (parametrized over both lists); feature levels (mapping, diffs, check order, defaults, startup validation); detailed permissions superadmin-only; **superadmin invisibility sweep** over every GET route from the OpenAPI schema plus key mutations, as GM / supervisor / staff; **superadmin ⊇ GM sweep** (`test_superadmin_superset.py`): every route and method in the schema is called as the GM and, wherever the GM isn't refused with 403, as the superadmin, which must not get 403 either (placeholders filled with targets both manage; empty bodies unless a valid one is needed to reach a service-level check; both accounts reset between calls); production steps, drafts, versions, reopen (cascading), cancel (GM only), codes under concurrency, stats; GM feature levels set by the superadmin; packaging plan (feature and backfill, lifecycle through reopen sequences, pieces rule, confirm, lock, versions, cancelled, legacy batches, audit, list and detail) and the step 3 gate and comment rule; notifications (recipients by permission, rows only with a successful Finish, Telegram per language with the web_app button, `not_linked` / `bot_off` / `failed`, polling-mode bot, repeat after reopen, resend, own-only bell, "System" actor); superadmin Telegram link (hashed single-use token, expiry, id taken, unlink, role guard); role limits (defaults, create / reactivate / role change at the limit per role and actor, freed slots, unlimited, range, lowering below the count, superadmin-only settings and hidden audit, capacity per viewer, two GMs out of each other's scope and both alerted) including **concurrent creates for the last slot** (several requests at once, each with its own session: exactly one succeeds; the test fails without the row lock); supervisors setting staff access (scope, cap, `allowed`, no cascade, Staff access Off) and View / Record / Full staff management; migrations `0006`, `0007`, `0008`, `0009` (idempotent), `0010` and `0011` (reset, idempotent); inventory (movements per Finish incl. estimated waste kg and the by-product split, two batches, reopen cascades latest first, re-finish, cancel, no double reversal, negative guard on Finish / reopen / cancel with nothing changed, untracked batches, production items refused for everyone, per-batch breakdown through step 3 / reopen / cancel adding up to the balance, access and backfill, history filters, concurrent Finishes on the same items); inventory history (Off by default, movements and batch stock changes gated, grantor-must-hold: superadmin on GMs and supervisors, a GM only while holding it, hidden in GET / 404 on PUT / hidden audit entries, no cascade); orders (`test_orders.py`: registry levels and defaults, backfill, staff Off / View only, supervisor cap for staff Orders, staff Record without edit / review; create with boxes and the per-colour summary, every validation location, colours and extra fields, customer / driver rules, edit with box replacement and audit diff, conflicts, edit / cancel only Created and only with their permission; Delivering FIFO across two batches with the per-batch breakdown and order movements, `INVENTORY_INSUFFICIENT` keeping it Created, version conflict; Delivered accepted / returned validation; review split, stock / wasted movements attributed newest first, partly vs fully returned, wasted by-products; the **production guard** on reopen of step 3 and of step 2 (cascade), allowed for an untouched batch and after a return to stock, still blocked after a return to wasted; codes under concurrency; stats and list filters; available stock; audit entity names); order alerts (`test_order_notifications.py`: recipients = holders of `orders.review_returns`, one row per status change, payloads, none on a failed Delivering, the bell, Khmer Telegram texts with the **Open order** button, English texts escaped); migration `0012` round trip. Order customers (`test_order_customers.py`: saved snapshot, direct orders with phone required and normalized and location optional, fields that don't match the type, inactive customers (refused, kept on their own order), switching saved ⇄ direct while Created with the audit diff, snapshot refreshed by edits and by Delivering and frozen after it, `customer_type` filter and search by phone digits / location / name, customer options with location, alerts and the delivery note for a direct order; migration `0016`: backfill, CHECKs, downgrade refused with direct orders). The redaction and superset sweeps fill `{order_id}`; delivery notes (`test_documents.py`: content per status (Created, Delivering, Return pending, reviewed, Success, Cancelled banner), COPY numbering and `order.document_printed` audit, version untouched, access, "System" for the superadmin, renderer unavailable → 503 with nothing counted, Telegram send to the linked chat (`SendDocument`, escaped caption, QR) / not linked / bot off / Telegram failing with nothing counted, invoice switch and black-and-white stylesheet; with WeasyPrint: real PDFs 80 mm wide, Khmer and English text extracted with pypdf, a longer order gives a taller page, the preview PDF); material icons (`test_material_icons.py`: the defaults' `icon_key`, upload resized to a 256 px square PNG from JPEG and WebP, `icon_url` in the list and the overview and changing with each upload, serve and delete, wrong type / fake / empty / over 1 MB refused, guards, audit; migration `0015` round trip with the backfill; the redaction and superset sweeps include the icon routes); materials (`test_materials.py`: defaults seeded once and Marinade sauce re-created, Raw order, precision per unit, add / remove with reason and the no-negative rule, history and audit, `set` refused, kg <-> g conversion with history in the original unit, count locked after movements, duplicate names, archive / restore, system locks, step 2 marinade in g and kg with reopen / cancel restoring it, insufficient marinade blocking Finish, `marinade_g = 0` and untracked batches moving nothing, registry, access, supervisor cap; migration `0014` round trip; every test starts with plenty of marinade set on the balance directly, `conftest.set_marinade_stock`); business info (`test_business_info.py`: seeded row, superadmin edits, GM only with the feature, not applicable to supervisors, validation, phone normalization, logo resize / kept as uploaded / wrong type / empty / over 500 kB / remove, audit, preview data source). Preparations (`test_preparations.py`: prep_role seeds and the twins in the overview, a new material defaulting to packaging with a twin and in the options, non-preparable materials refused; satay drafts (partial, precision, line kind, version conflict with the current preparation), Finish validation, movements of both lines and the item breakdown per preparation, the sauce in kg; packaging 1:1 for kg, g and counted materials; insufficient stock refusing with nothing changed; archived material at Finish, archived twin kept while in stock; kg → g converting the twin and count locked; a kg line finished after a switch to g; reopen / cancel reversing (and re-finish), blocked when the outputs are gone; cancelled read-only; codes under concurrency; stats and list filters; audit; migration `0017` round trip with the backfill and the downgrade refused with preparations) and `test_preparation_access.py` (registry levels and defaults, backfill, GM levels, staff Off / View only / Record and management not applicable, supervisor Record then management, the supervisor cap; alerts to holders of `preparation.update` only, repeat after reopen, none on a refused Finish, the Khmer Telegram text and Open preparation button, English texts escaped); the redaction and superset sweeps fill `{preparation_id}`. Route tests use the `html_documents` fixture (the renderer returns the template's HTML), so counting, audit and **redaction** are checked as text and run anywhere; the redaction sweep reads the notes, and the superset sweep gives its GM Business info so the settings routes are compared. |
+| Coverage focus | Scope matrix for every role pair; grant rules; defaults; DB invariants; forced password change; lockout; Telegram valid / tampered / expired / binding; normalization; deactivation; resets; audit access; webhook secret / dispatch / errors / modes; webhook registration; bot settings validation; default backfill, `grantable_by` and `reason`; suppliers/customers CRUD, validation, phone rules, duplicates, search/sort/paging, stats month boundary, audit entities (parametrized over both lists); feature levels (mapping, diffs, check order, defaults, startup validation); detailed permissions superadmin-only; **superadmin invisibility sweep** over every GET route from the OpenAPI schema plus key mutations, as GM / supervisor / staff; **superadmin ⊇ GM sweep** (`test_superadmin_superset.py`): every route and method in the schema is called as the GM and, wherever the GM isn't refused with 403, as the superadmin, which must not get 403 either (placeholders filled with targets both manage; empty bodies unless a valid one is needed to reach a service-level check; both accounts reset between calls); production steps, drafts, versions, reopen (cascading), cancel (GM only), codes under concurrency, stats; GM feature levels set by the superadmin; packaging plan (feature and backfill, lifecycle through reopen sequences, pieces rule, confirm, lock, versions, cancelled, legacy batches, audit, list and detail) and the step 3 gate and comment rule; notifications (recipients by permission, rows only with a successful Finish, Telegram per language with the web_app button, `not_linked` / `bot_off` / `failed`, polling-mode bot, repeat after reopen, resend, own-only bell, "System" actor); superadmin Telegram link (hashed single-use token, expiry, id taken, unlink, role guard); role limits (defaults, create / reactivate / role change at the limit per role and actor, freed slots, unlimited, range, lowering below the count, superadmin-only settings and hidden audit, capacity per viewer, two GMs out of each other's scope and both alerted) including **concurrent creates for the last slot** (several requests at once, each with its own session: exactly one succeeds; the test fails without the row lock); supervisors setting staff access (scope, cap, `allowed`, no cascade, Staff access Off) and View / Record / Full staff management; migrations `0006`, `0007`, `0008`, `0009` (idempotent), `0010` and `0011` (reset, idempotent); inventory (movements per Finish incl. estimated waste kg and the by-product split, two batches, reopen cascades latest first, re-finish, cancel, no double reversal, negative guard on Finish / reopen / cancel with nothing changed, untracked batches, production items refused for everyone, per-batch breakdown through step 3 / reopen / cancel adding up to the balance, access and backfill, history filters, concurrent Finishes on the same items); inventory history (Off by default, movements and batch stock changes gated, grantor-must-hold: superadmin on GMs and supervisors, a GM only while holding it, hidden in GET / 404 on PUT / hidden audit entries, no cascade); orders (`test_orders.py`: registry levels and defaults, backfill, staff Off / View only, supervisor cap for staff Orders, staff Record without edit / review; create with boxes and the per-colour summary, every validation location, colours and extra fields, customer / driver rules, edit with box replacement and audit diff, conflicts, edit / cancel only Created and only with their permission; Delivering FIFO across two batches with the per-batch breakdown and order movements, `INVENTORY_INSUFFICIENT` keeping it Created, version conflict; Delivered accepted / returned validation; review split, stock / wasted movements attributed newest first, partly vs fully returned, wasted by-products; the **production guard** on reopen of step 3 and of step 2 (cascade), allowed for an untouched batch and after a return to stock, still blocked after a return to wasted; codes under concurrency; stats and list filters; available stock; audit entity names); order alerts (`test_order_notifications.py`: recipients = holders of `orders.review_returns`, one row per status change, payloads, none on a failed Delivering, the bell, Khmer Telegram texts with the **Open order** button, English texts escaped); migration `0012` round trip. Order customers (`test_order_customers.py`: saved snapshot, direct orders with phone required and normalized and location optional, fields that don't match the type, inactive customers (refused, kept on their own order), switching saved ⇄ direct while Created with the audit diff, snapshot refreshed by edits and by Delivering and frozen after it, `customer_type` filter and search by phone digits / location / name, customer options with location, alerts and the delivery note for a direct order; migration `0016`: backfill, CHECKs, downgrade refused with direct orders). The redaction and superset sweeps fill `{order_id}`; delivery notes (`test_documents.py`: content per status (Created, Delivering, Return pending, reviewed, Success, Cancelled banner), COPY numbering and `order.document_printed` audit, version untouched, access, "System" for the superadmin, renderer unavailable → 503 with nothing counted, Telegram send to the linked chat (`SendDocument`, escaped caption, QR) / not linked / bot off / Telegram failing with nothing counted, invoice switch and black-and-white stylesheet; with WeasyPrint: real PDFs 80 mm wide, Khmer and English text extracted with pypdf, a longer order gives a taller page, the preview PDF); material icons (`test_material_icons.py`: the defaults' `icon_key`, upload resized to a 256 px square PNG from JPEG and WebP, `icon_url` in the list and the overview and changing with each upload, serve and delete, wrong type / fake / empty / over 1 MB refused, guards, audit; migration `0015` round trip with the backfill; the redaction and superset sweeps include the icon routes); m² (`test_material_m2.py`: 2-decimal precision, add / remove, never negative with `available_m2`, history rows, unit switches to / from m² only without movements while kg <-> g still converts, Marinade never m², the four sticker defaults with distinct icons and zero twins, a preparation line moving m² 1:1 with reopen and insufficient stock, migration `0023` round trip: renames only seeded names, creates the two materials once with balances and `seed` audit entries); materials (`test_materials.py`: defaults seeded once and Marinade sauce re-created, Raw order, precision per unit, add / remove with reason and the no-negative rule, history and audit, `set` refused, kg <-> g conversion with history in the original unit, count locked after movements, duplicate names, archive / restore, system locks, step 2 marinade in g and kg with reopen / cancel restoring it, insufficient marinade blocking Finish, `marinade_g = 0` and untracked batches moving nothing, registry, access, supervisor cap; migration `0014` round trip; every test starts with plenty of marinade set on the balance directly, `conftest.set_marinade_stock`); business info (`test_business_info.py`: seeded row, superadmin edits, GM only with the feature, not applicable to supervisors, validation, phone normalization, logo resize / kept as uploaded / wrong type / empty / over 500 kB / remove, audit, preview data source). Preparations (`test_preparations.py`: prep_role seeds and the twins in the overview, a new material defaulting to packaging with a twin and in the options, non-preparable materials refused; satay drafts (partial, precision, line kind, version conflict with the current preparation), Finish validation, movements of both lines and the item breakdown per preparation, the sauce in kg; packaging 1:1 for kg, g and counted materials; insufficient stock refusing with nothing changed; archived material at Finish, archived twin kept while in stock; kg → g converting the twin and count locked; a kg line finished after a switch to g; reopen / cancel reversing (and re-finish), blocked when the outputs are gone; cancelled read-only; codes under concurrency; stats and list filters; audit; migration `0017` round trip with the backfill and the downgrade refused with preparations) and `test_preparation_access.py` (registry levels and defaults, backfill, GM levels, staff Off / View only / Record and management not applicable, supervisor Record then management, the supervisor cap; alerts to holders of `preparation.update` only, repeat after reopen, none on a refused Finish, the Khmer Telegram text and Open preparation button, English texts escaped); the redaction and superset sweeps fill `{preparation_id}`. Route tests use the `html_documents` fixture (the renderer returns the template's HTML), so counting, audit and **redaction** are checked as text and run anywhere; the redaction sweep reads the notes, and the superset sweep gives its GM Business info so the settings routes are compared. |
+| Attendance | `test_attendance_windows.py` (pure rules: both shifts' windows, every check-in / check-out decision, `next_action` through the whole day incl. the 12:30–12:59 overlap, late minutes, haversine, changed times and rules, validation), `test_attendance_checkin.py` (fixed clock via the `clock` fixture, `workplace` fixture with coordinates: windows and error details, late minutes, location inside / outside / inaccurate, workplace without coordinates, duplicates and order, refused attempts audited, snapshot kept after a time change, `me/today`, the overlap, the Telegram confirmation per language), `test_attendance_scheduler.py` (each workplace's own schedule incl. reminders off at one, archived workplace → default, absent at the cutoff and only for people who existed, forgot check-out, catch-up after downtime without late reminders, reminders to the right people once, skipped when disabled / not linked / no longer needed / window closed, failures recorded, the advisory lock, today only), `test_attendance_corrections.py` (reason required, late recalculated, absent clearing, add a missing record, scope, audit, the day view's KPIs and rows, per workplace and filtered), `test_attendance_access.py` (registry, defaults and the Access tab, workplace on create / edit / role change / reactivation / bootstrap, the users list filter, workplace guards and options), `test_attendance_workplaces.py` (list with the schedule summary, windows and counts; create copying the default's current version from today; names unique; default switch; delete refused for the default or with employees, deleted without history, archived with it, restore; check-in and `me/today` with each employee's own schedule, radius and accuracy), `test_attendance_scheduling.py` (version selection by date; weekdays from today / a future date, replaced on the same date, past refused; a change flowing into later versions; deleting upcoming only; shifts PUT validation, audit and snapshots kept; one / several / all workplaces, `differs`, archived targets; weekday and holiday days off: check-in refused with `ATTENDANCE_DAY_OFF`, `next_action`, no reminders / absents / forgot check-out, waiting reminders skipped; scope incl. an `all` holiday covering a workplace created later; calendar statuses; summaries and the day view skip days off but list kept corrected records; retroactive removal except corrected records with the audit snapshot, absents recreated on delete / shortening, weekday change today; copying holidays (Feb 29, duplicates); access: GM off by default, read-only with `attendance.view`, superadmin grants, GM grants to supervisors only while holding it), `test_migration_attendance_scheduling.py` (0020: versions from shifts and rules, the creation date, CHECKs, `shifts_manage` → `scheduling` with the audit entry, downgrade to the latest version), `test_attendance_day_rules.py` (a whole day: an absent shift needs no check-out and doesn't block the next one, a late shift still needs one, else late + forgot check-out; `next_action` and scheduler ticks), `test_attendance_extra_time.py` (early / overtime minutes, window limits, forgot check-out = 0, flags off and snapshotted, recomputed on corrections and added records), `test_attendance_summary.py` (KPI math incl. corrected records and a schedule change mid-month, balance sign, month / whole year / past month, the day list's bounds and creation date, invalid periods, self only for tracked employees, manager scope and 404 for hidden accounts), `test_attendance_bot.py` (the /start Attendance button for tracked employees only, no attendance commands, not configured, per-chat menu button, menu button at registration and the fingerprint) and `test_migration_attendance.py` (seeds, backfill, CHECKs, downgrade refused with records) and `test_migration_attendance_extra_time.py` (0019's flags and the early / overtime backfill, capped). `test_attendance_requests.py` (pure window / eligibility rules; the months list and the window (1st to the deadline day, current and future months refused, under an hour); one request per month, none after a rejection; the split rule and the derived type; the snapshot kept after a rejection unlocks the month; the month lock for corrections, added records and holidays (`skipped_locked`); approve, approve with changes (both splits stored, the sum rule), reject (reason), own request, scope and permission; the list order, filters and `no_request` rows; the deadline setting (superadmin only) and its audit; notifications to the reviewers in scope and to the employee, Telegram texts, the 1st-of-month reminder (once); summaries with `request` and `month_locked`; defaults and the feature), `test_attendance_tracking.py` (start date: default today / future, past refused with `ATTENDANCE_START_IN_PAST`, locked once it arrives, role change sets / keeps / clears it, 0021's backfill; nothing tracked before the start date in check-in, `me/today`, the scheduler, the bot and the day view, everything from it; tracking toggle: supervisors only and by GMs / the superadmin, staff forced on, off today keeps today's records and stops later windows and waiting reminders, on resumes from today, periods closed / removed, role changes close them, "Not tracked" summary days excluded from the KPIs).  The redaction and superset sweeps fill `{record_id}`, `{workplace_id}`, `{holiday_id}` and `{version_id}` (the superadmin created a holiday and versions, so `created_by` is checked). |
 | PDFs | The `needs_weasyprint` tests are **skipped where WeasyPrint's system libraries are missing** (a plain Windows machine). Run the full suite in the API image to cover them: build the image, add the dev dependencies (`FROM <image>` + `RUN uv sync --frozen`), mount the repo and run `/app/.venv/bin/python -m pytest` with `TEST_DATABASE_URL` pointing at the test database. Put the test container and the test Postgres on **one Docker network** and use the container name as host: through `host.docker.internal` (Docker Desktop's port forwarding) a few of the thousands of new connections (`DB_NULL_POOL`) time out, which shows up as random `TimeoutError`s. |
 | Telegram | Never contacted. Alert tests put a runtime with a `RecordingSession` bot on `app.state` (webhook mode) or replace `notify.bot_factory` (polling); background tasks finish before the in-process request returns, so assertions see the final `telegram_status`. `tests/telegram_fakes.RecordingSession` is an aiogram `BaseSession` that records Bot API calls (`SendMessage`, `SetWebhook`, …) and returns canned responses, or simulates an outage. `BOT_MODE=off` by default; webhook tests put their own `TelegramRuntime` on `app.state`. |
 
@@ -1080,7 +1295,7 @@ A third list with the same fields needs a model class, a `PartnerKind`, a router
 | Production reversal blocked once stock is used | Reopening or cancelling a batch takes back what it made; if its packs are already with a customer, undoing them would make the batch's contribution negative and the history false. So the reversal needs the batch's own remaining stock (`PRODUCTION_STOCK_ALREADY_USED`, naming the orders), checked after locking the balances so a concurrent Delivering can't slip in between. A return to stock frees the batch again. |
 | Order lines as rows for future prices | Boxes and their lines are tables (`order_boxes`, `order_box_items`), not JSON, so the database checks them (units, one line per item per box) and prices can later be columns on the line (`unit_price`, `amount`) without restructuring. The box colour is a code for the same reason. |
 | Archive instead of delete (materials) | A material has a ledger: deleting it would orphan its movements and make the history unreadable, and it may come back next season. Archiving hides it from Raw and the pickers, keeps its balance and history, blocks stock changes and can be undone; its name is free for a new material meanwhile. |
-| Unit change only within the same measure | kg <-> g is the same quantity in another unit, so converting the balance (and recording it as a movement) keeps the ledger true. Count <-> weight has no conversion: switching it after movements would make old rows and the balance meaningless, so it's allowed only before the first movement. |
+| Unit change only within the same measure | kg <-> g is the same quantity in another unit, so converting the balance (and recording it as a movement) keeps the ledger true. Count <-> weight and m² <-> anything have no conversion (an area isn't a weight or a count): switching after movements would make old rows and the balance meaningless, so it's allowed only before the first movement. |
 | Marinade linked by system code | Production needs one specific material, but names are editable and translatable. A `system_code` (`marinade`) identifies it whatever it's called, locks what would break production (archive, switch to count) and lets bootstrap re-create it if it's ever missing. |
 | Customer details snapshotted on the order | An order is a delivery record: the delivery note, alerts and history must show who it went to then, not whoever the customer is renamed to later. Copying name / phone / location on the order (refreshed while it's still Created and editable, frozen once delivery starts) gives that, and lets **direct orders** (a phone and an optional location, no saved customer) use exactly the same columns, display and search. `customer_id` stays for the Customers link and the per-customer filter. |
 | Material icons stored in the row, normalized on upload | Icons are few and tiny once resized (256 px PNG, a few kB), so a deferred bytea column avoids file storage, backups and paths, like the business logo. Normalizing on upload (square crop, one size, one format) keeps cards uniform and serving trivial; a versioned `icon_url` makes them cacheable forever. Defaults use bundled pictures (`icon_key`) so nothing has to be uploaded on a fresh install. |
@@ -1093,5 +1308,25 @@ A third list with the same fields needs a model class, a `PartnerKind`, a router
 | Preparation separate from production packaging | Production step 3 turns a batch's pieces into packs and is tied to its plan, balance and FIFO attribution; preparing sachets or skewers is daily work on **materials**, independent of any batch. Its own table, permissions and alert keep step 3 unchanged and let staff prepare materials without Production access, while reusing the same ledger (`apply_movements`), draft + `version` pattern and autosave. |
 | Prepared twins instead of a status on stock | "Ready to use" is a different stock to count and to take from, not a flag on the raw one. A twin item per packaging material (`<item_code>_prepared`, resolved from the material, no table) gets its own balance, history and no-negative rule for free, keeps the material's names, unit and icon automatically, and makes the 1:1 move two ordinary movements. New materials get a twin by default (`prep_role = packaging`). |
 | Inputs entered by hand (no recipe yet) | How much satay sauce and how many bags a batch of sachets takes varies and isn't settled; typing what was actually used records the truth and still lets the ledger refuse a shortage. A recipe can later pre-fill the same fields without changing the data. `prep_role` likewise lives on the material but isn't editable in the UI until the business decides who may change it. |
+| Location through the Mini App, not chat messages | A location shared in a Telegram chat can be a picked map point or forwarded; the Mini App reads the phone's GPS itself (Telegram's LocationManager, else the browser's geolocation) with its accuracy, shows it against the radius before sending, and needs no typing or map picking from the employee. |
+| Server time only | The phone's clock can be changed; the server's (in `BUSINESS_TIMEZONE`) decides the shift, lateness and windows, so the body carries only the position. One `clock.now()` makes every rule testable minute by minute. |
+| Shift times snapshotted on each record | Shift times and rules will change; a record keeps the start / end it was judged against (and the workplace it was made at), so history (and later corrections' late minutes) never moves with a schedule change, and changes apply from the next window. |
+| Schedule belongs to the workplace | Branches open at different hours; the schedule hangs off the workplace instead of one global setting, so check-in, `me/today`, the day view and the scheduler all evaluate an employee with their own workplace's schedule. A new workplace copies the default's current version, and Scheduling writes one change to several or all workplaces when that's what the business wants. |
+| Schedule versions by effective date | Changes are planned ("from 1 November, Sundays off"): a version per `effective_from` keeps today's rules intact until the date, lets past dates be evaluated with the schedule they had (re-runs, corrections' caps, the summary's day-off marks), and makes "upcoming" deletable. A change also flows into later upcoming versions, so it holds from its date on instead of being undone by an older plan. Records still snapshot their times, so nothing depends on keeping history exact. |
+| All-workplace holidays include future workplaces | Public holidays apply to the business, not to a list: `scope = all` is evaluated at read time, so a workplace opened later is covered without editing every holiday; `selected` lists workplaces explicitly for local closures. |
+| Records removed when a day becomes a day off (audited) | A holiday entered late (or today untracked) would otherwise leave absents and check-ins on a day nobody had to work. Removing them keeps KPIs honest; corrected records are a manager's deliberate decision and stay (shown, not counted). The audit entry holds every removed record's snapshot, so data can be recovered; removing the holiday again replays the passed cutoffs, so absences come back. |
+| Archive workplaces with history | Records point at the workplace they were made at; deleting it would orphan that history. A workplace with records is archived (hidden, not assignable, its name free again, restorable); one without is deleted. Employees must be moved first, and the default can't go, so nobody is ever left without a workplace. |
+| One action decided by the server | Employees shouldn't choose between check-in and check-out or between shifts; `next_action` (check-out before check-in in the overlap) drives the Home card, the check screen and the bot's button, and the endpoints pick the shift from the time, so a stale screen can't record the wrong one. |
+| Hours from scheduled snapshot times | Present and absent hours come from each record's own `scheduled_start` / `scheduled_end`, never from today's schedule: a shift moved mid-month doesn't rewrite earlier days, and a correction changes only that record. An absent shift costs its scheduled minutes; a late one its late minutes. |
+| Early and overtime rewarded, switchable per workplace | Coming early and staying late make up for lateness in the hours balance (extra − missing), within the windows that already exist (open-before, check-out window), so no new limit is needed. Some workplaces may not want that: two flags per workplace, snapshotted on each record so switching them never rewrites the past. |
+| Minutes stored per record so summaries are sums | Late, early and overtime minutes are computed once (at check-in / check-out, again on a correction) and stored; a month or a year is then a plain sum over records, the same in SQL and in the UI's per-month totals, with no re-evaluation of old schedules or flags. |
+| Reminders as the main entry point | Staff open the app when told: a reminder at the moment a window opens, with a button straight to the check screen (location already being read), is the shortest path. Each is sent once and never late (a closed window is skipped), so downtime never produces a burst of stale messages. The /start Attendance button, the menu button and the Home card are the other ways in. |
+| Buttons instead of commands | `/checkin` and `/checkout` only replied with a button anyway, and a command list suggests chat-based check-in that can't carry a GPS reading. The check screen decides the action, so one **Attendance** button (in `/start`, reminders and confirmations) is enough, and only tracked employees see it. |
+| Untracked periods kept as history | Switching a supervisor's attendance off is a stretch of dates, not a flag: the days inside it must still read "Not tracked" (and stay out of the KPIs) after tracking resumes, and records made before the switch-off must stay. Rewriting or deleting records would lose that; one periods table plus a start date answers "was this person tracked on this date?" for the scheduler, check-in and every report with the same helper (`attendance/tracking.py`), and a switch-off made and undone on the same day leaves no trace. |
+| Requests only after month end | The missing time of a month is final only once the month is over (late arrivals, corrections, holidays can still change it), so the window opens on the 1st of the next month and closes on the deadline day (default 7, set by the superadmin). A request earlier would be a guess. |
+| One request per month, no resubmission | A month has one agreed settlement. Letting an employee edit, withdraw or send again after a rejection would turn the review into negotiation by repetition; the reviewer can already approve a different split, so a rejection is final for the month. |
+| Month locked while pending / approved | The request quotes the month's numbers (and keeps them as a snapshot); if records could change under a pending or approved request, the agreement would no longer match the month. Corrections, added records and holiday effects skip locked employee-months (reported as `skipped_locked`); a rejection unlocks the month. |
+| Fulfilment outside the app for now | Payroll and the extra work are not modelled yet: the app records who agreed what (both the requested and the approved split are kept) and notifies everyone involved. Salary cut or unpaid work minutes can feed payroll later without changing the request. |
+| Scheduler in the API process with an advisory lock | Absences, forgotten check-outs and reminders need a clock-driven job, but not a new service: a minute loop in the lifespan, guarded by `pg_try_advisory_xact_lock`, keyed on "now ≥ cutoff" and unique constraints, works with any number of workers and catches up after a restart. |
 | Batch code from a per-day counter row | Readable, gap-free per day and race-safe (`ON CONFLICT … RETURNING`), without a sequence per day. |
 | Always `200` once the secret is valid | Telegram retries non-2xx responses, so a failing handler would otherwise replay the same update in a loop. Failures are logged instead. |

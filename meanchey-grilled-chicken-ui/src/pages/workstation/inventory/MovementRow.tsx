@@ -131,6 +131,9 @@ export function MovementRow({
           {m.g_delta !== null && m.g_delta !== undefined && (
             <span className={cx(m.kg_delta !== null && 'ml-2', deltaTone(m.g_delta))}>{fmt.g(m.g_delta, true)}</span>
           )}
+          {m.m2_delta !== null && m.m2_delta !== undefined && (
+            <span className={deltaTone(m.m2_delta)}>{fmt.m2(m.m2_delta, true)}</span>
+          )}
         </span>
         <span className="text-xs text-stone-500">
           {t('inventory.balanceAfter', {
@@ -138,6 +141,7 @@ export function MovementRow({
               m.balance_count_after !== null && fmt.count(m.balance_count_after),
               m.balance_kg_after !== null && fmt.kg(m.balance_kg_after),
               m.balance_g_after !== null && m.balance_g_after !== undefined && fmt.g(m.balance_g_after),
+              m.balance_m2_after !== null && m.balance_m2_after !== undefined && fmt.m2(m.balance_m2_after),
             ]
               .filter(Boolean)
               .join(' · '),

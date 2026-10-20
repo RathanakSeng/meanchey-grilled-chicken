@@ -16,8 +16,10 @@ from tests.test_production import PRODUCED, Api, ok
 DEFAULT_NAMES = {
     "String": "kg",
     "Skewer": "kg",
-    "Sticker (2-piece packs)": "kg",
-    "Sticker (4-piece packs)": "kg",
+    "Sticker (2-piece packs) · kg": "kg",
+    "Sticker (4-piece packs) · kg": "kg",
+    "Sticker (2-piece packs) · m²": "m2",
+    "Sticker (4-piece packs) · m²": "m2",
     "Marinade sauce": "g",
     "Satay sauce": "g",
     "Zip bag 7 (2-piece packs)": "kg",
@@ -89,14 +91,18 @@ async def test_defaults_seeded_once(client, session, gm) -> None:
     assert found["Marinade sauce"]["name_km"] == "ទឹកប្រឡាក់"
     assert {m["system_code"] for n, m in found.items() if n != "Marinade sauce"} == {None}
     # Every default starts at 0 (the tests put marinade on hand, conftest).
-    assert {amount(m) for n, m in found.items() if n != "Marinade sauce"} == {"0.000", "0.0"}
+    assert {amount(m) for n, m in found.items() if n != "Marinade sauce"} == {
+        "0.000",
+        "0.0",
+        "0.00",
+    }
     assert all(m["item_code"].startswith("material_") for m in found.values())
 
     # Seeding again changes nothing; an archived default isn't brought back.
     ok(await client.post(f"/inventory/materials/{found['String']['id']}/archive", headers=auth(gm)))
     await material_service.ensure_defaults(session)
     await session.commit()
-    assert len(await materials(client, gm, include_archived=True)) == 9
+    assert len(await materials(client, gm, include_archived=True)) == 11
     assert "String" not in await materials(client, gm)
 
     # Marinade sauce is re-created when it's missing (step 2 needs it).

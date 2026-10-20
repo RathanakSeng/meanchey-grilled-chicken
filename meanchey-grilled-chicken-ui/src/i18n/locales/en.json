@@ -29,6 +29,43 @@
       "minutesAgo": "{{count}} min ago",
       "hoursAgo": "{{count}} h ago",
       "daysAgo": "{{count}} d ago"
+    },
+    "months": {
+      "1": "January",
+      "2": "February",
+      "3": "March",
+      "4": "April",
+      "5": "May",
+      "6": "June",
+      "7": "July",
+      "8": "August",
+      "9": "September",
+      "10": "October",
+      "11": "November",
+      "12": "December"
+    },
+    "monthsShort": {
+      "1": "Jan",
+      "2": "Feb",
+      "3": "Mar",
+      "4": "Apr",
+      "5": "May",
+      "6": "Jun",
+      "7": "Jul",
+      "8": "Aug",
+      "9": "Sep",
+      "10": "Oct",
+      "11": "Nov",
+      "12": "Dec"
+    },
+    "weekdaysShort": {
+      "0": "Sun",
+      "1": "Mon",
+      "2": "Tue",
+      "3": "Wed",
+      "4": "Thu",
+      "5": "Fri",
+      "6": "Sat"
     }
   },
   "nav": {
@@ -48,7 +85,13 @@
     "inventory": "Inventory",
     "orders": "Orders",
     "businessInfo": "Business info",
-    "preparations": "Preparation"
+    "preparations": "Preparation",
+    "attendance": "Attendance",
+    "attendanceMe": "My attendance",
+    "attendanceToday": "Today",
+    "attendanceWorkplaces": "Workplaces",
+    "attendanceScheduling": "Scheduling",
+    "attendanceRequests": "Requests"
   },
   "roles": {
     "superadmin": "System",
@@ -104,7 +147,8 @@
     "welcome": "Welcome, {{name}}",
     "subtitle": "Mean Chey Grilled Chicken management system",
     "workstationDescription": "Your daily work: suppliers, customers and more.",
-    "settingsDescription": "Manage users, permissions and your account."
+    "settingsDescription": "Manage users, permissions and your account.",
+    "attendanceDescription": "Check in and out, and see attendance."
   },
   "users": {
     "title": "Users",
@@ -121,7 +165,9 @@
       "role": "Role",
       "phone": "Phone",
       "status": "Status"
-    }
+    },
+    "filterWorkplace": "Workplace",
+    "notTracked": "Not tracked"
   },
   "userForm": {
     "createTitle": "Create user",
@@ -138,7 +184,18 @@
     "language": "Language",
     "initialPasswordNote": "The initial password is the Telegram username. The user must change it at first sign-in.",
     "usernameChangeNote": "Changing the username unlinks the current Telegram account.",
-    "create": "Create user"
+    "create": "Create user",
+    "workplace": "Workplace",
+    "workplaceHint": "Where they check in; the default workplace when none is chosen.",
+    "workplaceDefault": "The default workplace",
+    "attendanceStart": "1st working date",
+    "attendanceStartHint": "Attendance is tracked from this date",
+    "attendanceStartLocked": "Attendance started on this date; it can't be changed.",
+    "trackAttendance": "Track attendance",
+    "trackAttendanceHint": "When off, this supervisor doesn't check in and isn't counted.",
+    "confirmUntrackTitle": "Turn off attendance for {{name}}?",
+    "confirmUntrackBody": "Takes effect now; today's records are kept.",
+    "confirmUntrack": "Turn off"
   },
   "userDetail": {
     "tabs": {
@@ -162,7 +219,11 @@
     "confirmReactivateTitle": "Reactivate account?",
     "confirmReactivateBody": "{{name}} will be able to sign in again.",
     "deactivated": "Account deactivated",
-    "reactivated": "Account reactivated"
+    "reactivated": "Account reactivated",
+    "attendance": "Attendance",
+    "attendanceStart": "1st working date",
+    "attendanceTracked": "Tracked",
+    "attendanceUntracked": "Not tracked since {{date}}"
   },
   "roleChange": {
     "button": "Change role",
@@ -190,7 +251,8 @@
     "saved": "Saved",
     "menus": {
       "workstation": "Workstation",
-      "settings": "Settings"
+      "settings": "Settings",
+      "attendance": "Attendance"
     },
     "featureNames": {
       "suppliers": "Suppliers",
@@ -205,7 +267,12 @@
       "order_management": "Order management",
       "order_returns": "Order returns",
       "preparation": "Preparation",
-      "preparation_management": "Preparation management"
+      "preparation_management": "Preparation management",
+      "attendance": "Attendance",
+      "attendance_corrections": "Attendance corrections",
+      "attendance_workplace": "Workplaces",
+      "attendance_shifts": "Schedules",
+      "attendance_requests": "Attendance requests"
     },
     "legendRecord": "Record: can start batches and fill in steps, but can't reopen finished steps.",
     "gmHint": "Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced).",
@@ -234,7 +301,8 @@
       "production_batch": "Production batch",
       "order": "Order",
       "material": "Material",
-      "preparation": "Preparation"
+      "preparation": "Preparation",
+      "attendance_request": "Attendance request"
     },
     "defaultBackfill": "Granted automatically (role default)",
     "actions": {
@@ -290,7 +358,19 @@
       "preparation_create": "Preparation started",
       "preparation_finish": "Preparation finished",
       "preparation_reopen": "Preparation reopened",
-      "preparation_cancel": "Preparation cancelled"
+      "preparation_cancel": "Preparation cancelled",
+      "attendance_attempt_refused": "Check-in / check-out refused",
+      "attendance_correct": "Fixed attendance",
+      "workplace_create": "Workplace added",
+      "workplace_update": "Workplace edited",
+      "workplace_archive": "Workplace archived",
+      "workplace_delete": "Workplace deleted",
+      "workplace_restore": "Workplace restored",
+      "attendance_schedule_update": "Changed a workplace's schedule",
+      "attendance_request_submit": "Sent an attendance request",
+      "attendance_request_approve": "Approved an attendance request",
+      "attendance_request_reject": "Rejected an attendance request",
+      "attendance_settings_update": "Changed the request deadline"
     },
     "featureChange": "{{feature}}: {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
@@ -493,7 +573,7 @@
     "LOGO_WRONG_TYPE": "The logo must be a PNG or JPEG image.",
     "LOGO_TOO_LARGE": "The logo must be at most 500 kB.",
     "MATERIAL_NOT_FOUND": "Material not found.",
-    "MATERIAL_UNIT_LOCKED": "Switching to or from count is only possible before the first stock entry.",
+    "MATERIAL_UNIT_LOCKED": "Switching to or from count or m² is only possible before the first stock entry.",
     "MATERIAL_ARCHIVED": "This material is archived. Restore it first.",
     "MATERIAL_SYSTEM_LOCKED": "Production uses this material: it can’t be archived or counted in pieces.",
     "DUPLICATE_MATERIAL_NAME": "Another material already has this name.",
@@ -502,7 +582,43 @@
     "PREPARATION_NOT_FOUND": "This preparation doesn't exist.",
     "PREPARATION_CONFLICT": "Someone else changed this preparation. It has been reloaded; check it and try again.",
     "PREPARATION_CANCELLED": "This preparation is cancelled and can't be changed.",
-    "PREPARATION_INVALID_STATUS": "This can't be done in the preparation's current status. It has been reloaded."
+    "PREPARATION_INVALID_STATUS": "This can't be done in the preparation's current status. It has been reloaded.",
+    "ATTENDANCE_NOT_REQUIRED": "Your account doesn't need to check in.",
+    "ATTENDANCE_WORKPLACE_NOT_SET": "The workplace's position isn't set yet. Ask a manager to set it.",
+    "ATTENDANCE_TOO_EARLY": "Too early: check-in opens at {{time}}.",
+    "ATTENDANCE_NO_SHIFT_NOW": "No shift to check in to now. The next check-in opens at {{time}} ({{nextShift}}).",
+    "ATTENDANCE_CHECKIN_CLOSED": "Check-in for the {{shift}} closed at {{closed_at}}: you're marked absent.",
+    "ATTENDANCE_CHECKOUT_TOO_EARLY": "Too early to check out: you can check out from {{time}}.",
+    "ATTENDANCE_CHECKOUT_CLOSED": "Check-out for the {{shift}} closed at {{closed_at}}.",
+    "ATTENDANCE_ALREADY_CHECKED_IN": "You've already checked in to the {{shift}}.",
+    "ATTENDANCE_NOT_CHECKED_IN": "You haven't checked in to the {{shift}}, so you can't check out.",
+    "ATTENDANCE_ALREADY_CHECKED_OUT": "You've already checked out of the {{shift}}.",
+    "ATTENDANCE_LOCATION_INACCURATE": "Your GPS position isn't accurate enough ({{accuracy_m}} m; it must be {{max}} m or better). Go outside or wait a moment, then refresh.",
+    "ATTENDANCE_TOO_FAR": "Can't check in: you're {{distance_m}} m from the workplace. You must be within {{radius_m}} m.",
+    "ATTENDANCE_RECORD_NOT_FOUND": "This attendance record doesn't exist.",
+    "ATTENDANCE_RECORD_EXISTS": "This shift already has a record: fix it instead.",
+    "ATTENDANCE_WORKPLACE_NOT_FOUND": "This workplace doesn't exist.",
+    "ATTENDANCE_REASON_REQUIRED": "Give a reason for the change.",
+    "ATTENDANCE_TIME_REQUIRED": "Enter the time.",
+    "ATTENDANCE_COORDINATES_INVALID": "Enter both latitude (−90 to 90) and longitude (−180 to 180), or neither.",
+    "WORKPLACE_IN_USE": "Employees are assigned to this workplace. Move them to another workplace first.",
+    "WORKPLACE_IS_DEFAULT": "The default workplace can't be deleted. Make another one the default first.",
+    "WORKPLACE_NAME_TAKEN": "Another workplace already has this name.",
+    "WORKPLACE_ARCHIVED": "This workplace is archived. Restore it first.",
+    "ATTENDANCE_DAY_OFF": "No attendance today ({{what}}).",
+    "ATTENDANCE_HOLIDAY_NOT_FOUND": "This holiday no longer exists.",
+    "ATTENDANCE_SCHEDULE_VERSION_NOT_FOUND": "This schedule change no longer exists.",
+    "ATTENDANCE_SCHEDULE_VERSION_IN_EFFECT": "Only upcoming changes can be deleted.",
+    "ATTENDANCE_NOT_STARTED": "Your attendance starts on {{start_date}}.",
+    "ATTENDANCE_START_LOCKED": "Attendance has already started, so the start date can't be changed.",
+    "ATTENDANCE_START_IN_PAST": "The 1st working date can't be in the past.",
+    "ATTENDANCE_REQUEST_WINDOW_CLOSED": "Requests for this month are not open. They are accepted from {{opens}} to {{closes}}.",
+    "ATTENDANCE_REQUEST_EXISTS": "A request for this month was already sent. It can't be sent again.",
+    "ATTENDANCE_REQUEST_SPLIT_MISMATCH": "Salary cut and unpaid extra work must add up to the missing time.",
+    "ATTENDANCE_REQUEST_NOT_FOUND": "This request no longer exists.",
+    "ATTENDANCE_REQUEST_NOT_PENDING": "This request was already reviewed.",
+    "ATTENDANCE_REQUEST_NOT_NEEDED": "The missing time is under 1 hour, so no request is needed.",
+    "ATTENDANCE_MONTH_LOCKED": "This month is locked by an attendance request, so its attendance can't be changed."
   },
   "permissions": {
     "readOnlyNotice": "You can view these permissions, but you can't change them here.",
@@ -591,6 +707,7 @@
       "positive": "Must be more than 0",
       "invalidKg": "Enter a number with up to 3 decimals",
       "invalidG": "Enter a number with up to 1 decimal",
+      "invalidM2": "Enter a number with up to 2 decimals",
       "invalidCount": "Enter a whole number"
     },
     "autosave": {
@@ -755,7 +872,12 @@
     "prepSachetsFirst": "{{n}} satay sachets ({{size}}-piece)",
     "prepSachetsMore": "{{n}} ({{size}}-piece)",
     "prepUnit_kg": "{{value}} kg",
-    "prepUnit_g": "{{value}} g"
+    "prepUnit_g": "{{value}} g",
+    "requestSubmitted": "{{name}} sent a request for {{month}}: missing {{missing}} — {{split}}.",
+    "requestApproved": "Your request for {{month}} was approved: {{split}}.",
+    "requestApprovedChanges": "Your request for {{month}} was approved with changes: {{split}}.",
+    "requestRejected": "Your request for {{month}} was rejected: “{{reason}}”.",
+    "requestReminder": "Your {{month}} balance is −{{missing}}. Submit your request by {{deadline}}."
   },
   "telegramLink": {
     "title": "Telegram",
@@ -826,6 +948,8 @@
       "prepared": "Prepared"
     },
     "kgValue": "{{value}} kg",
+    "m2Value": "{{value}} m²",
+    "m2Short": "{{value}} m²",
     "estimatedHint": "Estimated from the batch's average weight",
     "neverChanged": "No changes yet",
     "empty": "Stock starts at zero. It updates automatically as production steps are finished.",
@@ -1047,8 +1171,16 @@
     "stockWarningTitle": "Not enough stock right now — delivery can’t start until there is:",
     "document": {
       "title": "Delivery note",
-      "print": "Print",
-      "printHint": "Print the delivery note (80 mm receipt)",
+      "exportExcel": "Export Delivery Note",
+      "exportHint": "Download the delivery note as an Excel file",
+      "exported": "Delivery note exported.",
+      "exportErrors": {
+        "noSupplier": "Fill in the business name in Settings → Business info first.",
+        "noCustomer": "This order has no customer details to print.",
+        "noItems": "This order has no items to print.",
+        "template": "Couldn’t load the Excel template. Check your connection and try again.",
+        "build": "Couldn’t build the Excel file. Try again."
+      },
       "sendTelegram": "Send to my Telegram",
       "sendTelegramShort": "Send to Telegram",
       "sent": "Sent to your Telegram chat.",
@@ -1121,17 +1253,20 @@
     "units": {
       "count": "Count",
       "kg": "kg",
-      "g": "g"
+      "g": "g",
+      "m2": "m²"
     },
     "precision": {
       "count": "Whole numbers.",
       "kg": "Up to 3 decimals (e.g. 1.25).",
-      "g": "Up to 1 decimal (e.g. 250.5)."
+      "g": "Up to 1 decimal (e.g. 250.5).",
+      "m2": "Up to 2 decimals (e.g. 12.50)."
     },
     "invalid": {
       "count": "Enter a whole number above 0.",
       "kg": "Enter a number above 0 with at most 3 decimals.",
-      "g": "Enter a number above 0 with at most 1 decimal."
+      "g": "Enter a number above 0 with at most 1 decimal.",
+      "m2": "Enter a number above 0 with at most 2 decimals."
     },
     "newBalance": "New balance: {{amount}}",
     "notEnough": "Only {{amount}} in stock.",
@@ -1142,11 +1277,11 @@
     "nameKm": "Name (Khmer)",
     "nameEn": "Name (English)",
     "unit": "Unit",
-    "unitHint": "Counted in pieces, or weighed in kg or g.",
-    "unitChangeHint": "kg ↔ g converts the stock automatically. Switching to or from count is only possible before the first stock entry.",
+    "unitHint": "Counted in pieces, or measured in kg, g or m².",
+    "unitChangeHint": "kg ↔ g converts the stock automatically. Switching to or from count or m² is only possible before the first stock entry.",
     "unitConvertPreview": "The stock will be converted from {{from}} to {{to}}.",
     "unitLocked": "Only possible before the first stock entry",
-    "systemNoCount": "Used by production: it can’t be counted in pieces",
+    "systemNoCount": "Used by production: it has to stay in kg or g",
     "showArchived": "Show archived",
     "archivedTitle": "Archived materials",
     "restore": "Restore",
@@ -1273,5 +1408,484 @@
     "dateHint": "The prepared date is recorded when you finish.",
     "auditSachets": "{{n}} sachets ({{size}}-piece)",
     "cancelledBy": "Cancelled by {{name}} · {{time}}"
+  },
+  "attendance": {
+    "shifts": {
+      "morning": "Morning shift",
+      "afternoon": "Afternoon shift"
+    },
+    "status": {
+      "present": "Present",
+      "late": "Late",
+      "lateMinutes": "Late {{count}} min",
+      "absent": "Absent",
+      "checked_out": "Checked out",
+      "forgot_checkout": "Forgot check-out"
+    },
+    "phase": {
+      "upcoming": "Not open yet",
+      "check_in_open": "Check-in open",
+      "in_progress": "In progress",
+      "check_out_open": "Check-out open",
+      "closed": "Closed"
+    },
+    "state": {
+      "recorded": "Recorded",
+      "not_yet": "Not yet",
+      "no_record": "No record",
+      "day_off": "Day off"
+    },
+    "filter": {
+      "present": "Present",
+      "late": "Late",
+      "absent": "Absent",
+      "not_yet": "Not yet",
+      "no_record": "No record",
+      "forgot_checkout": "Forgot check-out"
+    },
+    "inOut": "In {{in}} · Out {{out}}",
+    "notRequired": "Your account doesn't need to check in.",
+    "corrected": "Corrected by a manager.",
+    "correctedShort": "Corrected",
+    "distance": "{{distance}} m",
+    "saved": "Saved.",
+    "updatedBy": "Last changed by {{name}}, {{time}}",
+    "fields": {
+      "checkIn": "Check-in",
+      "checkOut": "Check-out"
+    },
+    "mine": {
+      "title": "My attendance",
+      "description": "Your shifts, hours balance and history, with check-in and check-out.",
+      "workplace": "Workplace: {{name}} (within {{radius}} m)",
+      "year": "Year",
+      "month": "Month",
+      "wholeYear": "Whole year",
+      "empty": "No attendance recorded in this period.",
+      "date": "Date",
+      "in": "In",
+      "out": "Out",
+      "status": "Status",
+      "noRecord": "—",
+      "inactive": "Deactivated",
+      "monthLine": "{{present}} present · {{absent}} absent · balance {{balance}}",
+      "correctedTip": "Corrected: {{reason}}",
+      "fixHint": "Tap a shift to fix it."
+    },
+    "today": {
+      "title": "Today's attendance",
+      "description": "Everyone's attendance, day by day; fix records.",
+      "date": "Date",
+      "status": "Status",
+      "allStatuses": "All statuses",
+      "role": "Role",
+      "allRoles": "All roles",
+      "search": "Search",
+      "empty": "Nobody matches.",
+      "employee": "Employee",
+      "workplace": "Workplace",
+      "allWorkplaces": "All workplaces",
+      "byWorkplace": "By workplace",
+      "breakdown": "{{present}} present, {{late}} late, {{absent}} absent of {{expected}}",
+      "dayOff": "{{what}} at {{name}}: nobody is expected today.",
+      "todayTag": "Today",
+      "todayButton": "Today",
+      "previousDay": "Previous day",
+      "nextDay": "Next day",
+      "export": "Export CSV",
+      "csvIn": "In",
+      "csvOut": "Out",
+      "searchPlaceholder": "Search name or employee ID…",
+      "reset": "Reset filters",
+      "shiftSummary": "Shift summary",
+      "shiftsVary": "Shift times vary by workplace",
+      "clickToFilter": "click a count to filter the list",
+      "expectedOut": "{{expected}} expected · {{out}} checked out",
+      "forgotCount": "{{count}} forgot check-out",
+      "attended": "{{done}} of {{expected}} attended",
+      "ofExpected": "of {{expected}}",
+      "chip": {
+        "present": "{{count}} on time",
+        "late": "{{count}} late",
+        "absent": "{{count}} absent"
+      },
+      "employees": "Employees",
+      "peopleCount": "{{count}} people · exceptions first",
+      "scheduled": "Sched {{from}}–{{to}}",
+      "noCheckIn": "No check-in"
+    },
+    "kpi": {
+      "present": "On time",
+      "late": "Late",
+      "absent": "Absent",
+      "notYet": "Not yet",
+      "summary": "{{expected}} expected · {{out}} checked out · {{forgot}} forgot check-out"
+    },
+    "check": {
+      "title": "Attendance",
+      "heading": {
+        "check_in": "Check in — {{shift}}",
+        "check_out": "Check out — {{shift}}"
+      },
+      "openUntil": "Open until {{time}}",
+      "confirm": {
+        "check_in": "Confirm check-in",
+        "check_out": "Confirm check-out"
+      },
+      "refresh": "Refresh location",
+      "locating": "Getting your location…",
+      "denied": "Location access is off. Allow it so the app can check that you're at the workplace.",
+      "openSettings": "Open settings",
+      "unavailable": "Your location isn't available. Turn on GPS (location) and try again.",
+      "inside": "{{distance}} m from {{name}} ✅",
+      "outside": "{{distance}} m away — you must be within {{radius}} m ❌",
+      "inaccurate": "GPS accuracy {{accuracy}} m — it must be {{max}} m or better. Wait a moment, then refresh."
+    },
+    "fix": {
+      "fix": "Fix",
+      "add": "Add record",
+      "titleFix": "Fix: {{name}}, {{shift}}",
+      "titleAdd": "Add record: {{name}}, {{shift}}",
+      "original": "Now recorded",
+      "noRecord": "No record.",
+      "shiftTimes": "Shift times on that day: {{start}}–{{end}}",
+      "status": "Status",
+      "attended": "Came to work",
+      "lateHint": "Present or late follows from this time.",
+      "notYet": "Not yet",
+      "checkOutTime": "Check-out time",
+      "reason": "Reason",
+      "reasonHint": "Required. Kept with the record and in the audit log.",
+      "checkoutDone": "Out",
+      "checkoutForgot": "Forgot"
+    },
+    "workplace": {
+      "notSet": "The position isn't set: nobody can check in until it is.",
+      "tapHint": "Tap the map to place the pin, or type the latitude and longitude.",
+      "latitude": "Latitude",
+      "longitude": "Longitude",
+      "radius": "Radius: {{radius}} m",
+      "radiusHint": "People must be within this distance to check in or out (10–5000 m).",
+      "radiusMetres": "Radius in metres",
+      "name": "Name",
+      "address": "Address",
+      "location": "Location",
+      "schedule": "Schedule",
+      "employees": "Employees ({{count}})",
+      "noEmployees": "Nobody is assigned here yet. Choose the workplace in the user form.",
+      "editInScheduling": "Edit in Scheduling",
+      "viewInScheduling": "View in Scheduling",
+      "scheduleSince": "Current schedule, since {{date}}."
+    },
+    "shiftsPage": {
+      "start": "Start",
+      "end": "End",
+      "checkInWindow": "Check-in",
+      "lateAfter": "Late after",
+      "absentFrom": "Absent from",
+      "checkOutWindow": "Check-out",
+      "forgotFrom": "Forgot check-out from",
+      "openBefore": "Check-in opens (minutes before start)",
+      "openBeforeHint": "1–120 minutes.",
+      "absentAfter": "Absent after (minutes after start)",
+      "absentAfterHint": "Check-in closes then; 1–240 minutes, by the end of the shift.",
+      "checkoutWindow": "Check-out window (minutes after end)",
+      "checkoutWindowHint": "0–180 minutes.",
+      "maxAccuracy": "Maximum GPS accuracy (m)",
+      "maxAccuracyHint": "Positions less accurate than this are refused (10–500 m).",
+      "reminders": "Telegram reminders",
+      "remindersHint": "Message everyone when check-in or check-out opens.",
+      "appliesNext": "Records already made keep their times; from today, new times apply to windows that haven't opened yet.",
+      "problems": {
+        "endBeforeStart": "A shift must end after it starts.",
+        "overlap": "The shifts overlap.",
+        "beforeMidnight": "Check-in would open before midnight.",
+        "afterMidnight": "Check-out would close after midnight.",
+        "checkInAfterEnd": "Check-in must close by the end of the shift (absent after is too long).",
+        "checkInOverlap": "The two check-in windows overlap.",
+        "checkOutOverlap": "The two check-out windows overlap."
+      },
+      "countEarly": "Count early check-in as extra time",
+      "countOvertime": "Count overtime as extra time",
+      "extraHint": "Applies to new check-ins and check-outs."
+    },
+    "workplaces": {
+      "title": "Workplaces",
+      "subtitle": "Where staff and supervisors check in, each with its own schedule.",
+      "description": "Location, check-in radius, schedule and employees of each workplace.",
+      "new": "New workplace",
+      "newHint": "Its schedule (shift times and rules) is copied from the default workplace; change it after saving.",
+      "create": "Create",
+      "showArchived": "Show archived",
+      "empty": "No workplaces.",
+      "default": "Default",
+      "archived": "Archived",
+      "noLocation": "No location",
+      "employees_one": "{{count}} employee",
+      "employees_other": "{{count}} employees",
+      "defaultNoDelete": "The default workplace can't be deleted. Make another one the default first.",
+      "inUse_one": "Can't delete: {{count}} employee is assigned here.",
+      "inUse_other": "Can't delete: {{count}} employees are assigned here.",
+      "seeEmployees": "See them",
+      "delete": "Delete",
+      "archive": "Archive",
+      "restore": "Restore",
+      "makeDefault": "Make default",
+      "defaultNeedsLocation": "Set the location first.",
+      "makeDefaultConfirm": "New staff and supervisors get {{name}} unless another workplace is chosen. Nobody is moved.",
+      "deleteTitle": "Delete this workplace?",
+      "deleteConfirm": "{{name}} has no attendance history and will be deleted.",
+      "archiveTitle": "Archive this workplace?",
+      "archiveConfirm": "{{name}} has attendance history, so it is archived instead of deleted. Its records stay; you can restore it later.",
+      "archivedNotice": "This workplace is archived: nobody checks in here and it can't be edited."
+    },
+    "checkButton": {
+      "check_in": "Check in",
+      "check_out": "Check out",
+      "opens": "opens {{time}}",
+      "done": "Done for today",
+      "dayOff": "Day off",
+      "starts": "starts {{date}}"
+    },
+    "summary": {
+      "in": "In {{time}}",
+      "out": "Out {{time}}",
+      "late": "late {{count}} min",
+      "until": "until {{time}}",
+      "checkOutUntil": "check-out until {{time}}"
+    },
+    "shiftsShort": {
+      "morning": "Morning",
+      "afternoon": "Afternoon"
+    },
+    "kpis": {
+      "present": "Present",
+      "absent": "Absent",
+      "late": "Late",
+      "balance": "Hours balance",
+      "shifts_one": "{{count}} shift",
+      "shifts_other": "{{count}} shifts",
+      "times_one": "{{count}} time",
+      "times_other": "{{count}} times",
+      "byShift": "{{morning}} {{m}} · {{afternoon}} {{a}}",
+      "balanceDetail": "Extra {{extra}} · Missing {{missing}}",
+      "early": "Early check-in: {{count}} · {{duration}}",
+      "overtime": "Overtime: {{count}} · {{duration}}",
+      "forgot": "Forgot check-out: {{count}}"
+    },
+    "tags": {
+      "late": "+{{count}}",
+      "lateTitle": "Late {{count}} min",
+      "early": "−{{count}} early",
+      "earlyTitle": "{{count}} min early",
+      "overtime": "+{{count}}",
+      "overtimeTitle": "{{count}} min overtime",
+      "corrected": "corrected"
+    },
+    "duration": {
+      "hm": "{{h}} h {{m}} min",
+      "h": "{{h}} h",
+      "m": "{{m}} min"
+    },
+    "employee": {
+      "open": "Attendance history",
+      "back": "Today"
+    },
+    "dayOff": {
+      "holiday": "Holiday: {{name}}",
+      "weekday": "Day off",
+      "today": "Today — {{what}}. No check-in today.",
+      "resumes": "Attendance resumes {{date}}, check-in opens at {{time}}."
+    },
+    "scheduling": {
+      "title": "Scheduling",
+      "description": "Tracked weekdays, holidays, shift times and rules for each workplace.",
+      "subtitle": "Tracked weekdays, holidays, shift times and rules",
+      "allWorkplaces": "All workplaces",
+      "appliesFrom": "Applies from",
+      "fromToday": "From today.",
+      "fromLater": "Until then the current settings stay.",
+      "calendar": "Calendar",
+      "today": "Today",
+      "dayOff": "Day off",
+      "legend": "Legend",
+      "legendHoliday": "Holiday",
+      "legendDayOff": "Day off",
+      "legendTracked": "Tracked",
+      "monthHolidays": "Holidays in {{month}}",
+      "noHolidays": "No holidays this month.",
+      "holidayActions": "Holiday actions",
+      "days_one": "{{count}} day",
+      "days_other": "{{count}} days",
+      "delete": "Delete",
+      "recordsRemoved_one": "{{count}} attendance record was removed.",
+      "recordsRemoved_other": "{{count}} attendance records were removed.",
+      "absentsRecreated_one": "{{count}} absence was recorded again.",
+      "absentsRecreated_other": "{{count}} absences were recorded again.",
+      "holiday": {
+        "add": "Add holiday",
+        "edit": "Edit holiday",
+        "nameKm": "Name (Khmer)",
+        "nameEn": "Name (English)",
+        "from": "From",
+        "to": "To",
+        "tooLong": "A holiday is at most {{max}} days.",
+        "allHint": "Workplaces added later are included too.",
+        "note": "Note",
+        "pastWarning": "Attendance already recorded on these days will be removed (corrected records are kept).",
+        "confirmTitle": "Save this holiday?",
+        "saved": "Holiday saved.",
+        "deleted": "Holiday deleted.",
+        "deleteTitle": "Delete this holiday?",
+        "deleteConfirm": "{{name}} will be deleted.",
+        "deletePast": "{{name}} will be deleted. Its past days become working days again: absences are recorded for anyone without a record.",
+        "shared": "Shared with all workplaces: changes apply to every workplace.",
+        "alsoAt": "Also at: {{names}}",
+        "deleteAll": "This removes it for all workplaces.",
+        "deleteSeveral": "This removes it for {{names}}."
+      },
+      "copy": {
+        "button": "Copy holidays from {{year}}",
+        "confirm": "Every holiday of {{from}}, for all workplaces, is copied to the same day in {{to}} (29 Feb becomes 28 Feb). Khmer holidays move each year: check the dates afterwards.",
+        "confirmButton": "Copy",
+        "done_one": "{{count}} holiday copied.",
+        "done_other": "{{count}} holidays copied.",
+        "skipped_one": "{{count}} was already there.",
+        "skipped_other": "{{count}} were already there."
+      },
+      "weekdays": {
+        "title": "Tracked weekdays",
+        "hint": "Attendance is recorded on the highlighted days only.",
+        "atLeastOne": "Track at least one day.",
+        "removesToday": "Today will no longer be tracked: attendance already recorded today will be removed (corrected records are kept).",
+        "confirmTitle": "Stop tracking today?",
+        "saved": "Tracked weekdays saved.",
+        "applyAllConfirm_one": "This also replaces the tracked weekdays of {{count}} other workplace from {{date}}.",
+        "applyAllConfirm_other": "This also replaces the tracked weekdays of {{count}} other workplaces from {{date}}."
+      },
+      "shifts": {
+        "title": "Shift schedule and rules",
+        "saved": "Shift schedule saved.",
+        "applyAllConfirm_one": "This also replaces the shift schedule and rules of {{count}} other workplace from {{date}}.",
+        "applyAllConfirm_other": "This also replaces the shift schedule and rules of {{count}} other workplaces from {{date}}."
+      },
+      "upcoming": {
+        "title": "Upcoming changes",
+        "none": "No upcoming changes.",
+        "from": "From {{date}}",
+        "weekdays": "Tracked days: {{days}}",
+        "noChange": "Same as before",
+        "deleteTitle": "Delete this change?",
+        "deleteConfirm": "The change from {{date}} at {{name}} will be deleted; the schedule before it stays."
+      },
+      "applyToAll": "Apply to all workplaces",
+      "applyAllTitle": "Apply to all workplaces?",
+      "upcomingFrom": "Change planned from {{date}}",
+      "skippedLocked_one": "{{count}} record was left alone: that month has a pending or approved request.",
+      "skippedLocked_other": "{{count}} records were left alone: those months have a pending or approved request."
+    },
+    "tracking": {
+      "startsOn": "Your attendance starts on {{date}}.",
+      "notRequired": "Attendance isn't required for you.",
+      "notTracked": "Not tracked",
+      "startsLater": "Starts later",
+      "startsLaterOn": "from {{date}}",
+      "notTrackedGroup": "Not tracked",
+      "notTrackedHint": "Supervisors whose attendance is switched off; records already made are kept.",
+      "startsLaterHint": "Their attendance starts after this day."
+    },
+    "requests": {
+      "title": "Requests",
+      "subtitle": "Cover a month's missing time with a salary cut or unpaid extra work.",
+      "description": "Cover a month's missing time, and review the requests of your team.",
+      "tabs": {
+        "mine": "My requests",
+        "review": "To review",
+        "all": "All"
+      },
+      "status": {
+        "pending": "Pending",
+        "approved": "Approved",
+        "approvedChanges": "Approved with changes",
+        "rejected": "Rejected",
+        "no_request": "No request"
+      },
+      "type": {
+        "salary_cut": "Salary cut",
+        "unpaid_work": "Unpaid extra work",
+        "both": "Salary cut + unpaid extra work"
+      },
+      "create": "Create request",
+      "createTitle": "Request for {{month}}",
+      "createHint": "You can send it until {{date}}.",
+      "submit": "Submit request",
+      "onlyOne": "You can submit only one request for this month. It can't be changed afterwards.",
+      "note": "Note (optional)",
+      "noteShown": "Note",
+      "absent": "Absent",
+      "late": "Late",
+      "extra": "Extra",
+      "missing": "Missing",
+      "salaryCut": "Salary cut",
+      "unpaidWork": "Unpaid extra work",
+      "allSalaryCut": "All salary cut",
+      "allUnpaidWork": "All unpaid work",
+      "covered": "Covered {{covered}} of {{missing}}",
+      "hours": "hours",
+      "minutes": "minutes",
+      "hoursShort": "h",
+      "minutesShort": "min",
+      "until": "Until {{date}}",
+      "opensOn": "Opens on {{date}}",
+      "notNeeded": "Under 1 hour — no request needed",
+      "emptyMine": "No months to show yet.",
+      "emptyReview": "Nothing to review.",
+      "emptyAll": "No requests match.",
+      "filterStatus": "Status",
+      "allStatuses": "All",
+      "allYears": "All years",
+      "allMonths": "All months",
+      "filterEmployee": "Employee",
+      "allEmployees": "All employees",
+      "page": "Page {{page}} of {{pages}}",
+      "yours": "Yours",
+      "detailTitle": "Request for {{month}}",
+      "snapshotHint": "The month's numbers as they were when the request was sent.",
+      "requested": "Requested",
+      "sentAt": "Sent {{when}}",
+      "approvedSplit": "Approved",
+      "changedFromShort": "Changed by the reviewer",
+      "comment": "Comment",
+      "commentOptional": "Comment (optional)",
+      "rejectedBecause": "Reason",
+      "rejectReason": "Reason for rejecting",
+      "reviewedBy": "{{name}} · {{when}}",
+      "lockedHint": "This month's attendance can't be fixed while the request is pending or approved.",
+      "lockedFixHint": "This month is locked by a request: its attendance can't be fixed.",
+      "monthLocked": "Month locked",
+      "openAttendance": "Open attendance",
+      "approve": "Approve",
+      "approveChanges": "Approve with changes",
+      "reject": "Reject",
+      "confirmApprove": "Approve",
+      "splitCut": "salary cut {{duration}}",
+      "splitWork": "unpaid extra work {{duration}}",
+      "strip": {
+        "approved": "Request approved — {{split}}",
+        "approvedBy": "approved by {{name}} on {{when}}",
+        "changedFrom": "Changed from {{split}}",
+        "pending": "Request pending review",
+        "rejected": "Request rejected — {{reason}}",
+        "balance": "Balance {{balance}} —",
+        "notYet": "Employee can create it until the deadline",
+        "noRequest": "No request submitted"
+      },
+      "settings": {
+        "title": "Requests",
+        "deadline": "Request deadline (day of next month)",
+        "hint": "Requests for a month are accepted from the 1st of the next month up to this day (1–28).",
+        "saved": "The deadline was saved."
+      }
+    }
   }
 }
