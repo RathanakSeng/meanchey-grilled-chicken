@@ -12,6 +12,7 @@ import {
   QUANTITY_UNITS,
   UNIT_DECIMALS,
   amountIn,
+  measureOf,
   parseQuantity,
   scaledOfAmount,
   toApiQuantity,
@@ -29,7 +30,12 @@ import { materialPicture } from './itemVisuals'
 import { ICON_MAX_BYTES, ICON_TYPES, useMaterialIcon } from './materialIcons'
 
 /** Quick amounts per unit for the Add sheet. */
-const CHIPS: Record<QuantityUnit, number[]> = { count: [1, 5, 10], kg: [0.5, 1, 5], g: [100, 500, 1000] }
+const CHIPS: Record<QuantityUnit, number[]> = {
+  count: [1, 5, 10],
+  kg: [0.5, 1, 5],
+  g: [100, 500, 1000],
+  m2: [0.5, 1, 5],
+}
 
 const textareaClass =
   'block w-full rounded-lg border-0 bg-white px-3 py-2 text-base text-stone-900 shadow-sm ring-1 ring-inset ring-stone-300 focus:ring-2 focus:ring-inset focus:ring-brand-500 sm:text-sm'
@@ -47,7 +53,8 @@ export interface MaterialRef {
   count: number | null
   kg: string | null
   g: string | null
-  /** Any movement yet (to / from count is then locked). */
+  m2: string | null
+  /** Any movement yet (to / from count or m² is then locked). */
   hasMovements: boolean
 }
 
@@ -65,6 +72,7 @@ export function materialRefOfItem(item: InventoryItem): MaterialRef | null {
     count: item.count,
     kg: item.kg,
     g: item.g,
+    m2: item.m2,
     // The overview has no movement flag: a material that never changed has no movements.
     hasMovements: item.updated_at !== null,
   }
@@ -364,12 +372,12 @@ export function MaterialFormSheet({
   }
   const hasUpload = Boolean(pending || iconUrl)
 
-  const weight = (u: QuantityUnit) => u !== 'count'
-  // To / from count only before the first stock entry; never to count for system materials.
+  // Between kinds of measure (weight, count, m²) only before the first stock entry; never to count
+  // or m² for system materials.
   const unitLocked = (u: QuantityUnit): string | undefined => {
     if (!material || u === material.unit) return undefined
-    if (material.system_code && u === 'count') return t('materials.systemNoCount')
-    if (weight(u) !== weight(material.unit) && material.hasMovements) return t('materials.unitLocked')
+    if (material.system_code && measureOf(u) !== 'weight') return t('materials.systemNoCount')
+    if (measureOf(u) !== measureOf(material.unit) && material.hasMovements) return t('materials.unitLocked')
     return undefined
   }
   const ready = nameKm.trim() !== '' && nameEn.trim() !== ''
@@ -424,7 +432,7 @@ export function MaterialFormSheet({
           <p className="mt-1 text-xs text-stone-500">
             {material ? t('materials.unitChangeHint') : t('materials.unitHint')}
           </p>
-          {material && material.unit !== unit && weight(unit) && weight(material.unit) && (
+          {material && material.unit !== unit && measureOf(unit) === 'weight' && measureOf(material.unit) === 'weight' && (
             <p className="mt-2 text-sm text-stone-700">
               {t('materials.unitConvertPreview', { from: t(`materials.units.${material.unit}`), to: t(`materials.units.${unit}`) })}
             </p>
@@ -437,7 +445,7 @@ export function MaterialFormSheet({
           <div className="flex items-center gap-3">
             <ItemPicture
               src={preview}
-              icon={unit === 'count' ? 'hash' : 'scale'}
+              icon={unit === 'count' ? 'hash' : unit === 'm2' ? 'grid' : 'scale'}
               className="h-16 w-16 ring-1 ring-inset ring-stone-200"
             />
             <div className="flex min-w-0 flex-wrap gap-2">

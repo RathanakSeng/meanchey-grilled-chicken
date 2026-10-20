@@ -1,12 +1,13 @@
 import re
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal
 
 from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field
 
 from app.models import Language, Role
 from app.models.user import POSITION_MAX_LENGTH
+from app.schemas.attendance import UserWorkplace
 from app.schemas.common import UserRef
 
 PHONE_PATTERN = r"^[0-9+()\-\s]{6,32}$"
@@ -49,6 +50,13 @@ class UserOut(BaseModel):
     updated_at: datetime
     deleted_at: datetime | None
     locked_until: datetime | None
+    # Attendance workplace (staff and supervisors).
+    workplace: UserWorkplace | None = None
+    # Attendance tracking: the first tracked day (staff and supervisors), whether the user is
+    # tracked (a supervisor can be switched off) and since when they aren't.
+    attendance_start_date: date | None = None
+    attendance_tracked: bool = True
+    attendance_untracked_since: date | None = None
 
 
 class UserCreate(BaseModel):
@@ -58,6 +66,10 @@ class UserCreate(BaseModel):
     telegram_username: str = Field(min_length=1, max_length=40)
     phone: str | None = Field(default=None, pattern=PHONE_PATTERN)
     language: Language = Language.KM
+    # Staff and supervisors: an active attendance workplace (default: the default workplace).
+    workplace_id: uuid.UUID | None = None
+    # Staff and supervisors: the first day attendance is tracked (default today, not in the past).
+    attendance_start_date: date | None = None
 
 
 class UserUpdate(BaseModel):
@@ -68,13 +80,25 @@ class UserUpdate(BaseModel):
     phone: str | None = Field(default=None, pattern=PHONE_PATTERN)
     position: PositionText = None
     language: Language | None = None
+    # Staff and supervisors: move to another active attendance workplace.
+    workplace_id: uuid.UUID | None = None
+    # Only while the current start date is still in the future (else 409 ATTENDANCE_START_LOCKED).
+    attendance_start_date: date | None = None
+    # Supervisors only (staff are always tracked): switch their attendance off / on from today.
+    attendance_tracked: bool | None = None
 
 
 class RoleChange(BaseModel):
-    """Promote / demote. `position` is required when the new role is staff, forbidden otherwise."""
+    """Promote / demote. `position` is required when the new role is staff, forbidden otherwise.
+    `workplace_id` (staff, supervisor): the attendance workplace; default: keep it, else the
+    default workplace."""
 
     role: Role
     position: PositionText = None
+    workplace_id: uuid.UUID | None = None
+    # Moving into staff / supervisor: the first tracked day (default today; kept when the user
+    # is already staff or supervisor and none is given).
+    attendance_start_date: date | None = None
 
 
 class ProfileUpdate(BaseModel):

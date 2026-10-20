@@ -1,8 +1,10 @@
 import type { NavBadgeKind, NavItem } from '@/layouts/nav'
+import { usePendingRequestCount } from '@/pages/attendance/requests/api'
 import { usePendingPlanCount } from '@/pages/workstation/production-plans/api'
 
 const COUNTS: Record<NavBadgeKind, () => number> = {
   pendingPlans: usePendingPlanCount,
+  pendingRequests: usePendingRequestCount,
 }
 
 function CountBadge({ kind }: { kind: NavBadgeKind }) {

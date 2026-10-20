@@ -15,8 +15,13 @@ import logging
 import sys
 
 from app.bot.notify import resend_failed
-from app.bot.registration import delete_webhook, set_webhook, webhook_info
-from app.bot.setup import BOT_COMMANDS, create_bot, create_dispatcher
+from app.bot.registration import (
+    delete_webhook,
+    set_commands_and_menu,
+    set_webhook,
+    webhook_info,
+)
+from app.bot.setup import create_bot, create_dispatcher
 from app.config import get_settings
 from app.db import SessionLocal, engine
 
@@ -50,7 +55,7 @@ async def run_polling() -> int:
         async with SessionLocal() as session:
             await delete_webhook(bot, session)
             await session.commit()
-        await bot.set_my_commands(BOT_COMMANDS)
+        await set_commands_and_menu(bot)
         log.info("bot started (polling)")
         await dp.start_polling(bot)
     finally:

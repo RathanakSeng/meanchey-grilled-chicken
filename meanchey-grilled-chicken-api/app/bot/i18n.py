@@ -149,6 +149,10 @@ TEXTS: dict[str, dict[Language, str]] = {
         Language.KM: " ក្រាម",
         Language.EN: " g",
     },
+    "unit_m2": {
+        Language.KM: " ម៉ែត្រការ៉េ",
+        Language.EN: " m²",
+    },
     "unit_count": {
         Language.KM: "",
         Language.EN: "",
@@ -175,6 +179,108 @@ TEXTS: dict[str, dict[Language, str]] = {
     "link_invalid": {
         Language.KM: "⚠️ តំណនេះមិនអាចប្រើបានទេ។ សូមបង្កើតតំណថ្មីក្នុងកម្មវិធី។",
         Language.EN: "⚠️ This link can't be used. Create a new one in the app.",
+    },
+    # --- Attendance (app/attendance/telegram.py, the /start Attendance button) ---
+    "shift_morning": {
+        Language.KM: "វេនព្រឹក",
+        Language.EN: "morning shift",
+    },
+    "shift_afternoon": {
+        Language.KM: "វេនរសៀល",
+        Language.EN: "afternoon shift",
+    },
+    "shift_morning_short": {
+        Language.KM: "វេនព្រឹក",
+        Language.EN: "Morning",
+    },
+    "shift_afternoon_short": {
+        Language.KM: "វេនរសៀល",
+        Language.EN: "Afternoon",
+    },
+    "reminder_check_in": {
+        Language.KM: "🕡 ម៉ោងចុះវត្តមាន{shift}បានបើកហើយ រហូតដល់ {end}។",
+        Language.EN: "🕡 {shift_short} check-in is open until {end}.",
+    },
+    "reminder_check_out": {
+        Language.KM: "🕛 អ្នកអាចចុះចេញពី{shift}បាន រហូតដល់ {end}។",
+        Language.EN: "🕛 You can check out of the {shift} until {end}.",
+    },
+    "checked_in": {
+        Language.KM: "✅ បានចុះវត្តមាន — {shift} ម៉ោង {time}",
+        Language.EN: "✅ Checked in — {shift}, {time}",
+    },
+    "checked_in_late": {
+        Language.KM: " (មកយឺត {minutes} នាទី)",
+        Language.EN: " (late {minutes} min)",
+    },
+    "checked_in_early": {
+        Language.KM: " (មកមុន {minutes} នាទី)",
+        Language.EN: " ({minutes} min early)",
+    },
+    "checked_out_overtime": {
+        Language.KM: " (ថែមម៉ោង +{minutes} នាទី)",
+        Language.EN: " (+{minutes} min overtime)",
+    },
+    "checked_out": {
+        Language.KM: "👋 បានចុះចេញ — {shift} ម៉ោង {time}",
+        Language.EN: "👋 Checked out — {shift}, {time}",
+    },
+    "button_check_in": {
+        Language.KM: "📍 ចុះវត្តមាន",
+        Language.EN: "📍 Check in",
+    },
+    "button_check_out": {
+        Language.KM: "📍 ចុះចេញ",
+        Language.EN: "📍 Check out",
+    },
+    "button_attendance": {
+        Language.KM: "🕒 វត្តមាន",
+        Language.EN: "🕒 Attendance",
+    },
+    # --- Attendance requests (app/bot/notify.py); {split}: "salary cut 2 h, unpaid work 4 h 45" ---
+    "request_submitted": {
+        Language.KM: ("📝 <b>{name}</b> បានផ្ញើសំណើសម្រាប់ {month}៖ ខ្វះ {missing} — {split}។"),
+        Language.EN: "📝 <b>{name}</b> sent a request for {month}: missing {missing} — {split}.",
+    },
+    "request_approved": {
+        Language.KM: "✅ សំណើរបស់អ្នកសម្រាប់ {month} ត្រូវបានយល់ព្រម៖ {split}។{changes}",
+        Language.EN: "✅ Your request for {month} was approved: {split}.{changes}",
+    },
+    "request_approved_changes": {
+        Language.KM: " (មានការកែប្រែ{comment})",
+        Language.EN: " (with changes{comment})",
+    },
+    "request_rejected": {
+        Language.KM: "❌ សំណើរបស់អ្នកសម្រាប់ {month} ត្រូវបានបដិសេធ៖ “{reason}”។",
+        Language.EN: "❌ Your request for {month} was rejected: “{reason}”.",
+    },
+    "request_reminder": {
+        Language.KM: ("🔔 សមតុល្យ {month} របស់អ្នកគឺ −{missing}។ សូមដាក់សំណើរបស់អ្នកមុនថ្ងៃទី {deadline}។"),
+        Language.EN: "🔔 Your {month} balance is −{missing}. Submit your request by {deadline}.",
+    },
+    "request_cut": {
+        Language.KM: "កាត់ប្រាក់ខែ {duration}",
+        Language.EN: "salary cut {duration}",
+    },
+    "request_work": {
+        Language.KM: "ធ្វើការបន្ថែមដោយគ្មានប្រាក់ {duration}",
+        Language.EN: "unpaid work {duration}",
+    },
+    "duration_h": {Language.KM: "{h} ម៉ោង", Language.EN: "{h} h"},
+    "duration_hm": {Language.KM: "{h} ម៉ោង {m} នាទី", Language.EN: "{h} h {m}"},
+    "duration_m": {Language.KM: "{m} នាទី", Language.EN: "{m} min"},
+    "open_request": {
+        Language.KM: "📝 បើកសំណើ",
+        Language.EN: "📝 Open request",
+    },
+    "create_request": {
+        Language.KM: "📝 ដាក់សំណើ",
+        Language.EN: "📝 Create request",
+    },
+    # The bot's menu button (next to the message field).
+    "menu_button": {
+        Language.KM: "បើកកម្មវិធី",
+        Language.EN: "Open app",
     },
 }
 

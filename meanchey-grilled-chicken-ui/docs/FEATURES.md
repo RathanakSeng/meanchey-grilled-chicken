@@ -2,7 +2,7 @@
 
 What the Mean Chey Grilled Chicken UI (មាន់អាំងមានជ័យ) offers today. One React app serves both the **PC dashboard** and the **Telegram Mini App**.
 
-Phase 1 covers sign-in, user management and access control (feature access levels), plus the **Workstation** features: **Suppliers**, **Customers**, **Production** (batches in three steps, with autosave), the **Production plan** (packaging plans between steps 2 and 3), **Inventory** (stock updated automatically by production), **Orders** and **Preparation** (satay sachets and packaging materials made ready from raw materials), with production, order and preparation alerts in the header bell and on Telegram.
+Phase 1 covers sign-in, user management and access control (feature access levels), plus the **Workstation** features: **Suppliers**, **Customers**, **Production** (batches in three steps, with autosave), the **Production plan** (packaging plans between steps 2 and 3), **Inventory** (stock updated automatically by production), **Orders** and **Preparation** (satay sachets and packaging materials made ready from raw materials), with production, order and preparation alerts in the header bell and on Telegram, plus **Attendance** (GPS check-in / check-out from the Mini App, reminders, the day view and corrections).
 
 > The UI hides what a user can't do, for a cleaner experience. **The API enforces every rule**, so hiding things in the UI is never the security boundary.
 
@@ -12,15 +12,16 @@ Phase 1 covers sign-in, user management and access control (feature access level
 - [4. App shell and navigation](#4-app-shell-and-navigation)
 - [5. Home](#5-home)
 - [6. Workstation (កន្លែងការងារ)](#6-workstation-កន្លែងការងារ)
-- [7. Settings](#7-settings)
-- [8. Users](#8-users)
-- [9. User detail](#9-user-detail)
-- [10. Access tab and Permissions (advanced)](#10-access-tab-and-permissions-advanced)
-- [11. Audit log](#11-audit-log)
-- [12. My profile](#12-my-profile)
-- [13. Language (Khmer / English)](#13-language-khmer--english)
-- [14. Error and status screens](#14-error-and-status-screens)
-- [15. Screen access matrix](#15-screen-access-matrix)
+- [7. Attendance (វត្តមាន)](#7-attendance-វត្តមាន)
+- [8. Settings](#8-settings)
+- [9. Users](#9-users)
+- [10. User detail](#10-user-detail)
+- [11. Access tab and Permissions (advanced)](#11-access-tab-and-permissions-advanced)
+- [12. Audit log](#12-audit-log)
+- [13. My profile](#13-my-profile)
+- [14. Language (Khmer / English)](#14-language-khmer--english)
+- [15. Error and status screens](#15-error-and-status-screens)
+- [16. Screen access matrix](#16-screen-access-matrix)
 
 ---
 
@@ -28,10 +29,10 @@ Phase 1 covers sign-in, user management and access control (feature access level
 
 | | PC dashboard | Telegram Mini App |
 |---|---|---|
-| Opened from | Browser | The bot's **Open app** button or menu button |
+| Opened from | Browser | The bot's **Open app** button or menu button (**បើកកម្មវិធី**), or the **Attendance** button (in `/start` for staff and supervisors, reminders and confirmations) straight to the check screen |
 | Sign-in | Username + password | Automatic, using Telegram `initData` |
 | Layout | Left sidebar + top bar | Top bar + bottom navigation, full-height, safe-area aware |
-| Navigation | Sidebar: Home · Workstation · Settings (with its sub-pages nested) | Bottom bar: Home · Workstation · Settings |
+| Navigation | Sidebar: Home · Workstation · Attendance · Settings (with its sub-pages nested) | Bottom bar: Home · Workstation · Attendance · Settings |
 | Back navigation | In-page back arrows (to the parent screen) | Telegram's native **Back** button (to the parent screen), plus in-page arrows |
 | Lists | Tables | Cards |
 
@@ -87,7 +88,7 @@ On this screen:
 
 ## 4. App shell and navigation
 
-The app is organized in two sections under Home:
+The app is organized in three sections under Home:
 
 ```
 Home                      everyone
@@ -99,10 +100,18 @@ Home                      everyone
 │   ├── Inventory         inventory.view    /workstation/inventory  (?tab=history)
 │   ├── Orders            orders.view       /workstation/orders  (new: /new; order: /:id; edit: /:id/edit)
 │   └── Preparation       preparation.view  /workstation/preparations  (preparation: /:id)
+├── Attendance            staff, supervisors, attendance.view / .scheduling   /attendance
+│   ├── (check screen)    staff, supervisors /attendance/check
+│   ├── My attendance     staff, supervisors /attendance/me  (?year&month)
+│   ├── Today             attendance.view   /attendance/today  (?date&workplace&status&role&q)
+│   ├── Scheduling        attendance.view or .scheduling   /attendance/scheduling (workplaces) → /:workplaceId  (?m)
+│   └── (employee)        attendance.view   /attendance/employees/:id  (?year&month; from Today)
 └── Settings              everyone          /settings
     ├── Users             users.view        /settings/users
     ├── Audit log         superadmin, GM    /settings/audit-logs
     ├── User limits       superadmin        /settings/user-limits
+    ├── Workplaces        attendance.workplace_view or _manage
+    │                       /settings/attendance/workplaces  (?archived=1; new: /new; one: /:id)
     └── My profile        everyone          /settings/profile
 ```
 
@@ -113,7 +122,8 @@ Home                      everyone
 - **Desktop sidebar:** Home, Workstation and Settings.
   - While you're anywhere under Workstation or Settings, that section's visible sub-pages are listed indented below it.
   - The current page and its section are highlighted.
-- **Mobile / Telegram bottom bar:** exactly three buttons, Home · Workstation · Settings. Settings stays highlighted on every Settings page.
+- **Attendance is shown to tracked employees and to holders of `attendance.view`** (a rule with `anyOf`: role *or* permission); a general manager without Attendance access doesn't see it.
+- **Mobile / Telegram bottom bar:** Home · Workstation · Attendance · Settings (Attendance only when visible). Settings stays highlighted on every Settings page.
 - **Back buttons,** both in-page and Telegram's native one, go to the **parent screen**, not the browser history. For example: user details → Users → Settings → Home, Suppliers → Workstation → Home, and a production batch → Production → Workstation → Home, and a plan → Production plan → Workstation → Home. A deep link opened straight into the Mini App therefore still has a sensible way back.
 - **Header:** language switcher (ខ្មែរ / EN), the **notification bell** (§6.4) and an avatar menu.
 - **Badges:** *Production plan* shows the number of plans waiting to be set, in the sidebar and on its Workstation card (only for people who can see plans).
@@ -123,8 +133,10 @@ Home                      everyone
 ## 5. Home
 
 - A welcome banner with the user's name and role badge (plus position for staff).
-- Two large tiles, each with an icon, a title and a one-line description. They sit side by side on desktop and stack on mobile:
+- **Tracked employees** (staff, supervisors): the **Attendance** card first, with the one action now (§7.2).
+- Large tiles, one per section the user sees, each with an icon, a title and a one-line description. They sit side by side on desktop and stack on mobile:
   - **Workstation (កន្លែងការងារ):** your daily work: suppliers, customers and more;
+  - **Attendance (វត្តមាន):** check in and out, and see attendance;
   - **Settings:** users, permissions and your account.
 
 ## 6. Workstation (កន្លែងការងារ)
@@ -147,7 +159,7 @@ With no visible cards (staff by default) it shows *"You don't have access to any
 
 ### 6.1 Suppliers and customers
 
-**Paths:** `/workstation/suppliers`, `/workstation/customers`. **Who can open them:** users whose Suppliers / Customers access is *View only* or *Full access* (§10): by default general managers and supervisors; staff once a general manager turns it on. Both pages work the same way.
+**Paths:** `/workstation/suppliers`, `/workstation/customers`. **Who can open them:** users whose Suppliers / Customers access is *View only* or *Full access* (§11): by default general managers and supervisors; staff once a general manager turns it on. Both pages work the same way.
 
 Top to bottom:
 
@@ -177,7 +189,7 @@ Top to bottom:
 
 ### 6.2 Production (ផលិតកម្ម)
 
-**Paths:** `/workstation/production` (list) and `/workstation/production/<id>?step=1|2|3` (a batch). **Who can open them:** Production access *View only* or higher (§10): by default general managers and supervisors; staff once a general manager turns it on.
+**Paths:** `/workstation/production` (list) and `/workstation/production/<id>?step=1|2|3` (a batch). **Who can open them:** Production access *View only* or higher (§11): by default general managers and supervisors; staff once a general manager turns it on.
 
 A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ការនាំចូល) → **Processing** (ការផលិត) → **Standardize** (ការវេចខ្ចប់). Each step is filled in as a draft that **saves itself**, and is locked with **Finish step**. A step opens only once the previous one is finished. **Between steps 2 and 3 a planner sets and confirms the packaging plan** (§6.3): step 3 stays locked until then.
 
@@ -226,7 +238,7 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ក�
 
 ### 6.3 Production plan (ផែនការវេចខ្ចប់)
 
-**Paths:** `/workstation/production-plans` (list) and `/workstation/production-plans/<batch id>` (a plan). **Who can open them:** Production plan access *View only* or *Full access* (§10): by default general managers; supervisors once a general manager turns it on; never staff. Plans are created by finishing step 2; step 3 can't start until the plan is confirmed.
+**Paths:** `/workstation/production-plans` (list) and `/workstation/production-plans/<batch id>` (a plan). **Who can open them:** Production plan access *View only* or *Full access* (§11): by default general managers; supervisors once a general manager turns it on; never staff. Plans are created by finishing step 2; step 3 can't start until the plan is confirmed.
 
 **List:** status chips **Waiting for plan** (default, with the count) · **Confirmed** · **Completed** · **All**, and a search (batch code or supplier), kept in the address. Each row / card: batch code, production date, supplier, chickens, wings / thighs, the planned packs and a status badge. Cancelled batches never appear.
 
@@ -280,14 +292,14 @@ Stock updates **automatically** as production steps are finished; reopening a st
 - **Tap a card** → the **item sheet** (drawer on PC, bottom sheet on phones): big picture, full name (e.g. *Liver (processed)*), its sub-tab as a label (red for Wasted), balance (count and / or kg), last change, and:
   - **From production** (ពីផលិតកម្ម), for everyone with Inventory: one row per batch that currently contributes, oldest first: the batch code (opens the batch at that step) · the last step that still contributes, and its count and / or kg (**"≈"** when estimated); then a **Total** line equal to the balance. Nothing to show: *"No stock from production right now."* Example: after the 50-chicken batch finishes step 2 it leaves Chicken and appears under Wings and Thighs.
   - With **Inventory history** only: the item's **last 20 changes** (time, + green / − red, new balance, source: the batch code linking to the batch · step, *"Reversed: reopen / cancelled"*, by whom) and **See full history**, which opens the History tab filtered by that item (the sub-tab is kept for coming back).
-- Numbers use one rule everywhere (`lib/quantity.ts`, the same as the API): counts as whole numbers with thousands separators, kg always with 3 decimals (*1.250 គ.ក*), g with 1 (*2,350.0 ក្រាម*).
+- Numbers use one rule everywhere (`lib/quantity.ts`, the same as the API): counts as whole numbers with thousands separators, kg always with 3 decimals (*1.250 គ.ក*), g with 1 (*2,350.0 ក្រាម*), m² with 2 (*12.50 ម៉ែត្រការ៉េ*; the cards and the unit chips write the short *12.50 m²*, because the Khmer word is long).
 
 **Materials (in Raw)**
 
-- **Cards:** after Chicken, the active materials sorted by name in the UI language (defaults: String, Skewer, Stickers for 2- and 4-piece packs, Marinade sauce, Satay sauce, Zip bags 7 for 2- and 4-piece packs, Vacuum bag). Picture, first that exists: the **uploaded icon**, the material's **own illustration** (the nine defaults: a coil of string, a bundle of skewers, round stickers with a *2* / *4* badge, a sauce bottle for the marinade, a satay bowl, zip bags with *2* / *4*, a flat vacuum bag), else a generic icon by unit (a scale for kg / g, a number tag for counted ones). Then the balance with its unit and a soft orange **+ បន្ថែម / Add** button with **Inventory Record** (`inventory.materials_stock`). Marinade sauce has a small **ប្រើដោយផលិតកម្ម / Used by production** label.
-- **Add sheet** (from the card or the item sheet): the quantity (numeric keypad for counts, decimal for kg / g; a comma works too), quick chips that add up — count **+1 +5 +10**, kg **+0.5 +1 +5**, g **+100 +500 +1000** — the precision hint, *"In stock: …"* and the **new balance** preview. Too many decimals or 0: a red hint and Save stays disabled.
+- **Cards:** after Chicken, the active materials sorted by name in the UI language (defaults: String, Skewer, four Stickers (2- and 4-piece packs, each in kg *· គ.ក* and in m² *· ម៉ែត្រការ៉េ*), Marinade sauce, Satay sauce, Zip bags 7 for 2- and 4-piece packs, Vacuum bag). Picture, first that exists: the **uploaded icon**, the material's **own illustration** (the eleven defaults: a coil of string, a bundle of skewers, round amber stickers with a *2* / *4* badge (kg) and a **teal roll of label stock with its sheet unrolled** and the same badge (m²), a sauce bottle for the marinade, a satay bowl, zip bags with *2* / *4*, a flat vacuum bag), else a generic icon by unit (a scale for kg / g, a grid for m², a number tag for counted ones). Then the balance with its unit and a soft orange **+ បន្ថែម / Add** button with **Inventory Record** (`inventory.materials_stock`). Marinade sauce has a small **ប្រើដោយផលិតកម្ម / Used by production** label.
+- **Add sheet** (from the card or the item sheet): the quantity (numeric keypad for counts, decimal for kg / g / m²; a comma works too), quick chips that add up — count **+1 +5 +10**, kg **+0.5 +1 +5**, g **+100 +500 +1000**, m² **+0.5 +1 +5** (shown *+0.50 +1.00 +5.00*) — the precision hint, *"In stock: …"* and the **new balance** preview. Too many decimals or 0: a red hint and Save stays disabled.
 - **Item sheet** of a material: balance, **Add** and **Remove** (Inventory Record; Remove asks for the quantity and a required **reason**, shows the new balance, refuses more than is in stock); **⋮ Edit / Archive** with **Inventory materials** (`inventory.materials_manage`). Marinade sauce has no Archive and shows *"Production step 2 takes its marinade from this material. It can be renamed, but not archived."* No *From production* section; recent changes only with Inventory history.
-- **Add material** (solid orange button in the header of Raw, with Inventory materials) and **Edit**: Khmer name, English name, unit (**kg · g · count**: three equal options that always fit the sheet, on phones, in the Mini App and in the desktop drawer, in both languages), and an optional **Icon** (រូបតំណាង): a preview, **Upload** / **Change** and **Remove** (PNG, JPEG or WebP up to 1 MB; the server stores it as a square). Editing uploads or removes it right away; a new material's icon is uploaded right after the material is created (if that upload fails the material is saved anyway and the sheet stays open on it, with *"The material was saved, but its icon wasn't uploaded."*). Removing an upload brings back the default picture. Not an image → *"The icon must be a PNG, JPEG or WebP image."*; too big → *"…at most 1 MB."* The unit explains: *kg ↔ g converts the stock automatically; switching to or from count is only possible before the first stock entry* (count is disabled with that tooltip once the material has moved; Marinade sauce can never be counted). Saving kg → g converts the balance (e.g. 3.750 kg → 3,750.0 g) and the history shows *"Unit changed"* with both values; older rows keep their unit. A name already used → *"Another material already has this name."*
+- **Add material** (solid orange button in the header of Raw, with Inventory materials) and **Edit**: Khmer name, English name, unit (**kg · g · m² · count**: four equal options (*គ.ក · ក្រាម · ម៉ែត្រការ៉េ · ចំនួន*) that always fit the sheet: 2 × 2 on phones and in the Mini App, one row from the `sm` breakpoint, in both languages; hint *"Counted in pieces, or measured in kg, g or m²."*), and an optional **Icon** (រូបតំណាង): a preview, **Upload** / **Change** and **Remove** (PNG, JPEG or WebP up to 1 MB; the server stores it as a square). Editing uploads or removes it right away; a new material's icon is uploaded right after the material is created (if that upload fails the material is saved anyway and the sheet stays open on it, with *"The material was saved, but its icon wasn't uploaded."*). Removing an upload brings back the default picture. Not an image → *"The icon must be a PNG, JPEG or WebP image."*; too big → *"…at most 1 MB."* The unit explains: *kg ↔ g converts the stock automatically; switching to or from count or m² is only possible before the first stock entry* (count and m² are disabled with that tooltip once the material has moved, and kg / g too when the material is in m²; Marinade sauce can only be kg or g). Saving kg → g converts the balance (e.g. 3.750 kg → 3,750.0 g) and the history shows *"Unit changed"* with both values; older rows keep their unit. A name already used → *"Another material already has this name."*
 - **Archive:** a confirmation that warns when stock is left (*"There is still 3,750.0 g in stock…"*). Archived materials leave Raw. **Show archived** (managers; Khmer *បង្ហាញសម្ភារៈដែលបានលុបចោល*) lists them dimmed under *Archived materials* with an *Archived* badge and **Restore**. In Khmer, archive is **លុបចោល** and restore **ស្ដារវិញ** everywhere (menu, confirmation *"លុបចោលសម្ភារៈនេះ? ស្តុក និងប្រវត្តិនៅតែរក្សាទុក ហើយអាចស្ដារវិញបាន។"*, badge *បានលុបចោល*, audit labels, errors). The audit log shows icon changes as *Icon changed* / *Icon removed*.
 - **History:** *Added*, *Removed — reason*, *Unit changed*, and step 2's marinade (*PR-… · Processing −350.0 g*); the type filter has the three material types.
 
@@ -343,7 +355,7 @@ Created ──► Delivering ──► Delivered ─┬─► Success           
 
 **Order page**
 
-- **Header:** code, status badge, customer (name, or the **Direct order** badge with the phone); **ព្រីន / Print** (PC and phone browsers; **Send to Telegram** inside the Mini App, see *Delivery note* below); **⋮** with **Send to my Telegram** (outside the Mini App), **Edit** (`orders.update`) and **Cancel order** (`orders.cancel`) while Created.
+- **Header:** code, status badge, customer (name, or the **Direct order** badge with the phone); **នាំចេញ Excel / Export Excel** (only with `orders.export_delivery_note`, see *Delivery note* below); **⋮** with **Send to my Telegram**, **Edit** (`orders.update`) and **Cancel order** (`orders.cancel`) while Created.
 - **Details:** customer (name, or the **Direct order** badge; phone as a tap-to-call link; location if any). These are the order's own copy: they follow edits of the customer while the order is Created and stay as they were when delivery started afterwards (a renamed customer doesn't change delivered orders); delivery date, driver, note, and once printed *"Printed 2× (the next one says COPY)"*. While Created with too little stock: an amber list (*"Only 12 × 4-Piece Packs in stock."*).
 - **Main action** by status (a full-width button under the header on phones):
   - Created (`orders.create`): **Start delivery** → a confirmation (*"The 3 boxes for Dara Shop leave stock now (oldest batches first). This can't be undone."*); a stock refusal names each item (*"Not enough 4-Piece Packs in stock: 7 available, 9 needed."*).
@@ -356,8 +368,8 @@ Created ──► Delivering ──► Delivered ─┬─► Success           
 
 **Delivery note (ប័ណ្ណដឹកជញ្ជូន)** — everyone who can open the order, any status (Created onward, Cancelled too). The API makes an 80 mm receipt PDF (API FEATURES §19.6): business info and logo, the title, COPY on reprints, CANCELLED on cancelled orders, customer / date / driver, white boxes then black boxes with their lines and subtotals, the grand total, returns (when there are any), the note, signature lines (Prepared by, Driver, Received by) and a QR code to the order. Khmer with English under each label, black and white only.
 
-- **Print** (PC and phone browsers): on a PC the note loads in a hidden frame and the browser's print dialog opens (choose the receipt printer; if the browser can't print the frame, the PDF opens in a new tab). On phones and tablets the PDF opens in a new tab (opened at the tap, so popup blockers allow it), to print or share from there.
-- **Send to my Telegram:** the bot sends the PDF to the person's own Telegram chat; *"Sent to your Telegram chat."* Inside the **Telegram Mini App** this is the button in the header and **Print is hidden** (printing isn't reliable in Telegram); elsewhere it's in the ⋮ menu. Errors are translated: not linked → *"Your Telegram account isn't linked yet. Open the app once from the bot in Telegram (the Open app button), then try again."*; bot not configured; Telegram couldn't deliver it (blocked bot).
+- **Export Excel** (header button, only for people holding **Export delivery note**: the GM and the superadmin by default; supervisors and staff once granted, see *Access*): builds the note in the browser from the template `public/templates/delivery_note_template.xlsx` and downloads `DeliveryNote_<customer>_<order no.>_<YYYY-MM-DD>.xlsx` (Khmer letters kept; characters not allowed in file names replaced). Nothing is generated or stored on the server; the only API call is `GET /orders/delivery-note/supplier` (the supplier block). The sheet gets: **Supplier** (Business info name, phone and address, in the UI language) · **Customer** (the order's own copy: name or *Direct order*, phone, location over two lines when long) · **Date** (the delivery date) · one row per item of the order's total (running number, item name, and its **total quantity** in the Unit column: *12* for counted items, *1.250 kg* for by-products); Item Code, Picture, Remark, Ref. Invoice and Ref. PO stay blank, ISSUED BY / CONFIRMED BY stay as in the template. Everything the export writes uses the **Khmer OS Siemreap** font (install it on the computer that opens the file). More than two items insert rows styled like the first item row, so the signature blocks move down with their formatting. The button shows a spinner while it builds; errors (template not loaded, no business name yet, no customer details, no items, API errors) are translated. In the **Telegram Mini App** the file is offered through the system share sheet when the WebView supports sharing files, otherwise through the normal download link. The Excel library (ExcelJS) loads only when the button is pressed.
+- **Send to my Telegram:** the bot sends the PDF to the person's own Telegram chat; *"Sent to your Telegram chat."* It is always in the ⋮ menu (there's no PDF print button any more). Errors are translated: not linked → *"Your Telegram account isn't linked yet. Open the app once from the bot in Telegram (the Open app button), then try again."*; bot not configured; Telegram couldn't deliver it (blocked bot).
 - Every print or send is counted: the first is the original, later ones print **COPY #n**; the count on the page refreshes after each one.
 
 **Elsewhere**
@@ -395,7 +407,132 @@ Raw materials made **ready to use**. **Not production step 3 (Standardize)**: pr
 
 **Elsewhere:** Inventory's **Prepared** sub-tab (§6.5); the bell and Telegram (🧂, holders of Preparation management, §6.4); the audit log (*Preparation started / finished / reopened / cancelled*, the cancel reason, the sachets or materials of a Finish, linked to the preparation; record type **Preparation**). `prep_role` (which materials are preparable) isn't shown or editable yet.
 
-## 7. Settings
+## 7. Attendance (វត្តមាន)
+
+**Path:** `/attendance`. **Who sees it:** tracked employees (active **staff and supervisors**) and holders of `attendance.view` or `attendance.scheduling`. A top-level section between Workstation and Settings (bottom bar: Home · Workstation · Attendance · Settings). Its hub shows the action card (tracked employees) and a card per page: **My attendance** (វត្តមានរបស់ខ្ញុំ, tracked employees), **Today** (`attendance.view`) and **Scheduling** (កាលវិភាគ, `attendance.view` or `attendance.scheduling`, §7.6).
+
+### 7.1 Check screen (`/attendance/check`)
+
+Opened by the Telegram reminders and confirmations, the **Attendance** button of the bot's `/start` message, the Home card and My attendance. Tracked employees only (lazy chunk with the map).
+
+- **One action**, the API's `next_action`: *Check in — Morning shift* / *Check out — Morning shift* with *Open until 07:44*. With nothing to do (no window open, or a **day off**) it goes straight to the Attendance page, whose card says why. In the 12:30–12:59 overlap it shows the morning check-out first; the afternoon check-in is then the Attendance card's button. An `?action=` from an older link is ignored.
+- **Before the start date / switched off:** instead of the form, a notice — *"Your attendance starts on 20 Oct 2026."* (the employee's `attendance_start_date`, `me/today` `starts_on`), or *"Attendance isn't required for you."* for a supervisor whose attendance is switched off (`tracked = false`). Nothing to confirm; the Mini App never asks for a location.
+- **The location is read at once**, when the screen opens: Telegram's `LocationManager` (init, access request, `getLocation`) inside the Mini App when the client has it (Bot API 8.0+), otherwise `navigator.geolocation` with high accuracy (also when Telegram returns no accuracy). Denied → an explanation and **Open settings** (`LocationManager.openSettings()`, Telegram only); no GPS → *turn on location*.
+- **Map** (Leaflet + OpenStreetMap): the employee's own workplace pin with its radius circle, the person's position with its accuracy circle. Status line: *"35 m from Mean Chey ✅"* or *"320 m away — you must be within 100 m ❌"*, plus a warning when the GPS accuracy is above the limit.
+- A big **Confirm check-in / check-out**, enabled only inside the radius, with acceptable accuracy, while the window is open; **Refresh location**. The workplace without a position: the API's message instead of the map.
+- **After a successful check** it goes straight to the **Attendance** page (`/attendance`, replacing the check screen in the history), whose card already shows the new check-in / check-out (and late minutes); no result screen and no Close button (the bot's Telegram confirmation still arrives). Refusals show the translated error (too far, too early, closed, inaccurate, …) and keep the form for a retry.
+
+### 7.2 Home card
+
+For tracked employees the first card on Home is **Attendance**. Its only action is the small header button; the rest is today's state.
+
+**Before the start date** the card shows *"Your attendance starts on 20 Oct 2026."* in place of the shifts and the header button is disabled (*Check in · starts 20 Oct 2026*). A **supervisor whose attendance is switched off** (Settings → Users, §9) sees **no Attendance card** on Home or on the Attendance hub (`me.user.attendance_tracked = false`); the nav still lists *My attendance* for their past records.
+
+- **Header button** (top right, compact on the title row, icon + label), from `next_action` in `me/today`:
+
+  | `next_action` | Button |
+  |---|---|
+  | `check_in` / `check_out` | **ចុះវត្តមាន / Check in** or **ចុះចេញ / Check out**, enabled (brand orange), opens the check screen |
+  | `none`, a window opens later today | the upcoming action's label, **disabled**, with *opens 12:30* (*បើកម៉ោង 12:30*) as a small second line |
+  | `none`, nothing else today (the next opening is tomorrow's) | **ចុះវត្តមាន / Check in**, **disabled**, *Done for today* (*រួចរាល់សម្រាប់ថ្ងៃនេះ*) |
+  | `none` on a **day off** (`day_off`) | **ចុះវត្តមាន / Check in**, **disabled**, *Day off* (*ថ្ងៃឈប់*) |
+
+  There is no big action banner and no *My attendance* link (it is in the Attendance section).
+- **On a day off** the shifts are replaced by an amber notice: *"Today — Holiday: Pchum Ben. No check-in today."* (or *Day off* for an untracked weekday) and *"Attendance resumes Thu 15 Oct, check-in opens at 06:30."*
+- **Today's two shifts**, one row each: name and times, a badge and the details under it:
+  - the shift whose window is open and still needs the employee: the phase badge (*កំពុងបើកចុះវត្តមាន* / *Check-in open*, *Check-out open*) with *until 11:44* or *check-out until 12:59*; while checking out is open, the check-in so far (*In 07:12 · late 12 min*);
+  - otherwise the record's status (*Present*, *Late 12 min*, *Absent*) or the phase (*Not open yet*, *In progress*, …), and the recorded times (*In 07:12 · Out 12:03*, or *Forgot check-out*).
+- **On time:** besides the one-minute refetch and the refetch on focus, `me/today` is refetched exactly when the next window opens (`next_opens_at`) or the open one closes (`closes_at`), so the button turns on and off on time without a reload.
+
+### 7.3 My attendance (វត្តមានរបស់ខ្ញុំ, `/attendance/me`)
+
+Tracked employees (it replaces *My day*, same address). From `GET /attendance/me/summary`.
+
+- **Header:** the title, the workplace and its radius, and the same small **Check in / Check out** button as the Home card (§7.2: enabled in a window, disabled with *opens 12:30*, *Done for today* or *Day off*). On a day off the Home card's day-off notice is shown under the header.
+- **Start date and untracked days:** days before the account's *attendance start date* are not listed (the year filter starts at it). Before it, the Home card's *"Your attendance starts on …"* notice is shown under the header and the button is disabled. Days inside a switched-off period are **greyed rows tagged *Not tracked* / មិនតាមដាន** and are left out of the KPIs, the chips and the month totals; a supervisor switched off sees the notice *"Attendance isn't required for you."* and keeps this page for their past records.
+- **Period:** **Year** (from the year the account was created) and **Month** with a first option **ពេញមួយឆ្នាំ / Whole year**; no future months, none before the account existed. Default the current month; kept in the address (`?year=2026&month=10`; only `?year=2026` = the whole year). No day filter.
+- **Four cards** (`KpiGrid`: 2 × 2 on phones, 4 in a row on desktop):
+
+  | Card | Big | Under it |
+  |---|---|---|
+  | **មានវត្តមាន / Present** | *18 shifts* | *61 h 20 min*; *Morning 10 · Afternoon 8* |
+  | **អវត្តមាន / Absent** | *2 shifts* | *7 h*; *Morning 1 · Afternoon 1* |
+  | **មកយឺត / Late** | *4 times* | *1 h 05 min* |
+  | **តុល្យភាពម៉ោង / Hours balance** | signed *−6 h 45 min* (red below 0, green above, neutral at 0) | *Extra +1 h 20 min · Missing −8 h 05 min* |
+
+  Small neutral chips under them, each hidden at 0: *Early check-in: 6 · 1 h*, *Overtime: 3 · 20 min*, *Forgot check-out: 2*. Durations are hours and minutes (*ម៉ោង / នាទី* in Khmer), never decimals. The API's definitions: present minutes = scheduled − late + early + overtime; missing = absent + late minutes; extra = early + overtime; balance = extra − missing.
+- **Daily table**, newest first, from the period start (or the account's creation) to today:
+  - desktop: **Date** | **Morning shift**: In · Out · Status | **Afternoon shift**: In · Out · Status;
+  - **In:** the time plus a small red *+12* (late minutes) or green *−20 early*; **Out:** the time plus a green *+25* (overtime), or *Forgot check-out*; an absent shift shows *—* with the **Absent** badge; a shift without a record (yet) shows *—*;
+  - a corrected shift has a small *corrected* marker with the reason as its tooltip;
+  - **holidays and days off** are marked in the day row (*Holiday: Pchum Ben* / *Day off*); without records the row shows only that mark (desktop: one cell across the shifts), and a kept corrected record is listed but, like the whole day, doesn't count in the cards or the month totals;
+  - phones and the Mini App: one card per day (*Tue 13 Oct*) with two compact shift rows and the same tags.
+- **Whole year:** grouped by month, collapsible, the newest month open; each header shows the month's present / absent counts and balance.
+- No record at all in the period: *No attendance recorded in this period.*
+- Month and weekday names come from the translations (`common.months`, `common.weekdaysShort`), since browsers often lack Khmer calendar names.
+
+### 7.4 An employee's attendance (`/attendance/employees/:id`, `attendance.view`)
+
+On **Today**, an employee's name opens their attendance: the same page (period, cards, chips, table) from `GET /attendance/users/{id}/summary`, with their name, role, position, workplace (and *Deactivated*) in the header and no check button. With `attendance.correct`, tapping a shift (a table cell or a phone row) opens the **Fix** sheet (§7.5) for that day and shift; saving refreshes the figures. Back goes to Today. Scope as on Today (a supervisor sees staff only); hidden accounts are *not found*.
+
+### 7.5 Today (`/attendance/today`, `attendance.view`)
+
+- **Header:** the long date (*Wednesday, 14 October 2026 · Today*), a day switcher (‹ date picker ›, never after today), **Today** and **Export CSV** (the primary orange button): downloads the rows the filters show (employee, role, position, workplace, and per shift status, in, out; UTF-8 with BOM so Excel reads Khmer), named `attendance-YYYY-MM-DD.csv`.
+- **Filters** (one card): **Workplace** (shown when there is more than one), **Status** (present, late, absent, not yet, no record, forgot check-out), **Role**, a search box (name, position, Telegram username) and **Reset filters**; all in the address (`?date&workplace&status&role&q`).
+- **Shift summary** (one card, a row per shift): name, phase badge, times, *N expected · M checked out* (and *forgot check-out*), a bar of on time / late / absent over the expected, *x of y attended*, and three **count chips** (on time, late, absent incl. no record) that apply that status filter when clicked (click again to clear; a zero is dashed). With a workplace chosen, its own shift times.
+- **Day off** (the chosen workplace's, else the default's): an amber notice *"Holiday: Pchum Ben at Mean Chey: nobody is expected today."*; the figures count nobody, rows show *Day off* (a kept corrected record still shows), and **By workplace** shows *Day off* instead of the counts for a workplace that's off.
+- **By workplace** (all workplaces, more than one): a table, a row per workplace with its own times per shift and the worst state as one chip (*1 absent*, else *1 late*, else *1 on time*) *of N*; clicking a row filters the page.
+- **Employees** (table on desktop, cards on phones): one row per employee in scope (a supervisor sees staff only), the name opening their attendance (§7.4), with their workplace when several are shown, per shift (judged by that workplace's schedule) the status badge, *In 07:12 · Out 12:03* (or *Forgot check-out*), the distance at check-in, and a **Corrected** marker (the reason as its tooltip). **Exceptions first:** employees with an absent or missing record, then late / forgot check-out, then not yet, then those on time. Each cell shows the status badge, the scheduled times, *In … · Out …* or *No check-in*, and the Fix / Add record link.
+- **Starts later** and **Not tracked** groups under the list (hidden when empty, filtered by the same role and search): employees whose attendance starts after that day (a badge with their start date, *from 20 Oct 2026*) and supervisors whose attendance is switched off. They are **not counted** in the figures or the expected total and are not rows of the list; only the name (opening their attendance, §7.4) and the role / position / workplace are shown.
+- With `attendance.correct`: **Fix** on each shift cell (or **Add record** where there is none) opens a sheet with the current values (*Now recorded*, the shift's times that day at the employee's workplace), **Came to work / Absent**, the check-in time (present or late follows from it), the check-out (**Out** + its time, **Forgot**, **Not yet**) and a **required reason**. Saving refreshes the day and today's state.
+
+### 7.6 Scheduling (កាលវិភាគ, `/attendance/scheduling`)
+
+The single place for **tracked weekdays**, **holidays / occasions** and the **shift schedule and rules**, set per workplace (or for all at once). **Who sees it:** `attendance.view` (read-only) or `attendance.scheduling` (the edit controls). Lazy chunk.
+
+- **Workplaces** (`/attendance/scheduling`): a card per active workplace (default first, *Default* badge) with its tracked days (*Mon–Sat*), both shift times and *Change planned from Sun 1 Nov 2026* when one is planned. Tapping a card opens that workplace's scheduling (`/attendance/scheduling/:workplaceId`, `?m=2026-11` the calendar month; the old `?w=id` links open it too). The list shows even with a single workplace.
+- **A workplace's scheduling:** its name as the title, back to the list. Everything on it is that workplace's; there is no workplace selection.
+- **Apply to all workplaces:** a checkbox next to **Save** (Tracked weekdays, Shift schedule) and in the Holiday sheet, unticked by default, reset after saving, hidden when there is only one workplace. Ticked, Tracked weekdays / Shift schedule confirm *"This also replaces the tracked weekdays of 2 other workplaces from Tue 1 Dec 2026."* and save for every workplace. Saving confirms with a line on top (*"Holiday saved. 3 attendance records were removed."*), closable.
+- **Calendar:** the card header has **Add holiday** (`attendance.scheduling`; prefilled with today, or the 1st of the month shown) and a ⋮ menu with **Copy holidays from {last year}** into the shown month's year, for every workplace (confirmation says so; same day next year, 29 Feb → 28 Feb, Khmer holidays move so check the dates; the result reads *"5 holidays copied. 2 were already there."*). Then a plain month grid of this workplace's days, Monday first, month / year arrows and **Today**. Each cell (≥ 44 px, tappable): the day number; holiday names as text (truncated, full name on hover / long-press; on phones a dot, the list below names them); untracked weekdays greyed *Day off*; today outlined. Legend under the grid: *Holiday · Day off · Tracked*. No gradients, animations or decorative icons; high contrast.
+- **Holidays of the month** under the grid (date range, name, days, workplaces, note) with **Edit** / **Delete** (`attendance.scheduling`).
+- **Tap a day** (`attendance.scheduling`): a day with a holiday opens it; another opens **Add holiday** prefilled with that day. The **Holiday** sheet: name (Khmer, English), **From** / **To** (whole days, at most 31; the day count shown), note and ☐ **Apply to all workplaces** (*Workplaces added later are included too.*). Unticked, a new holiday is this workplace's only; unticking one that was for all makes it this workplace's only; one already shared by a few workplaces keeps them (*Also at: GDT*). Opening a holiday for all says *Shared with all workplaces: changes apply to every workplace.*; deleting it adds *This removes it for all workplaces.* (or *This removes it for Mean Chey, GDT.*). A holiday that includes today or earlier warns and asks: *"Attendance already recorded on these days will be removed (corrected records are kept)."* Deleting one with past days says their absences come back.
+- **Tracked weekdays:** seven toggles Mon–Sun (Monday first), **Applies from** (today by default, never the past; *Until then the current settings stay.*), Apply to all workplaces, **Save**. Untracking today from today warns and asks: attendance already recorded today will be removed (with Apply to all, whenever today is left out).
+- **Shift schedule and rules:** start / end of both shifts, check-in opens (min before), absent after (min after the start), check-out window, maximum GPS accuracy (10–500 m), Telegram reminders, count early check-in / overtime as extra time, a **live preview** of each shift's windows (computed like the API), **Applies from**, Apply to all workplaces, **Save**; the API's problems (overlaps, windows outside the day, …) in plain words. A note: records already made keep their times; from today, new times apply to windows that haven't opened yet.
+- **Upcoming changes** of this workplace: *From Sun 1 Nov 2026* and what changes (tracked days, shift times, rules), each with **Delete** (confirmation).
+- Read-only (`attendance.view` only): the same page without Save, Add, Edit, Delete or Copy; calendar cells aren't tappable.
+- After any change the scheduling, calendar and holiday queries refetch, and so do today's state, the day views, the summaries and the workplaces (their schedule summary).
+
+### 7.7 Requests (សំណើ, `/attendance/requests`)
+
+After a month ends, a tracked employee whose **missing time is at least 1 hour** sends **one request** for it: how it will be covered, by a **salary cut**, **unpaid extra work** or **both**. A reviewer approves, approves with changes or rejects. Fulfilment (payroll, the extra work) happens outside the app for now. **Who sees it:** tracked employees (their own) and holders of `attendance.requests_review` (Attendance requests, GM Full by default). The sub-tab sits under Attendance; for reviewers it carries the **pending count badge** (`pendingRequests`).
+
+- **Tabs** (a control, only when there is more than one): **My requests** (tracked employees), **To review** and **All** (reviewers). The default is *To review* when something is pending, else the first. `?tab=` and `?request=<id>` (opens that request: the Telegram button) are in the URL.
+- **My requests:** a **Year** select, then the months of the year, **newest first**, up to the current month and from the month attendance started. Each card: the month, the **balance** (red when negative) and its state:
+  - eligible and the window open → **Create request** (*Until 7 Nov*);
+  - under an hour → *Under 1 hour — no request needed*;
+  - the month hasn't ended → *Opens on 1 Nov*;
+  - the window closed with nothing sent → **No request**;
+  - a request → its badge (**Pending**, **Approved**, **Approved with changes**, **Rejected**), the split (the approved one when approved) and the reason when rejected; tapping opens it.
+- **Create request** (sheet): the month's numbers (absent, late, extra, **missing**); two inputs, **Salary cut** and **Unpaid extra work**, each in **hours + minutes** (minutes over 59 carry into the hours); quick buttons **All salary cut** / **All unpaid work**; the live line *Covered 6 h 45 of 6 h 45 ✅* (green when equal, red otherwise); an optional **note** (500); the warning *You can submit only one request for this month. It can't be changed afterwards.*; **Submit request** is enabled only when the split matches. It starts as everything unpaid extra work.
+- **Reviewers:** **To review** = the pending requests, oldest first. **All** adds filters: **Status** (incl. **No request**), **Year**, **Month** and **Employee** (a select, shown with `users.view`); 20 per page (‹ ›). A row: the employee, the month, the missing time, the requested split, the note, the status badge and when it was sent. **No request** rows (an eligible month whose window is over) have no sheet: they open the employee's attendance for that month (with `attendance.view`).
+- **Request sheet** (drawer on PC, bottom sheet on phones): the employee, the status, the month's numbers **as they were when it was sent**, the requested split with the sent time, the note, the approved split (*Changed by the reviewer* when it differs), the comment or the rejection reason, who decided and when, a 🔒 hint while the month is locked, and *Open attendance →* for the employee's month (`attendance.view`). A reviewer with a pending request (never their own) gets **Approve**, **Approve with changes** and **Reject**, each with a small form: Approve — an optional comment; Approve with changes — the split editor (starts at the requested split, must cover the missing time) and a comment; Reject — a required reason.
+- After a submit or a review the requests, that request, the summaries and the day views refetch. Errors are translated (`ATTENDANCE_REQUEST_WINDOW_CLOSED` with the dates, `…_EXISTS`, `…_SPLIT_MISMATCH`, `…_NOT_PENDING`, `ATTENDANCE_MONTH_LOCKED`, …).
+
+**On My attendance and an employee's page (§7.3, §7.4)**, for a **monthly** period, a slim **status strip** under the KPI cards:
+
+- ✅ *Request approved — salary cut 2 h · unpaid extra work 4 h 45 (approved by … on …)*, with *Changed from …* and the comment when it was approved with changes;
+- ⏳ *Request pending review*; ❌ *Request rejected — {reason}*;
+- eligible, window open, no request: *Balance −6 h 45 — Create request* (a link to this page on My attendance);
+- the window closed with no request: *No request submitted*;
+- a **🔒 Month locked** badge at the end of the strip while a pending or approved request locks the month. The Fix / Add actions are then off for that month (a hint replaces *Tap a shift to fix it*). In a whole-year view the API refuses a fix in a locked month (`ATTENDANCE_MONTH_LOCKED`).
+
+**Settings → Workplaces** ends with a **Requests** card, for the **superadmin only**: *Request deadline (day of next month)*, 1–28 (default 7), **Save** (`PUT /attendance/settings/requests`).
+
+**Scheduling** messages (holiday / weekday saves) add *N records were left alone: those months have a pending or approved request* when `skipped_locked` is set.
+
+**The bell and Telegram:** 📝 *{name} sent a request for October 2026: missing 6 h 45 — salary cut 2 h, unpaid extra work 4 h 45* (reviewers), ✅ approved (*with changes* + the comment), ❌ rejected (the reason) and 🔔 the 1st-of-month reminder. A request alert opens `/attendance/requests?request=<id>`; the reminder opens the page.
+
+## 8. Settings
 
 **Path:** `/settings`. **Who can open it:** everyone.
 
@@ -407,11 +544,12 @@ Raw materials made **ready to use**. **Not production step 3 (Standardize)**: pr
   | Audit log | superadmin, general managers |
   | User limits | superadmin |
   | Business info | superadmin; general managers given Business info (`settings.business_info`) |
+  | Workplaces | superadmin; general managers with Workplaces ≥ View only (default) |
   | My profile | everyone |
 
 - The cards come from the same menu definition as the sidebar, so a new Settings page appears here automatically.
 
-### 7.1 User limits (ចំនួនអ្នកប្រើប្រាស់), superadmin only
+### 8.1 User limits (ចំនួនអ្នកប្រើប្រាស់), superadmin only
 
 **Path:** `/settings/user-limits`. How many **active** users each role may have: **General manager** (default 2), **Supervisor** (default 3) and **Staff** (default 10).
 
@@ -420,7 +558,7 @@ Raw materials made **ready to use**. **Not production step 3 (Standardize)**: pr
 - *Last changed by … · time* under each changed row, and a note that only active users count.
 - Changes are in the audit log as *Changed user limit* (*"Staff: 10 → 12"*), visible to the superadmin only.
 
-### 7.2 Business info (ព័ត៌មានអាជីវកម្ម)
+### 8.2 Business info (ព័ត៌មានអាជីវកម្ម)
 
 **Path:** `/settings/business-info` (lazy-loaded). **Who can open it:** holders of `settings.business_info`: the superadmin, and a general manager whose **Business info** the superadmin set to Full access on its Access tab (default Off). Menu icon: building.
 
@@ -431,7 +569,26 @@ What every delivery note prints at the top and bottom:
 - **Preview** (header): opens a sample delivery note PDF in a new tab, marked **SAMPLE**: the latest order when the person can see orders, otherwise made-up data. Not counted as a print.
 - Changes are in the audit log as *Changed business info* with the changed fields (*"Phone, Logo changed"*).
 
-## 8. Users
+### 8.3 Workplaces (កន្លែងធ្វើការ)
+
+**Path:** `/settings/attendance/workplaces` (lazy-loaded): where people check in (location, radius, default, delete). **Who can open it:** holders of `attendance.workplace_view` or `attendance.workplace_manage` (the superadmin; general managers with Workplaces ≥ View only, the default). Each workplace has **its own schedule**, managed in Attendance → **Scheduling** (§7.6); staff and supervisors check in at the one they are assigned to (user form, §9).
+
+**List**
+
+- Every active workplace, the default first: name, **Default** badge, *No location* when its position isn't set, address, the number of employees and both shifts' times (*Morning shift 07:00–12:00 · Afternoon shift 13:00–15:00*). **Show archived** adds archived ones (badge) (`?archived=1`).
+- **New workplace** (`attendance.workplace_manage`): name, address, the map picker and radius (as below). Its schedule is a copy of the default workplace's current one; after **Create** its page opens.
+
+**Workplace page** (`/settings/attendance/workplaces/:id`): the header shows the name, *Default* / *Archived* and *Last changed by … · time*.
+
+- **Location** (edit with `attendance.workplace_manage`, read-only otherwise):
+  - **Name**, **Address**; a **map picker** (Leaflet + OpenStreetMap): tap to place the pin, the radius circle drawn on the map; latitude and longitude fields (6 decimals; both or neither); **Radius** slider (10 m steps up to 1000 m) with a number field (10–5000 m). Without a position, a warning: nobody there can check in until it's set.
+  - **Make default** (confirmation: new staff and supervisors get it unless another workplace is chosen; nobody is moved). Disabled until the location is set.
+  - **Delete**, or **Archive** when it has attendance history (confirmation explains which). Disabled while employees are assigned, with *"Can't delete: 2 employees are assigned here."* and a **See them** link to the users list filtered by this workplace; the default shows *"The default workplace can't be deleted. Make another one the default first."*
+  - Archived: a notice (nobody checks in there, it can't be edited) and **Restore**.
+- **Schedule**, read-only: *Current schedule, since …*, the tracked weekdays, both shifts with their windows (check-in, absent from, check-out, forgot from), the GPS accuracy limit, reminders and the extra-time flags. **Edit in Scheduling** (`attendance.scheduling`; *View in Scheduling* with `attendance.view` only) opens this workplace's scheduling.
+- **Employees**: the active staff and supervisors assigned (name, role, position), linking to their user page with `users.view`.
+
+## 9. Users
 
 **Path:** `/settings/users` (create: `/settings/users/new`). **Who can open it:** users with `users.view`. The list only contains users the viewer manages:
 
@@ -447,6 +604,8 @@ What every delivery note prints at the top and bottom:
 - Filters:
   - **role**: only roles the viewer manages;
   - **position**: a list of the positions actually in use in the viewer's scope (from `GET /users/positions`), plus "All". Matching ignores case. Shown only when staff are in the viewer's scope and the role filter is "All" or staff;
+  - **workplace** (shown when there is more than one): the staff and supervisors assigned to it (`?workplace=` preselects it, e.g. from a workplace's *See them* link);
+- **Not tracked badge:** a small grey *Not tracked* / មិនតាមដាន badge next to the status badges of a supervisor whose attendance is switched off (list and user page).
   - **status**: active (default), deactivated, or all.
 - Each row or card shows avatar initials, name, `@telegram`, role/position badge, phone and status badges:
   - *Active* / *Deactivated*;
@@ -465,16 +624,19 @@ What every delivery note prints at the top and bottom:
   - Extra spaces are removed; case and Khmer text are kept as typed.
   - The hint says it's a **job title only**: position never changes what a user can see or do. Access comes only from role and permissions.
 - **Other fields:** full name, Telegram username, optional phone, language.
+- **Workplace** (staff and supervisors): a select of the active workplaces where they check in (Attendance, §7), the default preselected for new users (`GET /attendance/workplace-options`, readable with `users.view`). Editing moves them to another one (from the next window); someone whose workplace was archived keeps showing it until moved. The user's page shows it too.
+- **Attendance start date / ថ្ងៃចាប់ផ្តើមចុះវត្តមាន** (staff and supervisors): a date picker, minimum today, default today, hint *"Attendance is tracked from this date"*. When editing it is editable only while the date is still in the future; once it has arrived it shows as read-only text (*Attendance started on this date; it can't be changed.*). A date in the past is refused (*"The attendance start date can't be in the past."*) and a locked one by the API (`ATTENDANCE_START_LOCKED`).
+- **Track attendance / តាមដានវត្តមាន** (supervisors, **edit form only**, general manager and superadmin): a checkbox, on by default, hint *"When off, this supervisor doesn't check in and isn't counted."* Switching it off asks for confirmation (*"Takes effect now; today's records are kept."*) and takes effect when saved; switching it on again resumes tracking from today. Staff are always tracked, so they have no toggle.
 - **Live login preview:** "Signs in as: sok_dara" shows how the username will be normalized.
 - **Initial-password note:** the initial password is the Telegram username, and it must be changed at first sign-in.
 - **After saving,** it opens the new user's page with a confirmation showing the initial password.
 
 **Edit a user** (`users.update`; supervisors only at Staff management *Full access*)
 
-- Same fields; the role isn't edited here (see **Change role** on the user's page, §9). Staff can be given a new position at any time; it has no effect on their access.
+- Same fields; the role isn't edited here (see **Change role** on the user's page, §10). Staff can be given a new position at any time; it has no effect on their access.
 - If the user is linked to Telegram and you change their username, a warning says the link will be removed.
 
-## 9. User detail
+## 10. User detail
 
 **Path:** `/settings/users/<id>` (edit: `/settings/users/<id>/edit`, tabs: `?tab=access`, `?tab=permissions`).
 
@@ -491,13 +653,15 @@ What every delivery note prints at the top and bottom:
   - Reset password sets the password back to the Telegram username. The dialog explains the user will be signed out everywhere and must choose a new password.
   - Deactivate / Reactivate is a soft on/off switch. A deactivated user is signed out immediately and frees a slot in their role. Reactivating needs a free slot: otherwise *"The supervisor limit (3) is reached."*
   - **Change role** opens a panel (drawer on PC, bottom sheet on phones) listing the roles you can move this user to. Choosing *Staff* asks for a position (with suggestions). A note explains that access is reset to the new role's defaults, adjustable afterwards on the Access tab. Each role shows its capacity (*"Supervisor (2 / 2)"*); for an active user a full role is disabled with *"Limit reached — deactivate someone or ask for the limit to be raised."* (an inactive user can be moved, and needs a free slot when reactivated). The user stays signed in; their menus update at the next refresh.
+    - Moving a general manager into staff or supervisor also asks for the **attendance start date** (date picker, minimum today, default today). Staff ↔ supervisor keeps the existing date. Supervisor → staff switches attendance tracking back on.
 
 - **Details tab:**
   - full name, Telegram username and whether it's **linked** to a Telegram account;
   - role, position (shown exactly as entered, never translated), phone, language;
+  - for staff and supervisors the **attendance start date**, and for supervisors **Attendance: Tracked / Not tracked since {date}**;
   - created, updated and deactivated dates;
   - locked-until time, if the account is locked.
-- **Tabs**, by viewer (§10):
+- **Tabs**, by viewer (§11):
 
   | Viewer | Details | Access | Permissions (advanced) |
   |---|---|---|---|
@@ -512,20 +676,21 @@ What every delivery note prints at the top and bottom:
   A `?tab=` the viewer can't open falls back to Details.
 - Success and error messages are shown inline and are translated.
 
-## 10. Access tab and Permissions (advanced)
+## 11. Access tab and Permissions (advanced)
 
 ### Access tab (ការចូលប្រើ)
 
 How general managers decide what supervisors and staff can use (and how the superadmin decides what each general manager can use), and how **supervisors** decide what their **staff** can use. Shown when the viewer may manage access (*can manage features*) and at least one feature applies to the user. A general manager can set **any level of any feature** available to that user's role; nothing here depends on the general manager's own permissions.
 
 - **Supervisors** (with **Staff access**, on by default) see the Access tab of **staff** only, with the same layout: Suppliers, Customers and Production. They can give a level **up to their own** (what a GM or the superadmin gave them): higher segments are disabled, with the tooltip *"Higher than your own access"* (*ខ្ពស់ជាងសិទ្ធិរបស់អ្នក*). *Off* and lower levels are always available, also for a level a GM set higher. If the server still refuses (the supervisor's access was lowered meanwhile), the message reads *"You can't give more access than you have."* When a GM lowers the supervisor later, levels the supervisor already gave stay as they are.
-- **Grouped by menu:** **Workstation** (Suppliers, Customers, Production, Production plan: GM and supervisors only), then **Settings** (Staff management: supervisors, and general managers when the superadmin views them; **Staff access**: supervisors only).
+- **Grouped by menu:** **Workstation** (Suppliers, Customers, Production, Production plan: GM and supervisors only), then **Attendance** (Attendance and Attendance corrections: GM and supervisors; Workplaces: general managers only, so only on the superadmin's view of a GM; **Attendance scheduling**: see below; nothing for staff), then **Settings** (Staff management: supervisors, and general managers when the superadmin views them; **Staff access**: supervisors only).
 - Each row: the feature's name and a one-line description (from the server, in the current language), and a segmented control with the levels the server lists for that feature: **Off · View only · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · ពេញលេញ*); for Production and Staff management **Off · View only · Record · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · កត់ត្រា · ពេញលេញ*); for Staff access **Off · Full access**, described as *"Can set what staff can use, up to their own access."*
 - A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't reopen finished steps (shown when Production is listed); *Full access* = can add, edit and deactivate, and in Production also reopen finished steps. When Production plan is listed: *"Production plan: View only = see plans and receive production alerts; Full access = also set and confirm plans."* When Staff management is listed: *"Staff management: View only = see staff; Record = also add staff; Full access = also edit their info."* (supervisors never deactivate people). When Staff access is listed: *"Staff access: Full access = can set what staff can use, up to their own access."*
 - **Each click saves** immediately, with a spinner on that row. On error the previous level comes back and a translated message is shown.
 - From *Off*, *View only* has a dashed outline as the suggested next step; it still takes a click.
 - **Custom:** if a user's permissions match no level (only possible through the superadmin's detailed permissions), a neutral *Custom* badge is shown and no level is selected. Picking a level replaces it.
-- **Inventory history** (Off · View only, under Workstation) appears only where the viewer may give it: the superadmin on general managers and supervisors, and a general manager on supervisors **only while that GM has it**. A GM without it never sees the row, with no hint.
+- **Attendance requests** (Off · Full access, under Attendance; GM Full, supervisor Off) is listed for general managers and supervisors like the other Attendance features (the Access tab reads the feature list from the server, so it appears by itself).
+- **Inventory history** (Off · View only, under Workstation) and **Attendance scheduling** (Off · Full access, under Attendance) appear only where the viewer may give them: the superadmin on general managers and supervisors, and a general manager on supervisors **only while that GM has it**. A GM without it never sees the row, with no hint. Both default to Off.
 - Rows are disabled only when the user is deactivated; single segments only when above a supervisor's own access. No explanation mentions other roles.
 - Defaults: supervisors start with Suppliers, Customers and Production at **Full access**, **Production plan Off**, **Staff management View only** and **Staff access Full access**; staff with everything **Off**; general managers at **Full access**. Supervisors who had Staff management at Full access before this default changed were moved to View only once (audit log: *"New default for supervisors"*, by System).
 - **General manager as the target** (superadmin only): a hint under the legend says *"Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced)."* Lowering Staff management takes creating / editing users (at *Off*, the Users list) away from the GM.
@@ -538,7 +703,7 @@ Only for the superadmin. Shows the detailed permissions under the feature levels
 
 Supervisors never see detailed permissions; they see feature levels only on the Access tab of their staff (with Staff access). Staff never see any permission or access information.
 
-## 11. Audit log
+## 12. Audit log
 
 **Path:** `/settings/audit-logs`. **Who can open it:** general managers and the superadmin. General managers don't see entries made by the superadmin (nor detailed permission changes).
 
@@ -567,7 +732,7 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 - **Revocations are highlighted.** When a revoked permission had been passed on to others by that user, an amber warning lists who still holds it, so managers can follow up (revoking does not cascade).
 - Pagination, with 50 per page.
 
-## 12. My profile
+## 13. My profile
 
 **Path:** `/settings/profile` (also from the avatar menu). Available to every user, including staff.
 
@@ -594,7 +759,7 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 - Returns your password to your Telegram username and signs you out on all devices. You must change it at next sign-in. (The superadmin's reset returns it to its initial password instead.)
 - After confirming, you're taken to the login page with a message telling you which password to use.
 
-## 13. Language (Khmer / English)
+## 14. Language (Khmer / English)
 
 - **Khmer is the default.** English is fully supported: every label, message, role, audit action and error, including the supplier / customer / production pages, their figures and autosave states. Positions are free text and are shown as entered.
 - **Switching** from the header takes effect instantly.
@@ -605,7 +770,7 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 - **Errors are translated too,** including messages coming from the server. Example: *"ឈ្មោះអ្នកប្រើ ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ។"* / *"Incorrect username or password."*
 - **Typography:** the Kantumruy Pro font with Khmer-friendly line height.
 
-## 14. Error and status screens
+## 15. Error and status screens
 
 | Situation | What the user sees |
 |---|---|
@@ -616,7 +781,7 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 | Account deactivated while signed in | Signed out on the next request. |
 | Password reset by a manager while signed in | Redirected to the forced password change. |
 
-## 15. Screen access matrix
+## 16. Screen access matrix
 
 | Screen | Superadmin | General manager | Supervisor | Staff |
 |---|---|---|---|---|
@@ -659,10 +824,24 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 | Create, fill in and finish preparations | ✅ | Preparation = Record (default) | Preparation = Record (default) | Preparation = Record |
 | Reopen / cancel preparations; preparation alerts (bell, Telegram) | ✅ | Preparation management = Full (default) | Preparation management = Full (default Off) | ❌ never |
 | Inventory → Prepared sub-tab (sachets, prepared materials; no manual changes) | ✅ | Inventory ≥ View only | Inventory ≥ View only | Inventory ≥ View only |
-| Delivery note: Print / Send to my Telegram (any status) | ✅ | Orders ≥ View only | Orders ≥ View only | Orders ≥ View only |
+| Delivery note: Export Excel (needs *Export delivery note*; GM yes by default) | ✅ | ✅ | Granted only | Granted only |
+| Delivery note: Send to my Telegram (any status) | ✅ | Orders ≥ View only | Orders ≥ View only | Orders ≥ View only |
+| Attendance → check screen, My attendance, Home card (check in / out) | ❌ (not tracked) | ❌ (not tracked) | ✅ always | ✅ always |
+| Turn supervisor attendance on / off (User form → Track attendance) | ✅ | ✅ | ❌ never | ❌ never |
+| Attendance → Today (each day's attendance in scope) | ✅ staff and supervisors | Attendance = View only (default) | Attendance = View only (default Off): staff | ❌ never |
+| Fix / add attendance records | ✅ | Attendance corrections = Full (default) | Attendance corrections = Full (default Off): staff | ❌ never |
+| Settings → Workplaces (view: list, location, schedule read-only, employees) | ✅ | Workplaces ≥ View only (default; set by the superadmin) | ❌ never | ❌ never |
+| Create, edit, delete / archive, restore workplaces; make default | ✅ | Workplaces = Full (default Off; set by the superadmin) | ❌ never | ❌ never |
+| Attendance → Scheduling, read-only (calendar, holidays, weekdays, schedule) | ✅ | Attendance = View only (default) or Attendance scheduling | Attendance = View only or Attendance scheduling (default Off) | ❌ never |
+| Manage tracked weekdays, holidays, shift times and rules (one, several or all workplaces) | ✅ | Attendance scheduling = Full (default Off; set by the superadmin) | Attendance scheduling = Full (default Off; set by a GM who has it) | ❌ never |
+| Attendance → Requests: send my month's request, read it | ❌ (not tracked) | ❌ (not tracked) | ✅ always | ✅ always |
+| Attendance → Requests: review (approve, approve with changes, reject) | ✅ staff and supervisors | Attendance requests = Full (default) | Attendance requests = Full (default Off): staff | ❌ never |
+| Settings → Workplaces → Request deadline | ✅ | ❌ never | ❌ never | ❌ never |
+| User form: choose the workplace of staff / supervisors | ✅ | with Staff management edit | with Staff management Record / Full: staff | ❌ never |
+| User form / Change role: attendance start date of staff / supervisors (editable until it arrives) | ✅ | with Staff management edit | with Staff management Record / Full: staff | ❌ never |
 | Header bell | ✅ | ✅ | ✅ (empty without plan, order returns or preparation management access) | ✅ (always empty) |
 | My profile → Telegram card | ✅ | ❌ | ❌ | ❌ |
 
-"Suppliers = Full" etc. refers to the levels a general manager (for staff also their supervisor) sets on the Access tab (§10). "(default)" is the level a new account starts with.
+"Suppliers = Full" etc. refers to the levels a general manager (for staff also their supervisor) sets on the Access tab (§11). "(default)" is the level a new account starts with.
 
 This matrix depends **only on role and access levels**. A staff member's position (e.g. `Grill cook` or `អ្នកដឹកជញ្ជូន`) never changes it: two staff with the same levels see exactly the same menu and screens.

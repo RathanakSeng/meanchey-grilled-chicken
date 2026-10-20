@@ -17,3 +17,19 @@ export const ROLE_LIMIT_ROLES: Role[] = ['superadmin']
 
 /** Who may open the audit log. */
 export const AUDIT_ROLES: Role[] = ['superadmin', 'general_manager']
+
+/** Employees whose attendance is recorded (check in / check out from the Mini App). */
+export const TRACKED_ROLES: Role[] = ['staff', 'supervisor']
+
+/** Settings → Workplaces: either workplace permission (schedules are in Scheduling). */
+export const WORKPLACE_ACCESS = [
+  { permission: 'attendance.workplace_view' },
+  { permission: 'attendance.workplace_manage' },
+]
+
+/** Attendance → Requests: tracked employees (their own) and reviewers (attendance.requests_review). */
+export const REQUESTS_ACCESS = [{ roles: TRACKED_ROLES }, { permission: 'attendance.requests_review' }]
+
+/** Scheduling (calendar, holidays, weekdays, shifts): view with attendance.view, edit with
+ *  attendance.scheduling. */
+export const SCHEDULING_ACCESS = [{ permission: 'attendance.view' }, { permission: 'attendance.scheduling' }]

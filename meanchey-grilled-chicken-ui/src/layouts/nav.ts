@@ -1,9 +1,16 @@
 import { useCanAccess, type AccessRule } from '@/auth/usePermission'
 import type { IconName } from '@/components/icons'
 import { paths } from '@/lib/paths'
-import { AUDIT_ROLES, ROLE_LIMIT_ROLES } from '@/lib/roles'
+import {
+  AUDIT_ROLES,
+  REQUESTS_ACCESS,
+  ROLE_LIMIT_ROLES,
+  SCHEDULING_ACCESS,
+  TRACKED_ROLES,
+  WORKPLACE_ACCESS,
+} from '@/lib/roles'
 
-export type NavBadgeKind = 'pendingPlans'
+export type NavBadgeKind = 'pendingPlans' | 'pendingRequests'
 
 export interface NavItem extends AccessRule {
   to: string
@@ -93,6 +100,50 @@ export const NAV_ITEMS: NavItem[] = [
     ],
   },
   {
+    // Tracked employees (their own day), holders of attendance.view (everyone's day) and of
+    // attendance.scheduling (Scheduling).
+    to: paths.attendance,
+    labelKey: 'nav.attendance',
+    descriptionKey: 'home.attendanceDescription',
+    icon: 'clock',
+    anyOf: [{ roles: TRACKED_ROLES }, ...SCHEDULING_ACCESS, ...REQUESTS_ACCESS],
+    children: [
+      {
+        to: paths.myAttendance,
+        labelKey: 'nav.attendanceMe',
+        descriptionKey: 'attendance.mine.description',
+        icon: 'mapPin',
+        roles: TRACKED_ROLES,
+      },
+      {
+        to: paths.attendanceToday,
+        labelKey: 'nav.attendanceToday',
+        descriptionKey: 'attendance.today.description',
+        icon: 'users',
+        permission: 'attendance.view',
+      },
+      {
+        // Tracked weekdays, holidays, shift times and rules: viewing with attendance.view,
+        // editing with attendance.scheduling.
+        to: paths.attendanceScheduling,
+        labelKey: 'nav.attendanceScheduling',
+        descriptionKey: 'attendance.scheduling.description',
+        icon: 'calendar',
+        anyOf: SCHEDULING_ACCESS,
+      },
+      {
+        // The month's missing time (salary cut / unpaid extra work): tracked employees send a
+        // request, holders of attendance.requests_review decide.
+        to: paths.attendanceRequests,
+        labelKey: 'nav.attendanceRequests',
+        descriptionKey: 'attendance.requests.description',
+        icon: 'clipboard',
+        anyOf: REQUESTS_ACCESS,
+        badge: 'pendingRequests',
+      },
+    ],
+  },
+  {
     to: paths.settings,
     labelKey: 'nav.settings',
     descriptionKey: 'home.settingsDescription',
@@ -126,6 +177,14 @@ export const NAV_ITEMS: NavItem[] = [
         descriptionKey: 'business.description',
         icon: 'building',
         permission: 'settings.business_info',
+      },
+      {
+        // Attendance workplaces: location and employees of each (the schedule is in Scheduling).
+        to: paths.attendanceWorkplaces,
+        labelKey: 'nav.attendanceWorkplaces',
+        descriptionKey: 'attendance.workplaces.description',
+        icon: 'mapPin',
+        anyOf: WORKPLACE_ACCESS,
       },
       {
         to: paths.profile,

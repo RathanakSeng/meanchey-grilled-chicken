@@ -21,7 +21,7 @@ import {
 } from './numbers'
 
 /** i18n key suffix under `production.errors.*`. */
-export type FieldError = 'required' | 'positive' | 'invalidKg' | 'invalidG' | 'invalidCount'
+export type FieldError = 'required' | 'positive' | 'invalidKg' | 'invalidG' | 'invalidM2' | 'invalidCount'
 export type Errors = Record<string, FieldError>
 
 function kgError(input: string, { required = false, positive = false } = {}): FieldError | null {

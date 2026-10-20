@@ -35,6 +35,14 @@ export interface User {
   updated_at: string
   deleted_at: string | null
   locked_until: string | null
+  /** Attendance workplace (staff and supervisors). */
+  workplace?: { id: string; name: string } | null
+  /** First tracked day (staff and supervisors; null for the others). */
+  attendance_start_date?: string | null
+  /** Staff are always tracked; a supervisor can be switched off. */
+  attendance_tracked?: boolean
+  /** Since when a supervisor is not tracked (null while tracked). */
+  attendance_untracked_since?: string | null
 }
 
 export interface Me {
@@ -143,7 +151,7 @@ export const PHONE_MAX_DIGITS = 15
 
 /** Feature access levels (Access tab). `custom` = the permissions match no level exactly. */
 export type FeatureLevel = 'off' | 'view' | 'record' | 'full'
-export type FeatureMenu = 'workstation' | 'settings'
+export type FeatureMenu = 'workstation' | 'attendance' | 'settings'
 
 export interface Feature extends Localized {
   code: string
@@ -386,6 +394,10 @@ export type NotificationType =
   | 'order.return_pending'
   | 'order.returns_reviewed'
   | 'preparation.finished'
+  | 'attendance.request_submitted'
+  | 'attendance.request_approved'
+  | 'attendance.request_rejected'
+  | 'attendance.request_reminder'
 
 export interface AppNotification {
   id: string
@@ -398,7 +410,10 @@ export interface AppNotification {
    * white, black (delivering), returned + reason (return_pending),
    * outcome + to_stock + to_wasted (returns_reviewed)}; items are OrderAlertItem[];
    * preparation.finished: {code, type, sachets_2, sachets_4, materials: PreparationAlertMaterial[],
-   * repeat}. */
+   * repeat};
+   * attendance.request_*: {year, month, missing_minutes, salary_cut_minutes, unpaid_work_minutes,
+   * name (submitted), with_changes + comment (approved), reason (rejected), balance_minutes +
+   * deadline_day + deadline_month (reminder)}. */
   payload: Record<string, unknown>
   actor: UserRef | null
   created_at: string
@@ -488,6 +503,8 @@ export interface InventoryItem extends Localized {
   tracks_kg: boolean
   /** Materials measured in grams. */
   tracks_g: boolean
+  /** Materials measured in square metres. */
+  tracks_m2: boolean
   /** Its kg is estimated from the batch's average piece weight (wasted pieces). */
   kg_estimated: boolean
   /** `production`: changes only through production and orders; `manual`: a material;
@@ -496,6 +513,7 @@ export interface InventoryItem extends Localized {
   count: number | null
   kg: string | null
   g: string | null
+  m2: string | null
   /** Time of the latest movement; null if it never changed. */
   updated_at: string | null
   material: ItemMaterial | null
@@ -515,7 +533,8 @@ export interface Material {
   count: number | null
   kg: string | null
   g: string | null
-  /** Any movement yet: switching to / from count is then locked. */
+  m2: string | null
+  /** Any movement yet: switching to / from count or m² is then locked. */
   has_movements: boolean
   archived_at: string | null
   archived_by: UserRef | null
@@ -555,6 +574,7 @@ export interface ItemPreparationSource {
   count: number | null
   kg: string | null
   g: string | null
+  m2: string | null
 }
 
 export interface InventoryOverview {
@@ -568,6 +588,7 @@ export interface InventoryMovement extends Localized {
   count_delta: number | null
   kg_delta: string | null
   g_delta: string | null
+  m2_delta: string | null
   kg_estimated: boolean
   source: MovementSource
   /** Production: the batch. Orders: the batch the quantity is attributed to (oldest first). */
@@ -583,6 +604,7 @@ export interface InventoryMovement extends Localized {
   balance_count_after: number | null
   balance_kg_after: string | null
   balance_g_after: string | null
+  balance_m2_after: string | null
   created_by: UserRef | null
   created_at: string
 }
@@ -594,6 +616,7 @@ export interface StockChange extends Localized {
   count_delta: number | null
   kg_delta: string | null
   g_delta: string | null
+  m2_delta: string | null
   kg_estimated: boolean
 }
 
@@ -760,6 +783,16 @@ export interface DocumentSent {
   copy_number: number
 }
 
+/** GET /orders/delivery-note/supplier: the supplier block of the Excel delivery note. */
+export interface BusinessSupplier {
+  name_km: string
+  name_en: string
+  address_km: string | null
+  address_en: string | null
+  phone: string | null
+  phone_display: string | null
+}
+
 /** GET/PUT /settings/business: what delivery notes print at the top and bottom. */
 export interface BusinessInfo {
   name_km: string
@@ -874,4 +907,512 @@ export interface PreparationStats {
 export interface PreparationAlertMaterial extends Localized {
   quantity: string
   unit: QuantityUnit
+}
+
+// --- Attendance ----------------------------------------------------------------------------------
+
+export type ShiftCode = 'morning' | 'afternoon'
+export type AttendanceStatus = 'present' | 'late' | 'absent'
+export type CheckoutStatus = 'checked_out' | 'forgot_checkout'
+export type AttendanceAction = 'check_in' | 'check_out'
+export type ShiftPhase = 'upcoming' | 'check_in_open' | 'in_progress' | 'check_out_open' | 'closed'
+
+/** Instants are ISO strings with the business offset; `timezone` names the zone. */
+export interface AttendanceRecord {
+  id: string
+  user_id: string
+  work_date: string
+  shift_code: ShiftCode
+  workplace_id: string | null
+  scheduled_start: string
+  scheduled_end: string
+  status: AttendanceStatus
+  late_minutes: number
+  /** Before the scheduled start / after the scheduled end; 0 when its workplace didn't count
+   *  them when the record was created (`early_counts` / `overtime_counts`). */
+  early_minutes: number
+  overtime_minutes: number
+  early_counts: boolean
+  overtime_counts: boolean
+  check_in_at: string | null
+  check_in_distance_m: number | null
+  check_in_accuracy_m: number | null
+  checkout_status: CheckoutStatus | null
+  check_out_at: string | null
+  check_out_distance_m: number | null
+  check_out_accuracy_m: number | null
+  source: 'mini_app' | 'auto' | 'correction'
+  corrected: boolean
+  correction_reason: string | null
+  corrected_by: UserRef | null
+  corrected_at: string | null
+}
+
+export interface WorkplaceBrief {
+  id: string
+  name: string
+  address: string | null
+  latitude: number | null
+  longitude: number | null
+  radius_m: number
+  has_coordinates: boolean
+}
+
+export interface ShiftDay extends Localized {
+  code: ShiftCode
+  start: string
+  end: string
+  check_in_opens: string
+  check_in_until: string
+  check_out_opens: string
+  check_out_until: string
+  phase: ShiftPhase
+  record: AttendanceRecord | null
+}
+
+export interface NextAction {
+  action: AttendanceAction | 'none'
+  shift_code: ShiftCode | null
+  /** The last minute of the open window ("until 07:44"). */
+  until: string | null
+  closes_at: string | null
+  next_action: AttendanceAction | null
+  next_shift_code: ShiftCode | null
+  next_opens_at: string | null
+}
+
+export interface HolidayBrief extends Localized {
+  id: string
+}
+
+/** Why a day isn't tracked: a holiday (with its names) or a weekday the schedule skips. */
+export interface DayOff {
+  reason: 'holiday' | 'weekday'
+  holidays: HolidayBrief[]
+}
+
+export interface AttendanceToday {
+  server_time: string
+  timezone: string
+  work_date: string
+  workplace: WorkplaceBrief | null
+  max_accuracy_m: number
+  /** On a day off: why; `shifts` is then empty and `next_action` points at the next tracked day. */
+  day_off: DayOff | null
+  shifts: ShiftDay[]
+  next_action: NextAction
+  /** False: a supervisor whose attendance is switched off (`next_action` is `none`). */
+  tracked: boolean
+  /** Attendance begins on this date (`next_action` is `none` until then). */
+  starts_on: string | null
+}
+
+export interface CheckResult {
+  action: AttendanceAction
+  record: AttendanceRecord
+  today: AttendanceToday
+}
+
+export interface ShiftKpis {
+  expected: number
+  present: number
+  late: number
+  absent: number
+  not_yet: number
+  no_record: number
+  checked_out: number
+  forgot_checkout: number
+}
+
+export interface AttendanceDayShift extends Localized {
+  code: ShiftCode
+  start: string
+  end: string
+  check_in_until: string
+  check_out_until: string
+  phase: ShiftPhase
+  kpis: ShiftKpis
+}
+
+export interface AttendanceDayCell {
+  /** `day_off`: not tracked that day at the row's workplace (a kept corrected record is `recorded`). */
+  state: 'recorded' | 'not_yet' | 'no_record' | 'day_off'
+  record: AttendanceRecord | null
+}
+
+export interface WorkplaceRef {
+  id: string
+  name: string
+}
+
+/** `GET /attendance/workplace-options`: active workplaces for the user form and users filter. */
+export interface WorkplaceOption extends WorkplaceRef {
+  is_default: boolean
+}
+
+export interface AttendanceDayRow {
+  user: UserRef
+  role: Role
+  position: string | null
+  is_active: boolean
+  workplace: WorkplaceRef | null
+  day_off: DayOff | null
+  shifts: Partial<Record<ShiftCode, AttendanceDayCell>>
+  /** "Starts later" rows: the first tracked day. */
+  starts_on?: string | null
+}
+
+export interface AttendanceDayWorkplace extends WorkplaceRef {
+  is_default: boolean
+  day_off: DayOff | null
+  /** That workplace's own shift times, KPIs for its employees. */
+  shifts: AttendanceDayShift[]
+}
+
+export interface AttendanceDay {
+  date: string
+  timezone: string
+  server_time: string
+  workplace_id: string | null
+  /** Of the filtered workplace, else the default one. */
+  day_off: DayOff | null
+  /** Over every row shown: the filtered workplace's times, else the default's. */
+  shifts: AttendanceDayShift[]
+  workplaces: AttendanceDayWorkplace[]
+  /** Every active workplace (the filter). */
+  workplace_options: WorkplaceRef[]
+  rows: AttendanceDayRow[]
+  /** Not expected that day and in no KPI (cells hold only records already made). */
+  starts_later: AttendanceDayRow[]
+  not_tracked: AttendanceDayRow[]
+}
+
+export interface ShiftWindows {
+  check_in_opens: string
+  check_in_until: string
+  late_after: string
+  absent_from: string
+  check_out_opens: string
+  check_out_until: string
+  forgot_from: string
+}
+
+export interface AttendanceShift extends Localized {
+  code: ShiftCode
+  /** "HH:MM" */
+  start_time: string
+  end_time: string
+  position: number
+  windows: ShiftWindows
+}
+
+export interface AttendanceRules {
+  open_before_min: number
+  absent_after_min: number
+  checkout_window_min: number
+  max_accuracy_m: number
+  reminders_enabled: boolean
+  /** Count early check-ins / overtime as extra time (applies to new records). */
+  count_early_checkin: boolean
+  count_overtime: boolean
+}
+
+export interface WorkplaceEmployee {
+  user: UserRef
+  role: Role
+  position: string | null
+}
+
+/** A schedule version: from `effective_from` on, the tracked weekdays (Monday = 1), both shifts
+ *  with their windows and the rules. */
+export interface ScheduleVersion extends AttendanceRules {
+  id: string
+  effective_from: string
+  weekdays: number[]
+  shifts: AttendanceShift[]
+  created_by: UserRef | null
+  created_at: string
+}
+
+/** A workplace with its location and its current schedule (read-only: edited in Scheduling). */
+export interface Workplace extends WorkplaceBrief {
+  is_default: boolean
+  is_active: boolean
+  archived_at: string | null
+  timezone: string
+  schedule: ScheduleVersion
+  /** Active staff and supervisors assigned. */
+  employee_count: number
+  has_history: boolean
+  /** Only on `GET /attendance/workplaces/{id}`. */
+  employees: WorkplaceEmployee[] | null
+  created_by: UserRef | null
+  created_at: string
+  updated_by: UserRef | null
+  updated_at: string
+}
+
+export interface ScheduleShiftInput {
+  code: ShiftCode
+  name_km: string
+  name_en: string
+  start_time: string
+  end_time: string
+}
+
+/** Scheduling writes go to the listed workplaces or "all" (every active one, later ones not). */
+export type ScheduleTargets = string[] | 'all'
+
+export interface ShiftsInput extends AttendanceRules {
+  workplace_ids: ScheduleTargets
+  shifts: ScheduleShiftInput[]
+  effective_from: string
+}
+
+export interface WeekdaysInput {
+  workplace_ids: ScheduleTargets
+  weekdays: number[]
+  effective_from: string
+}
+
+export interface SchedulingWorkplace extends WorkplaceOption {
+  current: ScheduleVersion
+  /** Effective after today, soonest first. */
+  upcoming: ScheduleVersion[]
+}
+
+export interface Scheduling {
+  today: string
+  timezone: string
+  workplaces: SchedulingWorkplace[]
+  /** The chosen workplaces' current weekdays / shifts and rules differ (the page shows the first). */
+  differs: { weekdays: boolean; shifts: boolean }
+  workplace_options: WorkplaceOption[]
+}
+
+export interface SchedulingWriteResult {
+  scheduling: Scheduling
+  records_removed: number
+  absents_recreated: number
+  /** Left alone: the employee's month has a pending or approved request. */
+  skipped_locked: number
+}
+
+export interface CalendarDay {
+  date: string
+  /** tracked / off at every chosen workplace, or mixed. */
+  status: 'tracked' | 'off' | 'mixed'
+  day_off: DayOff | null
+  /** Holidays covering any chosen workplace. */
+  holidays: HolidayBrief[]
+  /** Per workplace when several are chosen. */
+  workplaces: { workplace_id: string; day_off: DayOff | null }[] | null
+}
+
+export interface AttendanceCalendar {
+  year: number
+  month: number
+  today: string
+  workplaces: WorkplaceRef[]
+  days: CalendarDay[]
+}
+
+export interface Holiday extends HolidayBrief {
+  start_date: string
+  end_date: string
+  days: number
+  scope: 'all' | 'selected'
+  /** `selected` only. */
+  workplaces: WorkplaceRef[]
+  note: string | null
+  created_by: UserRef | null
+  created_at: string
+  updated_by: UserRef | null
+  updated_at: string
+}
+
+export interface HolidayInput {
+  name_km: string
+  name_en: string
+  start_date: string
+  end_date: string
+  scope: 'all' | 'selected'
+  workplace_ids?: string[]
+  note: string | null
+}
+
+export interface HolidayWriteResult {
+  holiday: Holiday | null
+  records_removed: number
+  absents_recreated: number
+  skipped_locked: number
+}
+
+export interface HolidayCopyResult {
+  created: Holiday[]
+  skipped: number
+  records_removed: number
+  skipped_locked: number
+}
+
+// --- Attendance summary (`/attendance/me/summary`, `/attendance/users/{id}/summary`) ----------
+
+export interface AttendanceSummaryShifts {
+  total_shifts: number
+  by_shift: Partial<Record<ShiftCode, number>>
+  minutes: number
+}
+
+export interface AttendanceSummaryCount {
+  count: number
+  minutes: number
+}
+
+export interface AttendanceSummaryKpis {
+  present: AttendanceSummaryShifts
+  absent: AttendanceSummaryShifts
+  late: AttendanceSummaryCount
+  early: AttendanceSummaryCount
+  overtime: AttendanceSummaryCount
+  missing_minutes: number
+  extra_minutes: number
+  /** extra − missing (signed). */
+  balance_minutes: number
+  forgot_checkout: number
+}
+
+export interface AttendanceSummaryDayShift {
+  code: ShiftCode
+  /** `none`: no record (yet). */
+  status: AttendanceStatus | 'none'
+  record: AttendanceRecord | null
+}
+
+export interface AttendanceSummaryDay {
+  date: string
+  /** Not tracked that day (records kept there don't count). */
+  day_off: DayOff | null
+  shifts: AttendanceSummaryDayShift[]
+  /** Inside an untracked period: greyed, counted in no KPI. */
+  not_tracked?: boolean
+}
+
+export interface AttendanceSummary {
+  timezone: string
+  /** `month` null: the whole year; `end` is at most today. */
+  period: { year: number; month: number | null; start: string; end: string }
+  employee: {
+    user: UserRef
+    role: Role
+    position: string | null
+    is_active: boolean
+    workplace: WorkplaceRef | null
+    /** The attendance start date (older accounts: creation date): earlier days aren't listed. */
+    since: string
+  }
+  shifts: (Localized & { code: ShiftCode })[]
+  kpis: AttendanceSummaryKpis
+  /** Newest first, from the period start (or the account's creation) to today. */
+  days: AttendanceSummaryDay[]
+  /** Monthly periods only: the month's request, its eligibility and the lock (see requests). */
+  request: AttendanceRequestBrief | null
+  request_eligibility: RequestEligibility | null
+  /** A pending or approved request locks the month's records. */
+  month_locked: boolean
+}
+
+
+// --- Attendance requests ----------------------------------------------------------------------
+
+export type RequestStatus = 'pending' | 'approved' | 'rejected'
+export type RequestType = 'salary_cut' | 'unpaid_work' | 'both'
+/** `window_closed` with no request reads "No request". */
+export type RequestEligibility = 'eligible' | 'not_needed' | 'window_not_open' | 'window_closed'
+
+/** Same limit as the API. */
+export const REQUEST_TEXT_MAX_LENGTH = 500
+/** Fewer missing minutes than this need no request. */
+export const REQUEST_MIN_MISSING_MINUTES = 60
+
+export interface AttendanceRequestBrief {
+  id: string
+  status: RequestStatus
+  type: RequestType
+  requested_salary_cut_minutes: number
+  requested_unpaid_work_minutes: number
+  /** Null until approved. */
+  approved_salary_cut_minutes: number | null
+  approved_unpaid_work_minutes: number | null
+  approved_with_changes: boolean
+  review_comment: string | null
+  reject_reason: string | null
+  submitted_at: string
+  reviewed_by: UserRef | null
+  reviewed_at: string | null
+}
+
+export interface AttendanceRequest extends AttendanceRequestBrief {
+  user: UserRef
+  position: string | null
+  year: number
+  month: number
+  /** The month as it was when the request was sent. */
+  missing_minutes: number
+  extra_minutes: number
+  absent_minutes: number
+  late_minutes: number
+  balance_minutes: number
+  note: string | null
+  month_locked: boolean
+}
+
+export interface MyRequestMonth {
+  year: number
+  month: number
+  balance_minutes: number
+  missing_minutes: number
+  extra_minutes: number
+  absent_minutes: number
+  late_minutes: number
+  eligibility: RequestEligibility
+  /** The window: the 1st of the next month to the deadline day. */
+  opens: string
+  closes: string
+  request: AttendanceRequestBrief | null
+}
+
+export interface MyRequests {
+  timezone: string
+  year: number
+  request_deadline_day: number
+  /** Newest first, up to the current month. */
+  months: MyRequestMonth[]
+}
+
+/** A list row: a request, or (`no_request`) an eligible month nobody requested. */
+export interface AttendanceRequestRow {
+  id: string | null
+  status: RequestStatus | 'no_request'
+  user: UserRef
+  position: string | null
+  year: number
+  month: number
+  type: RequestType | null
+  missing_minutes: number
+  requested_salary_cut_minutes: number | null
+  requested_unpaid_work_minutes: number | null
+  approved_salary_cut_minutes: number | null
+  approved_unpaid_work_minutes: number | null
+  approved_with_changes: boolean
+  note: string | null
+  submitted_at: string | null
+}
+
+export interface AttendanceRequestPage extends Page<AttendanceRequestRow> {
+  /** Pending requests in the viewer's scope. */
+  pending_count: number
+}
+
+export interface AttendanceRequestSettings {
+  request_deadline_day: number
 }

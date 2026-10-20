@@ -28,12 +28,15 @@ os.environ.update(
         "TELEGRAM_WEBHOOK_SECRET": "",
         "TELEGRAM_WEBHOOK_AUTO_SET": "true",
         "TELEGRAM_DROP_PENDING_UPDATES": "false",
+        # Tests run scheduler ticks directly (app.attendance.scheduler.run_tick).
+        "ATTENDANCE_SCHEDULER_ENABLED": "false",
     }
 )
 
 import asyncio  # noqa: E402
 import uuid  # noqa: E402
 from collections.abc import AsyncIterator, Awaitable, Callable  # noqa: E402
+from datetime import date  # noqa: E402
 from decimal import Decimal  # noqa: E402
 
 import pytest  # noqa: E402
@@ -48,10 +51,17 @@ from app.bootstrap import bootstrap  # noqa: E402
 from app.core.security import create_access_token, hash_password  # noqa: E402
 from app.db import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import InventoryBalance, Role, User, UserPermission  # noqa: E402
+from app.models import (  # noqa: E402
+    AttendanceScheduleVersion,
+    InventoryBalance,
+    Role,
+    User,
+    UserPermission,
+)
 from app.permissions.registry import DEFAULT_PERMISSIONS  # noqa: E402
 
 DEFAULT_PASSWORD = "correct-horse-1"
+SCHEDULE_SINCE = date(2000, 1, 1)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -81,12 +91,19 @@ async def _clean_database() -> None:
                 "bot_prefs, app_settings, production_batches, production_batch_counters, "
                 "suppliers, customers, role_limits, inventory_movements, inventory_balances, "
                 "orders, order_counters, business_settings, inventory_materials, preparations, "
-                "preparation_counters "
+                "preparation_counters, attendance_records, attendance_reminders, "
+                "attendance_workplaces, attendance_schedule_versions, attendance_holidays, "
+                "attendance_holiday_workplaces "
                 "RESTART IDENTITY CASCADE"
             )
         )
     async with SessionLocal() as session:
         await bootstrap(session)
+        # Schedules apply from long ago, so the tests' fixed dates use them.
+        await session.execute(
+            update(AttendanceScheduleVersion).values(effective_from=SCHEDULE_SINCE)
+        )
+        await session.commit()
         await set_marinade_stock(session, MARINADE_TEST_STOCK_G)
 
 
@@ -150,6 +167,7 @@ def make_user(session: AsyncSession) -> MakeUser:
         is_active: bool = True,
         telegram_user_id: int | None = None,
         created_by: uuid.UUID | None = None,
+        workplace_id: uuid.UUID | None = None,
     ) -> User:
         if role == Role.STAFF and position is None:
             position = "worker"
@@ -163,6 +181,8 @@ def make_user(session: AsyncSession) -> MakeUser:
             must_change_password=must_change_password,
             is_active=is_active,
             created_by=created_by,
+            workplace_id=workplace_id,
+            untracked_periods=[],
         )
         session.add(user)
         await session.flush()
@@ -195,3 +215,180 @@ def html_documents(monkeypatch) -> None:
         return render_html(context).encode()
 
     monkeypatch.setattr(document_service, "render_pdf", fake_render)
+
+
+# --- Attendance --------------------------------------------------------------------------------
+# A fixed clock (the server's, app.attendance.clock) and a workplace with coordinates.
+
+ATTENDANCE_DAY = "2026-10-13"
+WORKPLACE_LAT = 11.562108
+WORKPLACE_LNG = 104.888535
+METRES_PER_DEGREE_LAT = 111_194.93
+
+
+def at(hm: str, day: str = ATTENDANCE_DAY):
+    """An instant on `day` at local time `hm` ("07:10" or "07:44:59") in BUSINESS_TIMEZONE."""
+    from datetime import datetime, time
+
+    from app.config import get_settings
+
+    return datetime.combine(
+        datetime.fromisoformat(day).date(), time.fromisoformat(hm), get_settings().business_tz
+    )
+
+
+def position(metres_north: float = 0, accuracy_m: float = 15) -> dict:
+    """A check-in body `metres_north` of the workplace."""
+    return {
+        "latitude": WORKPLACE_LAT + metres_north / METRES_PER_DEGREE_LAT,
+        "longitude": WORKPLACE_LNG,
+        "accuracy_m": accuracy_m,
+    }
+
+
+@pytest.fixture
+def clock(monkeypatch) -> Callable[[str], None]:
+    """`clock("07:10")` (or a datetime) sets the server's time for attendance."""
+    from datetime import datetime
+
+    from app.attendance import clock as attendance_clock
+
+    state: dict = {"now": at("08:00")}
+    monkeypatch.setattr(attendance_clock, "now", lambda: state["now"])
+
+    def _set(value) -> None:
+        state["now"] = value if isinstance(value, datetime) else at(value)
+
+    return _set
+
+
+@pytest.fixture
+async def workplace(session: AsyncSession):
+    """The default workplace with its position set (radius 100 m)."""
+    from app.models import AttendanceWorkplace
+
+    w = await session.scalar(select(AttendanceWorkplace).where(AttendanceWorkplace.is_default))
+    assert w is not None
+    w.latitude = Decimal(str(WORKPLACE_LAT))
+    w.longitude = Decimal(str(WORKPLACE_LNG))
+    w.radius_m = 100
+    await session.commit()
+    return w
+
+
+# A second workplace ~5 km north of the default one, with its own schedule:
+# morning 08:00–12:00, afternoon 13:30–17:00; open 15 min before, absent after 20, check-out
+# window 30 min, accuracy 50 m. Its windows: check-in 07:45–08:19 / 13:15–13:49, check-out
+# 12:00–12:30 / 17:00–17:30.
+BRANCH_METRES_NORTH = 5000
+
+
+async def make_workplace(
+    session: AsyncSession,
+    name: str = "Branch 2",
+    *,
+    metres_north: float = BRANCH_METRES_NORTH,
+    radius_m: int = 100,
+    morning: tuple[str, str] = ("08:00", "12:00"),
+    afternoon: tuple[str, str] = ("13:30", "17:00"),
+    open_before_min: int = 15,
+    absent_after_min: int = 20,
+    checkout_window_min: int = 30,
+    max_accuracy_m: int = 50,
+    reminders_enabled: bool = True,
+    count_early_checkin: bool = True,
+    count_overtime: bool = True,
+):
+    """An active workplace with its own schedule from SCHEDULE_SINCE, every day (committed)."""
+    from app.models import AttendanceWorkplace
+
+    w = AttendanceWorkplace(
+        name=name,
+        latitude=Decimal(str(round(WORKPLACE_LAT + metres_north / METRES_PER_DEGREE_LAT, 6))),
+        longitude=Decimal(str(WORKPLACE_LNG)),
+        radius_m=radius_m,
+    )
+    session.add(w)
+    await session.flush()
+    session.add(
+        AttendanceScheduleVersion(
+            workplace_id=w.id,
+            effective_from=SCHEDULE_SINCE,
+            weekdays=[1, 2, 3, 4, 5, 6, 7],
+            shifts=[
+                {
+                    "code": code,
+                    "name_km": km,
+                    "name_en": en,
+                    "start_time": start,
+                    "end_time": end,
+                    "position": pos,
+                }
+                for code, (start, end), pos, km, en in (
+                    ("morning", morning, 1, "វេនព្រឹក", "Morning shift"),
+                    ("afternoon", afternoon, 2, "វេនរសៀល", "Afternoon shift"),
+                )
+            ],
+            open_before_min=open_before_min,
+            absent_after_min=absent_after_min,
+            checkout_window_min=checkout_window_min,
+            max_accuracy_m=max_accuracy_m,
+            reminders_enabled=reminders_enabled,
+            count_early_checkin=count_early_checkin,
+            count_overtime=count_overtime,
+        )
+    )
+    await session.commit()
+    return w
+
+
+async def set_schedule(session: AsyncSession, workplace, **values) -> None:
+    """Change every schedule version of `workplace` (rules, `weekdays`, or `shift_times`:
+    {code: (start, end)}) and commit."""
+    from sqlalchemy import select as _select
+
+    versions = list(
+        await session.scalars(
+            _select(AttendanceScheduleVersion).where(
+                AttendanceScheduleVersion.workplace_id == workplace.id
+            )
+        )
+    )
+    times = values.pop("shift_times", None)
+    for v in versions:
+        for key, value in values.items():
+            setattr(v, key, value)
+        if times:
+            v.shifts = [
+                {**s, "start_time": times[s["code"]][0], "end_time": times[s["code"]][1]}
+                if s["code"] in times
+                else s
+                for s in v.shifts
+            ]
+    await session.commit()
+
+
+def branch_position(metres_north: float = 0, accuracy_m: float = 15) -> dict:
+    """A check-in body `metres_north` of the second workplace (make_workplace's default)."""
+    return position(BRANCH_METRES_NORTH + metres_north, accuracy_m)
+
+
+ATTENDANCE_MINI_APP = "https://app.example.com"
+
+
+@pytest.fixture
+def telegram_bot(monkeypatch):
+    """BOT_MODE=webhook with a recording bot on app.state; returns the RecordingSession."""
+    from app.bot.runtime import TelegramRuntime
+    from app.bot.setup import create_bot, create_dispatcher
+    from app.config import get_settings
+    from tests.telegram_fakes import RecordingSession
+
+    tg = RecordingSession()
+    monkeypatch.setattr(get_settings(), "bot_mode", "webhook")
+    monkeypatch.setattr(get_settings(), "mini_app_url", ATTENDANCE_MINI_APP)
+    app.state.telegram = TelegramRuntime(
+        bot=create_bot(session=tg), dp=create_dispatcher(), secret="s"
+    )
+    yield tg
+    app.state.telegram = None

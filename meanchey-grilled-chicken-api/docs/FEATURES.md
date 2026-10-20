@@ -1,6 +1,6 @@
 # API Features — Phase 1
 
-What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The business features, **suppliers and customers** (§11), **production** (§14), **inventory** (§18), **orders** (§19) with their **delivery notes** (§19.6), the **business info** printed on them (§20) and **preparation** (§21: satay sachets and packaging materials made ready from raw materials), plug into the permission system described here, as will later ones.
+What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័យ) does today. Phase 1 covers authentication, user management and access control (feature access levels over detailed permissions, §5 and §12). The business features, **suppliers and customers** (§11), **production** (§14), **inventory** (§18), **orders** (§19) with their **delivery notes** (§19.6), the **business info** printed on them (§20) **preparation** (§21: satay sachets and packaging materials made ready from raw materials) and **attendance** (§22: GPS check-in / check-out from the Mini App, shifts, reminders, absences, corrections), plug into the permission system described here, as will later ones.
 
 - [1. Authentication](#1-authentication)
 - [2. Password policy](#2-password-policy)
@@ -23,6 +23,7 @@ What the Mean Chey Grilled Chicken API (មាន់អាំងមានជ័�
 - [19. Orders](#19-orders)
 - [20. Business info](#20-business-info)
 - [21. Preparation](#21-preparation)
+- [22. Attendance](#22-attendance)
 
 ---
 
@@ -137,6 +138,7 @@ The limits are set by the superadmin (§17).
 - **Role decides WHO** a user may act on. **Permissions decide WHAT** they may do.
 - Nobody can act on a user at the same or a higher level, including themselves. Users edit themselves through `/me`. With several general managers, **a GM can't view, edit, deactivate, reset, change the role of or set access for another GM** (`403 FORBIDDEN_SCOPE`); only the superadmin manages GMs. Everything else is shared: every GM manages all supervisors and staff, sees the same audit log and receives the production alerts.
 - Roles can be changed (promote / demote, §4); the new role needs a free slot under its limit (§17).
+- **Attendance** (§22) is recorded for active **staff and supervisors** only; each has a workplace (`users.workplace_id`, the default one), never the general manager or the superadmin.
 
 **Invariants enforced by the database**
 
@@ -181,6 +183,17 @@ The limits are set by the superadmin (§17).
 | Reset password | `users.reset_password` | yes | §2 |
 | Edit own profile | signed in | self | `PATCH /me`: name, phone, language |
 | Set staff access (feature levels) | `permissions.grant` or `users.manage_access` | yes | §12.3. A supervisor (`users.manage_access`) reaches staff only and can't give more than it has. |
+
+**Workplace (attendance, §22.1):** staff and supervisors are assigned to one workplace. Create, edit and role change take `workplace_id` (an active workplace; others → `404 ATTENDANCE_WORKPLACE_NOT_FOUND` / `409 WORKPLACE_ARCHIVED`; other roles → `422`); without it they keep an active one or get the **default workplace**. Reactivation keeps it while active, else the default; a change to general manager keeps the (unused) link. Changes are in `user.update` (`changes.workplace`) and `user.role_change` (`workplace`). `UserOut.workplace` is `{id, name}` or null; `GET /users?workplace_id=` filters by it.
+
+**Attendance start date and tracking (attendance, §22.1):**
+
+- `attendance_start_date` (date): the first day attendance is tracked. **Required for staff and supervisors** (set by the API), null for general managers and the superadmin (giving one → `422 VALIDATION_ERROR`). `UserOut` also carries `attendance_tracked` and `attendance_untracked_since`.
+- **Create:** `attendance_start_date` defaults to **today** (`BUSINESS_TIMEZONE`); a past date → `422 VALIDATION_ERROR` with `details.code = ATTENDANCE_START_IN_PAST`.
+- **Edit** (`PATCH /users/{id}`): editable only while the current date is still in the future (the new value again today or later); once it has arrived → `409 ATTENDANCE_START_LOCKED` (`details.start_date`). The same value is a no-op.
+- **Role change** into staff / supervisor from another kind of role takes `attendance_start_date` (default today, same rules); staff ↔ supervisor keeps the date (a given one follows the edit rules); a change to general manager clears it. Audit: `user.create` (`attendance_start_date`), `user.update` (`changes.attendance_start_date`), `user.role_change` (`attendance_start_date_from` / `_to`).
+- **Track attendance** (`attendance_tracked`, default true): staff are always tracked; only a **supervisor** can be switched off, with `PATCH /users/{id}` `{attendance_tracked: false|true}` (`users.update` + scope: the superadmin and general managers; a supervisor manages no supervisor and nobody edits themselves here). For staff `true` is a no-op and `false` → `422 VALIDATION_ERROR`; for the other roles any value → `422`. Off opens a period **from today**, on closes it at yesterday (or removes it if it began today). Role change supervisor → staff (or → GM) forces it on and closes any open period; staff → supervisor keeps it on. Audit `user.update` `changes.attendance_tracked: [from, to]`.
+- Details: §22.1 (who is tracked on a date), §22.3 `me/today`, §22.6 scheduler, §22.9 summaries.
 
 **Supervisors and staff, by default:** they **see** staff (`users.view`) and **set their access** (`users.manage_access`, Staff access), but don't add staff or edit their info. A GM (or the superadmin) allows adding (Staff management *Record*) or adding and editing (*Full access*) per supervisor. Without `users.create` / `users.update` → `403 MISSING_PERMISSION`. Supervisors never change roles or deactivate.
 
@@ -283,6 +296,7 @@ Staff can't hold either. The alerts go to whoever holds `production_plan.view`, 
 | `orders.update` | Edit Created orders | GM, supervisor | Order management (Full access) |
 | `orders.cancel` | Cancel a Created order (the customer cancelled) | GM, supervisor | Order management (Full access) |
 | `orders.review_returns` | Put returned items back into stock or wasted; **receive the order alerts** (§16) | GM, supervisor | Order returns (Full access) |
+| `orders.export_delivery_note` | Download an order's delivery note as an Excel file (built in the browser) and read the supplier block for it | GM, supervisor, staff | Export delivery note (Full access) |
 
 **Module `preparation`** (§21)
 
@@ -301,6 +315,21 @@ Staff can't hold either. The alerts go to whoever holds `production_plan.view`, 
 
 The superadmin holds it implicitly; a general manager only when the superadmin turns Business info on for it. It's in nobody's defaults and isn't backfilled. Printing delivery notes needs only `orders.view` (§19.6): there is no document permission.
 
+**Module `attendance`** (§22)
+
+| Code | Meaning | Assignable to | In feature (level) |
+|---|---|---|---|
+| `attendance.view` | See each day's attendance of the employees in scope | GM, supervisor | Attendance (View only) |
+| `attendance.correct` | Fix records and add missing ones, with a reason | GM, supervisor | Attendance corrections (Full access) |
+| `attendance.workplace_view` | See the workplaces (location, radius, default, employees; the schedule read-only) | **GM only** | Workplaces (View only) |
+| `attendance.workplace_manage` | Create, edit, delete / archive and restore workplaces; make one the default (location, radius, default and delete only) | **GM only** | Workplaces (Full access) |
+| `attendance.scheduling` | Manage tracked weekdays, holidays, shift times and rules for one, several or all workplaces (§22.14) | GM, supervisor | Attendance scheduling (Full access; grantor must hold it) |
+| `attendance.requests_review` | Approve, change or reject the monthly attendance requests of employees in scope (§22.15) | GM, supervisor | Attendance requests (Full access) |
+
+`attendance.shifts_manage` (each workplace's schedule) was retired by migration 0020: its holders got `attendance.scheduling` (audited as `feature.set`, `source: default_change`); the row stays inactive.
+
+Checking in needs no permission: tracked employees (active staff and supervisors) may, nobody else.
+
 `inventory.adjust` (set stock values) was **removed**: every inventory item comes from production and changes only through it (§18.5). The sync marked it inactive; its rows are kept, so it can come back with manual items.
 
 Cancelling batches is a general-manager decision, like deactivating users: `production.delete` is assignable to the GM only and belongs to no feature level. Supervisors or staff granted it before this change keep the row, but it has no effect (read-time `assignable_to` filter, §5.5), and their Production level still reads as *Full access*.
@@ -310,11 +339,11 @@ Cancelling batches is a general-manager decision, like deactivating users: `prod
 | Role | On creation |
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
-| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions, `inventory.view` and `inventory.materials_stock` (Inventory **Record**), `inventory.materials_manage` (Inventory materials **Full**; **not** `inventory.history`: the superadmin allows it per GM) all five `orders.*` permissions (Orders Record, Order management Full, Order returns Full) and all four `preparation.*` permissions (Preparation Record, Preparation management Full). **Not** `settings.business_info` (Business info Off: the superadmin allows it per GM). |
-| Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Inventory Record** (material stock), Inventory materials **Off**; **Orders Record**, Order management and Order returns **Off**; **Preparation Record**, Preparation management **Off**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
+| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions, `inventory.view` and `inventory.materials_stock` (Inventory **Record**), `inventory.materials_manage` (Inventory materials **Full**; **not** `inventory.history`: the superadmin allows it per GM) all five `orders.*` permissions (Orders Record, Order management Full, Order returns Full) and all four `preparation.*` permissions (Preparation Record, Preparation management Full). **Not** `settings.business_info` (Business info Off: the superadmin allows it per GM). Attendance **View only**, Attendance corrections **Full**, Attendance requests **Full**, Workplace **View only** (`attendance.view`, `attendance.correct`, `attendance.requests_review`, `attendance.workplace_view`); Attendance scheduling **Off** (the superadmin allows it per GM). |
+| Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Inventory Record** (material stock), Inventory materials **Off**; **Orders Record**, Order management and Order returns **Off**; **Preparation Record**, Preparation management **Off**; Attendance and Attendance corrections **Off**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
 | Staff | Every feature **Off** (no permissions). |
 
-`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing. The `production_plan.*` permissions were backfilled to existing active general managers only (supervisors' default is Off). `users.manage_access` is backfilled to existing **active supervisors** (Staff access Full). `inventory.view` is backfilled to existing active general managers and supervisors. `inventory.history` is in nobody's defaults, so it isn't backfilled: only the superadmin sees inventory history until it grants it. The `orders.*` permissions are backfilled per the defaults: all five to existing active general managers, `orders.view` and `orders.create` to existing active supervisors, nothing to staff. The `preparation.*` permissions likewise: all four to existing active general managers, `preparation.view` and `preparation.create` to existing active supervisors, nothing to staff.
+`DEFAULT_PERMISSIONS` for supervisors and staff is computed from the feature levels, so the two can't drift apart. When the production permissions were added, the one-time backfill (§5.1) gave them to existing active general managers and supervisors; staff got nothing. The `production_plan.*` permissions were backfilled to existing active general managers only (supervisors' default is Off). `users.manage_access` is backfilled to existing **active supervisors** (Staff access Full). `inventory.view` is backfilled to existing active general managers and supervisors. `inventory.history` is in nobody's defaults, so it isn't backfilled: only the superadmin sees inventory history until it grants it. The `orders.*` permissions are backfilled per the defaults: all five to existing active general managers, `orders.view` and `orders.create` to existing active supervisors, nothing to staff. The `preparation.*` permissions likewise: all four to existing active general managers, `preparation.view` and `preparation.create` to existing active supervisors, nothing to staff. The `attendance.*` permissions: `attendance.view`, `attendance.correct`, `attendance.requests_review` and `attendance.workplace_view` to existing active general managers; nothing to supervisors and staff. `attendance.scheduling` is in nobody's defaults (not backfilled); migration 0020 gave it to those who held `attendance.shifts_manage`.
 
 **Default change for existing supervisors (migration `0009`).** Staff management used to default to Full access. Migration `0009_supervisor_staff_defaults` moved every supervisor whose staff management was **exactly Full** (`users.view/create/update`) to **View only** (removes `users.create` and `users.update`), deactivated supervisors included so that reactivating doesn't bring Full back. Supervisors at a custom or lower level were left alone. Each changed supervisor got one `feature.set` audit entry with no actor (System) and `details.source = "default_change"`. It runs once (Alembic); its downgrade does nothing.
 
@@ -364,6 +393,7 @@ Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `ta
 | Orders | `order.document_printed` (`copy`: 1 = the original, 2+ = copies; `via`: `download` / `telegram`): one per delivery note generated (§19.6); the Business info preview isn't audited. `order.create` (`customer` (the name; null for a direct order), `customer_type`, `customer_phone` (readable), `customer_location`, `delivery_date`, `white_boxes`, `black_boxes`, `items`), `order.update` (`changes`: field → `{from, to}` for `customer`, `customer_type`, `customer_phone`, `customer_location` (the order's customer snapshot, §19.2), `delivery_date`, `driver`, `note`, `boxes` = `{white, black, items}`; only when something changed), `order.cancel` (`reason`), `order.delivering` (`items`: the totals that left stock), `order.delivered` (`outcome`: `accepted` / `returned`, with `reason` and `returned` items), `order.returns_reviewed` (`outcome`: `partly_returned` / `fully_returned`, `to_stock`, `to_wasted`). Items are `[{item_code, name_en, name_km, count, kg}]`. `entity_type = order`, `details.code` = the order code. |
 | Materials | `material.create` (`unit`), `material.update` (`changes`: field → `[old, new]`, incl. `unit` and the converted `balance`), `material.archive` (`balance`), `material.restore`, `material.stock_add` / `material.stock_remove` (`quantity`, `unit`, `balance_after`; `reason` on removals). `entity_type = material`, `details.name_en` / `name_km` / `item_code`. Production's marinade movements are in the inventory history, not the audit log. |
 | Preparations | `preparation.create`, `preparation.finish` (`sachets_2`, `sachets_4` (satay) or `materials`: `[{name_en, name_km, quantity, unit}]` (packaging)), `preparation.reopen`, `preparation.cancel` (`reason`, `was`: `draft` / `finished`). `entity_type = preparation`, `details.code` and `details.type`. **Draft saves are not audited**; the stock movements are in the inventory history. |
+| Attendance | `attendance.attempt_refused` (a refused check-in / check-out: `action`, `code`, `shift`, `distance_m`, `accuracy_m`; actor and target = the employee), `attendance.correct` (`work_date`, `shift`, `reason`, `created`, `before` / `after` = `{status, late_minutes, check_in_at, checkout_status, check_out_at}`; `entity_type = attendance_record`, target = the employee), `workplace.create` (`name`, `address`, `latitude`, `longitude`, `radius_m`, `schedule_from`), `workplace.update` (`name`, `changes`, incl. `previous_default`), `workplace.archive` / `workplace.delete` / `workplace.restore` (`name`), all with `entity_type = attendance_workplace`. Scheduling (§22.14), one entry per write: `attendance.weekdays_update` / `attendance.schedule_update` (`workplaces` (names), `all_workplaces`, `effective_from`, `changes`: workplace name → field → `[old, new]` (shifts as `{morning: "07:00–12:00", …}`; `later_versions`: how many upcoming versions got the change too), `records_removed`, `absents_recreated`), `attendance.schedule_version_delete` (`workplace`, `effective_from`, the version's weekdays, shifts and rules), `attendance.holiday_create` / `attendance.holiday_update` (`before` / `after`) / `attendance.holiday_delete` (names, dates, `scope`, `workplaces`, `note`, effects; `entity_type = attendance_holiday`), `attendance.holiday_copy` (`from_year`, `to_year`, `created`, `skipped`), and `attendance.records_removed_by_day_off` (`cause` (the action), `effective_from` or `holiday_id` / `holiday`, `count`, `records`: each removed record's full snapshot, so it can be recovered). Requests (§22.15): `attendance.request_submit` (`year`, `month`, the snapshot figures, the requested split, `type`; actor = target = the employee), `attendance.request_approve` (`with_changes`, `before` / `after` = `{salary_cut_minutes, unpaid_work_minutes}`, `comment`), `attendance.request_reject` (`reason`), all with `entity_type = attendance_request` and the employee as target, and `attendance.settings_update` (`request_deadline_day: [from, to]`, superadmin; only when the value changed). Successful check-ins and scheduler records aren't audited: they are the records. |
 | Settings | `settings.role_limit_update` (`role`, `from`, `to`; `null` = unlimited). Superadmin only, so hidden from general managers. `settings.business_update` (`changes`: field → `[old, new]` for the text fields; the logo as `"logo": "changed"` / `"removed"`, never its bytes), only when something changed (§20). A GM given Business info sees its own entries; the superadmin's are hidden from it like everything it does. |
 | Profile | `profile.update`; `profile.telegram_link` / `profile.telegram_unlink` (the superadmin's Telegram link, §7.5; hidden from the GM like everything the superadmin does) |
 
@@ -397,9 +427,9 @@ By default Telegram delivers updates to the API itself through a **webhook**: `P
 ### 7.3 Webhook registration
 
 - **On startup** (webhook mode with `TELEGRAM_WEBHOOK_AUTO_SET=true`), the API makes sure Telegram points at `TELEGRAM_WEBHOOK_URL`.
-  - `setWebhook` is only called when something changed: the URL, the allowed update types, the secret, or `TELEGRAM_DROP_PENDING_UPDATES`.
+  - `setWebhook` is only called when something changed: the URL, the allowed update types, the secret, `TELEGRAM_DROP_PENDING_UPDATES` or `MINI_APP_URL` (the menu button's target).
   - Telegram never returns the secret, so a fingerprint of what was last registered is kept in `app_settings`.
-  - Registration also sets the bot's command list (`/start`, `/lang`).
+  - Registration also sets the bot's command list (`/start`, `/lang`; no attendance commands) and its **menu button**: a `web_app` button **បើកកម្មវិធី** → `MINI_APP_URL` (the default menu button when it isn't HTTPS). Polling mode sets both at startup.
 - **If Telegram is unreachable,** the error is logged and the API starts anyway.
 
 Manual control:
@@ -416,10 +446,12 @@ In Docker, prefix these with `docker compose exec api`.
 
 | Command | Behavior |
 |---|---|
-| `/start` | Greets the user in their language, with a hint in the other language, and shows an **Open app** WebApp button pointing to `MINI_APP_URL`. |
+| `/start` | Greets the user in their language, with a hint in the other language, and shows an **Open app** WebApp button pointing to `MINI_APP_URL`. For a linked **tracked employee** (active staff or supervisor) a second button sits next to it: **🕒 វត្តមាន / Attendance** → the check screen `/attendance/check` (§22.12). |
 | `/start link_<token>` | The superadmin's one-time link (§7.5): binds the sender's Telegram account and replies *"✅ Telegram linked."* An unknown, expired or used token, or a Telegram account already bound to another active user, gets one neutral reply (*"This link can't be used. Create a new one in the app."*). |
 | `/lang` | Toggles the bot language between Khmer and English. If the Telegram account is linked to a user, their app language is updated too. |
 
+- **Menu button per chat:** `/start` and `/lang` set this chat's menu button in its language (**បើកកម្មវិធី** / **Open app**); failures are only logged.
+- **Attendance** (§22): no commands; the `/start` Attendance button, the menu button, and the check-in / check-out confirmations and scheduler reminders (after the commit, with the check-screen button).
 - **Which language the bot uses:** the linked user's `language` first, then `bot_prefs`, then Khmer.
 - **If `MINI_APP_URL` isn't HTTPS or is empty,** the bot says the app isn't configured instead of showing the button.
 - **If `TELEGRAM_BOT_TOKEN` is empty,** the bot is disabled. The webhook endpoint returns 404, and the polling process logs a warning and exits cleanly.
@@ -471,8 +503,9 @@ Every error has the same shape:
 | Documents | `DOCUMENT_UNAVAILABLE` (503: WeasyPrint's system libraries are missing, or rendering took longer than 20 s; nothing counted) |
 | Production guard | `PRODUCTION_STOCK_ALREADY_USED` (409: a reopen / cancel would take back stock that already left in orders; `details = {items: [{item_code, name_en, name_km, remaining_count, remaining_kg, needed_count, needed_kg, orders}], orders}`, §18.10) |
 | Inventory | `INVENTORY_INSUFFICIENT` (409: a balance would go below zero; `details.items` = `[{item_code, name_en, name_km, available_count, available_kg, needed_count, needed_kg}]`; raised by Finish, reopen and cancel as a safeguard, and by **Delivering** an order when its totals are above the stock, §19), `INVENTORY_ITEM_NOT_FOUND` (404), `INVENTORY_ITEM_PRODUCTION_ONLY` (409: setting an item's value directly, for everyone, `details.item_code`; materials also `details.use = "material_add_remove"`) |
-| Materials | `MATERIAL_NOT_FOUND` (404), `MATERIAL_UNIT_LOCKED` (409: to / from count after the first movement), `MATERIAL_ARCHIVED` (409: stock change on an archived material), `MATERIAL_SYSTEM_LOCKED` (409: archiving Marinade sauce or switching it to count), `DUPLICATE_MATERIAL_NAME` (409, `details.fields`) |
+| Materials | `MATERIAL_NOT_FOUND` (404), `MATERIAL_UNIT_LOCKED` (409: to / from count or m² after the first movement), `MATERIAL_ARCHIVED` (409: stock change on an archived material), `MATERIAL_SYSTEM_LOCKED` (409: archiving Marinade sauce or switching it to count or m²), `DUPLICATE_MATERIAL_NAME` (409, `details.fields`) |
 | Preparations | `PREPARATION_NOT_FOUND` (404), `PREPARATION_CONFLICT` (409, `details.preparation`: the current preparation), `PREPARATION_CANCELLED` (409: any change to a cancelled preparation), `PREPARATION_INVALID_STATUS` (409, `details.status`: saving or finishing a finished one, reopening a draft); also `VALIDATION_ERROR` (values, line kind, a non-preparable material), `MATERIAL_ARCHIVED` (409 at Finish, `details` names the material) and `INVENTORY_INSUFFICIENT` (§18.3) |
+| Attendance | `ATTENDANCE_NOT_REQUIRED` (403; 422 when correcting someone who isn't tracked), `ATTENDANCE_WORKPLACE_NOT_SET` (409), `ATTENDANCE_TOO_EARLY` (409, `details.opens_at`, `shift_code`), `ATTENDANCE_NO_SHIFT_NOW` (409, `next_opens_at`, `next_shift_code`), `ATTENDANCE_CHECKIN_CLOSED` (409, `shift_code`, `closed_at`, `next_opens_at`), `ATTENDANCE_CHECKOUT_TOO_EARLY` (409, `opens_at`, `shift_code`), `ATTENDANCE_CHECKOUT_CLOSED` (409, `shift_code`, `closed_at`), `ATTENDANCE_ALREADY_CHECKED_IN`, `ATTENDANCE_NOT_CHECKED_IN`, `ATTENDANCE_ALREADY_CHECKED_OUT` (409, `shift_code`), `ATTENDANCE_LOCATION_INACCURATE` (422, `accuracy_m`, `max`), `ATTENDANCE_TOO_FAR` (422, `distance_m`, `radius_m`), `ATTENDANCE_RECORD_NOT_FOUND` (404), `ATTENDANCE_RECORD_EXISTS` (409), `ATTENDANCE_WORKPLACE_NOT_FOUND` (404), `ATTENDANCE_DAY_OFF` (409, `reason`: `holiday` \| `weekday`, `holidays` (`name_km`, `name_en`), `next_opens_at`, `next_shift_code`), `ATTENDANCE_HOLIDAY_NOT_FOUND` (404), `ATTENDANCE_SCHEDULE_VERSION_NOT_FOUND` (404), `ATTENDANCE_SCHEDULE_VERSION_IN_EFFECT` (409: only upcoming versions can be deleted), `ATTENDANCE_NOT_STARTED` (409, `details.start_date`: before the employee's attendance start date), `ATTENDANCE_START_LOCKED` (409, `details.start_date`: the start date has arrived and can't be edited); a start date in the past → `VALIDATION_ERROR` with `details.code = ATTENDANCE_START_IN_PAST`; requests (§22.15): `ATTENDANCE_REQUEST_WINDOW_CLOSED` (409, `details.opens`, `closes`: the month hasn't ended or the deadline has passed), `ATTENDANCE_REQUEST_EXISTS` (409, one per month, also after a rejection), `ATTENDANCE_REQUEST_NOT_NEEDED` (409, `details.missing_minutes`: under an hour), `ATTENDANCE_REQUEST_SPLIT_MISMATCH` (422, `details.expected`, `given`), `ATTENDANCE_REQUEST_NOT_FOUND` (404), `ATTENDANCE_REQUEST_NOT_PENDING` (409, `details.status`), `ATTENDANCE_MONTH_LOCKED` (409, `details.year`, `month`: correcting or adding a record in a month locked by a pending or approved request); workplaces: `WORKPLACE_IN_USE` (409, `details.employees`), `WORKPLACE_IS_DEFAULT` (409), `WORKPLACE_NAME_TAKEN` (409, `name`), `WORKPLACE_ARCHIVED` (409); impossible shift times or rules, a past `effective_from`, a holiday longer than 31 days or ending before it starts, or a future / invalid summary period → `VALIDATION_ERROR` (`details.fields`) |
 | Generic | `VALIDATION_ERROR` (with `details.fields`; also a logo that isn't a PNG / JPEG or is over 500 kB, `loc = ["body", "file"]`), `NOT_FOUND` (also: `GET /settings/business/logo` without a logo), `METHOD_NOT_ALLOWED`, `HTTP_ERROR` |
 
 Codes are defined in `app/core/errors.py`. **Never rename a code:** the UI depends on them.
@@ -559,6 +592,7 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | POST | `/orders/{id}/delivering` · `/orders/{id}/delivered` | `orders.create` |
 | POST | `/orders/{id}/returns/review` | `orders.review_returns` |
 | GET | `/orders/{id}/document.pdf` | `orders.view` (any status) |
+| GET | `/orders/delivery-note/supplier` | `orders.export_delivery_note` (the business name, address and phone for the Excel delivery note; no Business info access needed) |
 | POST | `/orders/{id}/document/send-telegram` | `orders.view` (to the requester's own chat) |
 | GET | `/preparations` | `preparation.view` |
 | GET | `/preparations/stats` | `preparation.view` |
@@ -569,6 +603,27 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | POST | `/preparations/{id}/finish` | `preparation.create` |
 | POST | `/preparations/{id}/reopen` | `preparation.update` |
 | POST | `/preparations/{id}/cancel` | `preparation.cancel` |
+| GET | `/attendance/me/today` | tracked employee (active staff, supervisor) |
+| POST | `/attendance/check-in`, `/attendance/check-out` | tracked employee |
+| GET | `/attendance/me/summary` | tracked employee |
+| GET | `/attendance/day` | `attendance.view` |
+| GET | `/attendance/users/{id}/summary` | `attendance.view` + scope |
+| PATCH | `/attendance/records/{id}` | `attendance.correct` + scope |
+| POST | `/attendance/records` | `attendance.correct` + scope |
+| GET | `/attendance/requests/me` | tracked employee |
+| POST | `/attendance/requests` | tracked employee |
+| GET | `/attendance/requests`, `/attendance/settings/requests` | `attendance.requests_review` + scope |
+| GET | `/attendance/requests/{id}` | the employee, or `attendance.requests_review` + scope |
+| POST | `/attendance/requests/{id}/approve`, `/attendance/requests/{id}/reject` | `attendance.requests_review` + scope |
+| PUT | `/attendance/settings/requests` | superadmin |
+| GET | `/attendance/workplace-options` | `users.view` or any workplace permission |
+| GET | `/attendance/workplaces`, `/attendance/workplaces/{id}` | `attendance.workplace_view` or `workplace_manage` |
+| POST | `/attendance/workplaces`, `/attendance/workplaces/{id}/restore` | `attendance.workplace_manage` |
+| PATCH, DELETE | `/attendance/workplaces/{id}` | `attendance.workplace_manage` |
+| GET | `/attendance/scheduling`, `/attendance/calendar`, `/attendance/holidays`, `/attendance/holidays/{id}` | `attendance.view` or `attendance.scheduling` |
+| PUT | `/attendance/scheduling/weekdays`, `/attendance/scheduling/shifts` | `attendance.scheduling` |
+| DELETE | `/attendance/scheduling/versions/{id}` | `attendance.scheduling` |
+| POST, PATCH, DELETE | `/attendance/holidays`, `/attendance/holidays/copy`, `/attendance/holidays/{id}` | `attendance.scheduling` |
 | GET | `/health` (no prefix) | public |
 | GET | `/docs`, `/redoc`, `/openapi.json` (no prefix) | only when API docs are enabled (development by default, §13) |
 
@@ -630,7 +685,7 @@ How general managers (and, for staff, supervisors with Staff access) give access
 
 ### 12.1 Registry
 
-`FEATURES` in `app/permissions/registry.py`. Each feature has `code`, `menu` (`workstation` | `settings`, listed in that order in `MENUS`; startup validation rejects any other value), names and descriptions in Khmer and English, `applies_to` (roles it can be set for) and `levels`: an ordered mapping level → the exact permission codes of that level, always starting with `off` → none.
+`FEATURES` in `app/permissions/registry.py`. Each feature has `code`, `menu` (`workstation` | `attendance` | `settings`, listed in that order in `MENUS`; startup validation rejects any other value), names and descriptions in Khmer and English, `applies_to` (roles it can be set for) and `levels`: an ordered mapping level → the exact permission codes of that level, always starting with `off` → none.
 
 | Feature | Menu | Applies to | View only | Record | Full access |
 |---|---|---|---|---|---|
@@ -644,8 +699,14 @@ How general managers (and, for staff, supervisors with Staff access) give access
 | `orders` | workstation | GM, supervisor, staff | `orders.view` | `orders.view/create` | — |
 | `order_management` | workstation | GM, supervisor | — | — | `orders.update/cancel` |
 | `order_returns` | workstation | GM, supervisor | — | — | `orders.review_returns` |
+| `order_export` | workstation | GM, supervisor, staff | — | — | `orders.export_delivery_note` |
 | `preparation` | workstation | GM, supervisor, staff | `preparation.view` | `preparation.view/create` | — |
 | `preparation_management` | workstation | GM, supervisor | — | — | `preparation.update/cancel` |
+| `attendance` | attendance | GM, supervisor | `attendance.view` | — | — |
+| `attendance_corrections` | attendance | GM, supervisor | — | — | `attendance.correct` |
+| `attendance_workplace` | attendance | **GM** | `attendance.workplace_view` | — | `attendance.workplace_view/manage` |
+| `attendance_scheduling` | attendance | GM, supervisor (grantor must hold it) | — | — | `attendance.scheduling` |
+| `attendance_requests` | attendance | GM, supervisor | — | — | `attendance.requests_review` |
 | `staff_management` | settings | GM, supervisor | `users.view` | `users.view/create` | `users.view/create/update` |
 | `staff_access` | settings | supervisor | — | — | `users.manage_access` |
 | `business_info` | settings | **GM** | — | — | `settings.business_info` |
@@ -653,6 +714,8 @@ How general managers (and, for staff, supervisors with Staff access) give access
 **Staff management:** *View only* = see staff; *Record* = also add staff; *Full access* = also edit their info (name, phone, Telegram username, position, language). Deactivating stays GM-only (`users.delete`). A GM with default permissions still reads as Full access.
 
 **Business info** (GM only, §20): *Full access* = edit the business info printed on delivery notes. It applies only to the general manager, so only the superadmin can turn it on; default Off.
+
+**Attendance** (§22.11): *View only* = see each day's attendance of the people in scope (and Scheduling, read-only); **Attendance corrections** *Full access* = fix and add records. **Workplaces** applies to the GM only, so only the superadmin sets it (default View only). **Attendance scheduling** *Full access* = manage tracked weekdays, holidays, shift times and rules (§22.14); grantor must hold it: the superadmin turns it on for a GM, and a GM holding it can give it to supervisors (defaults Off for both).
 
 **Staff access** (supervisors only): *Full access* = may set the Suppliers / Customers / Production levels of staff, up to the supervisor's own levels (§12.3); *Off* = no Access tab.
 
@@ -677,10 +740,10 @@ Two kinds of grantor:
 
 - **General manager and superadmin (`permissions.grant`): any level of any feature** that applies to a user they manage (supervisors and staff; the superadmin also the GM). Unlike detailed grants, their own feature permissions don't matter here: the Access layer is theirs. (Detailed permissions, §5.4, stay superadmin-only.)
 - **Supervisor with Staff access (`users.manage_access`, without `permissions.grant`):** only staff (normal scope: another supervisor or a GM → `FORBIDDEN_SCOPE`), and **capped**: every code of the target level must be in the supervisor's own effective permissions, i.e. what a GM or the superadmin gave them. Setting `off`, or any level within its own, is allowed, including lowering a level a GM set higher.
-- **Grantor must hold it** (`FeatureDef.grantor_must_hold`, today only `inventory_history`): such a feature exists only for grantors who hold every code of it. The superadmin always does; a general manager only while holding it. For anyone else it's left out of `GET /users/{id}/features`, `PUT` answers `404 FEATURE_NOT_FOUND` (at the "feature exists" step, before the target-role check, so its existence isn't revealed), and its `feature.set` audit entries are hidden from them (§13). No cascade: removing it from the grantor leaves the levels they set.
+- **Grantor must hold it** (`FeatureDef.grantor_must_hold`: `inventory_history` and `attendance_scheduling`): such a feature exists only for grantors who hold every code of it. The superadmin always does; a general manager only while holding it. For anyone else it's left out of `GET /users/{id}/features`, `PUT` answers `404 FEATURE_NOT_FOUND` (at the "feature exists" step, before the target-role check, so its existence isn't revealed), and its `feature.set` audit entries are hidden from them (§13). No cascade: removing it from the grantor leaves the levels they set.
 - **No cascade:** when a GM later lowers a supervisor's access, staff levels that supervisor set earlier are **not** changed (like revoking, §5.4); the supervisor just can't raise them again.
 
-`GET /users/{id}/features` (`permissions.grant` or `users.manage_access` + scope) returns the features that apply to the target's role, grouped by menu (workstation first, then settings; empty menus omitted). Each feature: `code`, `menu`, names/descriptions, `levels` (in order; each `{level, allowed}`, where `allowed` is false when the level is above a supervisor's own access, always true for the GM and the superadmin), `current_level` (`off` / `view` / `record` / `full` / `custom`) and `can_edit` (the actor manages access and the target, and the target is active). Nothing in the response to a supervisor describes a GM or the superadmin (§13).
+`GET /users/{id}/features` (`permissions.grant` or `users.manage_access` + scope) returns the features that apply to the target's role, grouped by menu (workstation, attendance, then settings; empty menus omitted). Each feature: `code`, `menu`, names/descriptions, `levels` (in order; each `{level, allowed}`, where `allowed` is false when the level is above a supervisor's own access, always true for the GM and the superadmin), `current_level` (`off` / `view` / `record` / `full` / `custom`) and `can_edit` (the actor manages access and the target, and the target is active). Nothing in the response to a supervisor describes a GM or the superadmin (§13).
 
 `PUT /users/{id}/features/{feature}` with `{ "level": "off" | "view" | "record" | "full" }` (one of the feature's levels) checks, in order:
 
@@ -713,6 +776,7 @@ The superadmin can use these endpoints too. Adding and editing staff info stay s
 - **Notifications and plans:** a notification stores the actor's id and serializes it as a `UserRef` for the recipient reading it, so a step finished by the superadmin reads as "System" to everyone else; the Telegram texts never name the actor. Plan `confirmed_by` / `updated_by` are `UserRef`s too.
 - **Orders:** every user reference on an order (`created_by`, `driver`, `delivering_by`, `delivered_by`, `returns_reviewed_by`, `cancelled_by`, `updated_by`, each return's `reviewed_by`) is a `UserRef`; the order routes are in the redaction and superset sweeps, with orders the superadmin created and cancelled. Driver options list only active staff and supervisors.
 - **Preparations:** `created_by`, `updated_by`, `finished_by`, `cancelled_by` are `UserRef`s; the routes are in the redaction and superset sweeps, with preparations the superadmin created, finished (alerting the GM, read as "System") and cancelled.
+- **Attendance:** `corrected_by` on records, `updated_by` on the workplace and the rules are `UserRef`s; the day view's rows are employees (never the superadmin, who isn't tracked), and the superadmin's id as `user_id` of a new record is `USER_NOT_FOUND`. The routes are in the redaction and superset sweeps, with a record the superadmin added and corrected and a workplace and rules it changed.
 - **Delivery notes** (§19.6) are rendered from the order as serialized for the requester, so names on them ("Prepared by", "Driver") are redacted like any `UserRef`. The redaction sweep reads them as HTML (`html_documents` fixture) and checks the text.
 - **Linked Telegram id:** the superadmin's (like everyone's) `telegram_user_id` is never serialized; responses only carry `telegram_linked`.
 - **Tests:** `tests/test_redaction.py` calls every GET route (from the OpenAPI schema) plus key mutations as a GM, a supervisor and staff, over data the superadmin created, and fails if a body contains the superadmin's id, name or the word "superadmin". Its data includes a batch whose step 2 the superadmin finished and whose plan it confirmed (alerts for the GM and a supervisor with plan access).
@@ -738,7 +802,7 @@ The API step codes stay `raw-material`, `produced` and `standardize` (URLs, `ste
 
 ### 14.1 Steps and fields
 
-Weights are exact decimals (`NUMERIC`, `Decimal` in Python), accepted as JSON numbers or strings and **always returned as fixed-precision strings**: kg with 3 decimals (`"12.500"`), grams with 1 (`"350.0"`). Counts are whole numbers. Draft saves only check types and ≥ 0; Finish checks the rules below.
+Weights are exact decimals (`NUMERIC`, `Decimal` in Python), accepted as JSON numbers or strings and **always returned as fixed-precision strings**: kg with 3 decimals (`"12.500"`), grams with 1 (`"350.0"`), square metres with 2 (`"12.50"`). Counts are whole numbers. Draft saves only check types and ≥ 0; Finish checks the rules below.
 
 **Step dates, recorded by the server at Finish.** Each step has one date, set when the step is finished to **today in `BUSINESS_TIMEZONE`** (17:30 UTC on 30 Sep is already 1 Oct in Phnom Penh) and returned inside that step's object:
 
@@ -903,6 +967,10 @@ Production and order alerts, stored in the app (the bell) and sent on Telegram.
 | Order delivered, everything accepted | `order.delivered` | `code`, `customer`, `customer_type`, `customer_phone`, `actor_id`, `repeat` |
 | Order delivered with returns | `order.return_pending` | `code`, `customer`, `customer_type`, `customer_phone`, `returned` (items), `reason`, `actor_id`, `repeat` |
 | Preparation finished | `preparation.finished` | `code`, `type`, `sachets_2`, `sachets_4` (satay; null for a pack size not made), `materials` (packaging: `[{name_en, name_km, quantity, unit}]`), `actor_id`, `repeat` |
+| Attendance request sent | `attendance.request_submitted` | `year`, `month`, `name`, `missing_minutes`, `salary_cut_minutes`, `unpaid_work_minutes`, `actor_id` (§22.15; to the reviewers in scope, not to every holder of the permission) |
+| Attendance request approved | `attendance.request_approved` | `year`, `month`, `missing_minutes`, the **approved** `salary_cut_minutes` / `unpaid_work_minutes`, `with_changes`, `comment`, `actor_id` (to the employee) |
+| Attendance request rejected | `attendance.request_rejected` | `year`, `month`, `missing_minutes`, the requested split, `reason`, `actor_id` (to the employee) |
+| Request reminder (1st of the month) | `attendance.request_reminder` | `year`, `month` (the previous month), `missing_minutes`, `balance_minutes`, `deadline`, `deadline_day`, `deadline_month` (to the employee; `entity_type = user`) |
 | Return reviewed | `order.returns_reviewed` | `code`, `customer`, `customer_type`, `customer_phone`, `outcome` (`partly_returned` / `fully_returned`), `to_stock`, `to_wasted` (items), `actor_id`, `repeat` |
 
 - **Recipients:** every **active** user holding the alert's permission (effective permissions: granted, active permission, still assignable to the role), the superadmin implicitly. Production alerts: `production_plan.view` (the GM and the supervisors given plan access). Order alerts: `orders.review_returns` (the GM and the supervisors given Order returns). Preparation alerts: `preparation.update` (the GM and the supervisors given Preparation management). Staff hold none of them. The person who acted is included when they qualify. Order items in the payload are `[{item_code, name_en, name_km, count, kg}]` (names kept with the alert).
@@ -937,6 +1005,10 @@ Production and order alerts, stored in the app (the bell) and sent on Telegram.
 - 📦 *"{code}: return reviewed — partly / fully returned ({…} to stock, {…} wasted)."* (*nothing* when a side is empty)
 
 - 🧂 *"{code}: preparation finished — 40 satay sachets (2-piece), 25 (4-piece) | Skewer 2.000 kg, String 0.500 kg."* (satay sachets, then each packaging material; "again" after a reopen). Button **Open preparation / បើកការរៀបចំ** → `/workstation/preparations/<id>`. Material names are escaped.
+
+- 📝 *"{name} sent a request for October 2026: missing 6 h 45 — salary cut 2 h, unpaid work 4 h 45."* to the reviewers in scope: holders of `attendance.requests_review` whose scope includes the employee (§22.15), plus the superadmin. Button **Open request / បើកសំណើ** → `/attendance/requests?request=<id>`.
+- ✅ *"Your request for October 2026 was approved: salary cut 2 h, unpaid work 4 h 45."* (with changes: *"… (with changes: “comment”)"*), ❌ *"Your request for October 2026 was rejected: “reason”."*, both to the employee, same button.
+- 🔔 *"Your October 2026 balance is −6 h 45. Submit your request by 7 November."* on the 1st of the month, once per employee and month (§22.15). Button **Create request / ដាក់សំណើ** → `/attendance/requests`.
 
 Order alerts have the button **Open order / បើកការបញ្ជាទិញ** → `/workstation/orders/<order id>`. The customer name, item names and the reason are escaped. `customer` is the order's snapshot (§19.2): the name, or `null` for a direct order, whose texts read *"Direct order · 012 345 678"* / *"ការបញ្ជាទិញផ្ទាល់ · 012 345 678"* (`customer_phone`, readable).
 
@@ -1007,7 +1079,7 @@ Defined in `app/inventory/catalog.py`, in three **sections**: **stock**, **prepa
 - The by-product items are generated from the production by-product catalog (§14.1), so a new by-product gets its three inventory items automatically; its balance rows are created at startup and on demand (no migration).
 - Raw also lists the **materials** (§18.11), after Chicken; they are not in the catalog but in the `inventory_materials` table.
 - A unit an item doesn't track is `null` everywhere (balance, movements, responses).
-- **Units and precision, one rule everywhere** (`app/inventory/units.py`, mirrored by the UI's `lib/quantity.ts`): **count** = whole number; **kg** = 3 decimals (`"1.250"`); **g** = 1 decimal (`"350.0"`). Production items use count and / or kg; a material uses exactly one of count, kg or g (grams in their own `g` / `g_delta` / `balance_g_after` columns).
+- **Units and precision, one rule everywhere** (`app/inventory/units.py`, mirrored by the UI's `lib/quantity.ts`): **count** = whole number; **kg** = 3 decimals (`"1.250"`); **g** = 1 decimal (`"350.0"`); **m²** (`m2`) = 2 decimals (`"12.50"`, 0.01 m², largest single entry 999,999,999.99). Production items use count and / or kg; a material uses exactly one of count, kg, g or m² (grams and square metres in their own `g` / `g_delta` / `balance_g_after` and `m2` / `m2_delta` / `balance_m2_after` columns, migration `0023`). m² converts to nothing: it isn't a weight and isn't a count.
 
 ### 18.2 Movements from production
 
@@ -1069,9 +1141,9 @@ The movement history is behind **one** permission, `inventory.history` (feature 
 
 | Endpoint | Guard | Notes |
 |---|---|---|
-| `GET /inventory` | `inventory.view` | `{sections: [{section, items: [{code, section, group, name_en, name_km, tracks_count, tracks_kg, tracks_g, kg_estimated, origin, count, kg, g, updated_at, material}]}]}`: stock, then prepared (the satay sachets, then the prepared twins by English name: every active packaging material's, and an archived material's only while it has stock; `material` = the twin's material, for its picture), then wasted. `updated_at` = the latest movement, `null` if it never changed. Every catalog item is listed (0 until it moves), and every **active material** in Raw right after Chicken (by English name; the UI sorts by the shown language) with `material = {id, unit, system_code, archived, icon_key, icon_url, prep_role}` (`null` for catalog items). |
+| `GET /inventory` | `inventory.view` | `{sections: [{section, items: [{code, section, group, name_en, name_km, tracks_count, tracks_kg, tracks_g, tracks_m2, kg_estimated, origin, count, kg, g, m2, updated_at, material}]}]}`: stock, then prepared (the satay sachets, then the prepared twins by English name: every active packaging material's, and an archived material's only while it has stock; `material` = the twin's material, for its picture), then wasted. `updated_at` = the latest movement, `null` if it never changed. Every catalog item is listed (0 until it moves), and every **active material** in Raw right after Chicken (by English name; the UI sorts by the shown language) with `material = {id, unit, system_code, archived, icon_key, icon_url, prep_role}` (`null` for catalog items). |
 | `GET /inventory/items/{item_code}` | `inventory.view` | §18.6. |
-| `GET /inventory/movements` | `inventory.history` | Newest first. Filters: `item_code`, `section` (`stock` / `prepared` / `wasted`; materials count as stock, their twins as prepared), `source` (`production` / `adjustment` / `order` / `order_return` / `material_add` / `material_remove` / `material_unit_change` / `preparation`), `batch_id`, `batch_code` (part of the code), `order_id`, `preparation_id`, `date_from` / `date_to` (business days, `BUSINESS_TIMEZONE`); `page`, `page_size` (default 50, max 100). Each row: item and names, section, `count_delta`, `kg_delta`, `g_delta`, `kg_estimated`, `source`, `batch {id, code}` (for order movements: the batch the quantity is attributed to), `order {id, code}` (order movements, else `null`), `preparation {id, code}` (preparation movements, else `null`), `step`, `reversal_of`, `reason` (a material removal's reason; "reopen" / "cancel" on reversals), `balance_count_after`, `balance_kg_after`, `balance_g_after`, `created_by` (`UserRef`), `created_at`. History rows keep the unit they were written in (a kg ↔ g switch doesn't rewrite them). |
+| `GET /inventory/movements` | `inventory.history` | Newest first. Filters: `item_code`, `section` (`stock` / `prepared` / `wasted`; materials count as stock, their twins as prepared), `source` (`production` / `adjustment` / `order` / `order_return` / `material_add` / `material_remove` / `material_unit_change` / `preparation`), `batch_id`, `batch_code` (part of the code), `order_id`, `preparation_id`, `date_from` / `date_to` (business days, `BUSINESS_TIMEZONE`); `page`, `page_size` (default 50, max 100). Each row: item and names, section, `count_delta`, `kg_delta`, `g_delta`, `m2_delta`, `kg_estimated`, `source`, `batch {id, code}` (for order movements: the batch the quantity is attributed to), `order {id, code}` (order movements, else `null`), `preparation {id, code}` (preparation movements, else `null`), `step`, `reversal_of`, `reason` (a material removal's reason; "reopen" / "cancel" on reversals), `balance_count_after`, `balance_kg_after`, `balance_g_after`, `balance_m2_after`, `created_by` (`UserRef`), `created_at`. History rows keep the unit they were written in (a kg ↔ g switch doesn't rewrite them). |
 | `POST /inventory/items/{item_code}/set` | `inventory.view` | §18.5: `409 INVENTORY_ITEM_PRODUCTION_ONLY` for every item. |
 | `/inventory/materials…` | see §18.11 | Materials: list, create, edit, archive, restore, add, remove; icon upload / delete / serve. |
 | `GET /production/{id}` | `production.view` | With `inventory.history`: `inventory_tracked` and `stock_changes`, the batch's un-reversed movements `[{step, item_code, section, name_en, name_km, count_delta, kg_delta, g_delta, kg_estimated}]`, by step then item order (empty when untracked; step 2 includes the marinade). Without it both keys are absent. With `production.create`, while step 2 of a tracked, in-progress batch is a draft: `marinade_stock = {unit, count, kg, g}` (the Marinade sauce on hand, for the step 2 form); `null` otherwise. |
@@ -1104,16 +1176,18 @@ Orders (§19) move only orderable items (the packs and the packed by-products). 
 
 **Materials** are inventory items that don't come from production: string, skewers, stickers, sauces, bags… They appear in the **Raw** group after Chicken. Their stock is added and removed by hand; **Marinade sauce** is also taken by production step 2.
 
-**Data** (`inventory_materials`, migration `0014`): `id`, `item_code` (`material_<8 hex>`, unique; the inventory item code used by balances and movements), `name_km`, `name_en` (both required, 1–100, whitespace collapsed), `unit` (`kg` | `g` | `count`), `system_code` (unique, null; `marinade` for Marinade sauce), `icon_key` (null; a picture bundled with the UI, migration `0015`), `prep_role` (migration `0017`, §18.12), `icon` / `icon_mime` (an uploaded icon, both set or both null), `archived_at` / `archived_by`, `created_by` / `updated_by`, `created_at` / `updated_at`. Names are **unique among active materials, per language, case-insensitive** (partial unique indexes on `lower(name_km)` / `lower(name_en)` where not archived). Each material has one balance row in its unit and uses the same ledger (§18.3), `origin = manual`.
+**Data** (`inventory_materials`, migration `0014`): `id`, `item_code` (`material_<8 hex>`, unique; the inventory item code used by balances and movements), `name_km`, `name_en` (both required, 1–100, whitespace collapsed), `unit` (`kg` | `g` | `m2` | `count`), `system_code` (unique, null; `marinade` for Marinade sauce), `icon_key` (null; a picture bundled with the UI, migration `0015`), `prep_role` (migration `0017`, §18.12), `icon` / `icon_mime` (an uploaded icon, both set or both null), `archived_at` / `archived_by`, `created_by` / `updated_by`, `created_at` / `updated_at`. Names are **unique among active materials, per language, case-insensitive** (partial unique indexes on `lower(name_km)` / `lower(name_en)` where not archived). Each material has one balance row in its unit and uses the same ledger (§18.3), `origin = manual`.
 
-**Defaults** (seeded once at startup, then never re-created: an archived default stays archived), all at 0:
+**Defaults** (seeded once at startup, then never re-created: an archived default stays archived), all at 0. The four stickers come in pairs: two counted in kg and two in m² (migration `0023` renamed the old two and added the m² ones, see below):
 
 | `system_code` | km | en | unit | `icon_key` | `prep_role` |
 |---|---|---|---|---|---|
 | — | ខ្សែ | String | kg | `string` | `packaging` |
 | — | ចង្កាក់ | Skewer | kg | `skewer` | `packaging` |
-| — | ស្ទីកគ័រ (កញ្ចប់ ២ ដុំ) | Sticker (2-piece packs) | kg | `sticker_2` | `packaging` |
-| — | ស្ទីកគ័រ (កញ្ចប់ ៤ ដុំ) | Sticker (4-piece packs) | kg | `sticker_4` | `packaging` |
+| — | ស្ទីកគ័រ (កញ្ចប់ ២ ដុំ) · គ.ក | Sticker (2-piece packs) · kg | kg | `sticker_2` | `packaging` |
+| — | ស្ទីកគ័រ (កញ្ចប់ ៤ ដុំ) · គ.ក | Sticker (4-piece packs) · kg | kg | `sticker_4` | `packaging` |
+| — | ស្ទីកគ័រ (កញ្ចប់ ២ ដុំ) · ម៉ែត្រការ៉េ | Sticker (2-piece packs) · m² | m2 | `sticker_2_m2` | `packaging` |
+| — | ស្ទីកគ័រ (កញ្ចប់ ៤ ដុំ) · ម៉ែត្រការ៉េ | Sticker (4-piece packs) · m² | m2 | `sticker_4_m2` | `packaging` |
 | `marinade` | ទឹកប្រឡាក់ | Marinade sauce | g | `marinade` | `none` |
 | — | សាតេ | Satay sauce | g | `satay` | `satay_sauce` |
 | — | ថង់ Zip 7 (កញ្ចប់ ២ ដុំ) | Zip bag 7 (2-piece packs) | kg | `zip_bag_2` | `zip_bag_2` |
@@ -1122,16 +1196,18 @@ Orders (§19) move only orderable items (the packs and the packed by-products). 
 
 Marinade sauce is re-created on every start if it's missing (step 2 needs it). Migration `0015` backfilled `icon_key` on databases seeded before it (by English name; Marinade sauce by its system code). Materials created in the app have no `icon_key`.
 
+**Migration `0023` (m², idempotent data step):** adds the `m2` columns and widens the CHECKs (`unit`, `has_delta`, preparation line `unit`). On a database whose defaults were already seeded (`app_settings.inventory_materials_seeded`) it **renames** the two kg stickers to the names above **only while they still have their seeded names** (both languages, unit kg; a sticker someone renamed is left alone) and **creates** the two m² stickers once (`prep_role = packaging`, balance 0, and a 0 balance for each prepared twin), skipping any whose `icon_key` or active name already exists. Every change writes a `material.update` / `material.create` audit entry with `details.source = "seed"` (no actor). On a fresh database the app seeds the same four stickers from `DEFAULTS`. Downgrade removes every m² material with its lines, movements and balances and restores the old names.
+
 **Rules**
 
-- **Add stock** (`inventory.materials_stock`): `quantity` > 0 in the material's unit and precision (count whole, kg ≤ 3 decimals, g ≤ 1 decimal); otherwise `422 VALIDATION_ERROR` (`details.unit`). No note. Movement `source = material_add`.
+- **Add stock** (`inventory.materials_stock`): `quantity` > 0 in the material's unit and precision (count whole, kg ≤ 3 decimals, g ≤ 1 decimal, m² ≤ 2 decimals); otherwise `422 VALIDATION_ERROR` (`details.unit`). No note. Movement `source = material_add`.
 - **Remove stock** (`inventory.materials_stock`): `quantity` as above and a **reason** (1–500 characters, trimmed). Never below zero → `409 INVENTORY_INSUFFICIENT`. Movement `source = material_remove`, `reason` kept.
 - **Create / edit** (`inventory.materials_manage`): names and unit. Duplicate active name → `409 DUPLICATE_MATERIAL_NAME` (`details.fields`: `name_km` / `name_en`).
 - **Unit change:**
   - **kg ↔ g: always allowed.** The balance is converted (× 1000 / ÷ 1000, rounded half-up to the new unit's precision) and one `material_unit_change` movement records the old unit out and the new unit in (e.g. `kg_delta −1.250`, `g_delta +1250.0`). Earlier history rows keep their own unit. The **prepared twin** (§18.12) is converted the same way (its own movement when it has stock).
-  - **weight ↔ count: only while the material and its prepared twin have no movements at all** → otherwise `409 MATERIAL_UNIT_LOCKED`.
+  - **weight ↔ count, weight ↔ m², count ↔ m²: only while the material and its prepared twin have no movements at all** → otherwise `409 MATERIAL_UNIT_LOCKED` (square metres can't be converted to or from kg, g or a count). The empty balance just changes column; no movement is written.
 - **Archive** (instead of delete): hides the material from Raw and the pickers; its balance and history stay. Archiving with stock is allowed (the UI warns). Adding or removing stock of an archived material → `409 MATERIAL_ARCHIVED`. **Restore** brings it back (its names must be free among active materials). Its archived name can be reused meanwhile.
-- **System materials** (`system_code`, i.e. Marinade sauce): can be renamed and switched kg ↔ g; never archived or switched to count → `409 MATERIAL_SYSTEM_LOCKED`.
+- **System materials** (`system_code`, i.e. Marinade sauce): can be renamed and switched kg ↔ g; never archived or switched to count or m² → `409 MATERIAL_SYSTEM_LOCKED`.
 - **Icon** (`inventory.materials_manage`): upload a **PNG, JPEG or WebP of at most 1 MB**, checked by decoding it (not by its name or declared type; at most 25 megapixels). It's rotated per its EXIF, **center-cropped to a square and resized to 256 × 256**, and stored as a PNG (transparency kept) in the row. A new upload replaces the old one; deleting it brings back `icon_key` / the unit icon. Not an image, another format, empty or over 1 MB → `422 VALIDATION_ERROR` (`details.fields[0].loc = ["body", "file"]`). The UI shows, in order: the uploaded icon, the `icon_key` picture, the unit icon.
 - Every write locks the material row; step 2 reads Marinade sauce with a share lock, so a unit change and a step 2 Finish take turns.
 
@@ -1158,7 +1234,7 @@ Unknown material → `404 MATERIAL_NOT_FOUND`. Every write returns the material.
 The **Prepared** section (`section = group = prepared`, shown as its own sub-tab between Packed and Wasted) holds what preparations (§21) make. Origin `preparation`: nobody sets or adds them by hand (`set` → `INVENTORY_ITEM_PRODUCTION_ONLY` like everything else; the material add / remove routes act on the raw material only).
 
 - **Satay sachets:** `satay_sachet_2`, `satay_sachet_4` (count), catalog items.
-- **Prepared twins:** every material with `prep_role = packaging` has a twin, `<material item_code>_prepared`, resolved from the material at runtime (no table): the **same names, unit and icon**, section Prepared. Its balance row is created at startup for existing materials and when such a material is created (and on demand). Archiving the material hides its twin from the overview **unless the twin has stock**. A kg ↔ g switch of the material converts the twin (§18.11).
+- **Prepared twins:** every material with `prep_role = packaging` has a twin, `<material item_code>_prepared`, resolved from the material at runtime (no table): the **same names, unit and icon**, section Prepared. Its balance row is created at startup for existing materials and when such a material is created (and on demand). Archiving the material hides its twin from the overview **unless the twin has stock**. A kg ↔ g switch of the material converts the twin (§18.11); an m² material's twin is in m² too (2 decimals, `m2` column).
 - **`prep_role`** (`inventory_materials`, migration `0017`): `none` (not preparable; Marinade sauce) · `packaging` (moved 1:1 to its twin; **the default for new materials**) · `satay_sauce` · `zip_bag_2` · `zip_bag_4` (the satay sachet inputs; at most one material each, a partial unique index). The migration set Marinade → none, Satay sauce / Zip bag 7 (2) / Zip bag 7 (4) by their icon key (else English name), everything else packaging. **It isn't editable in the UI yet (to be decided later)**; it's returned on materials (`prep_role`) and on the overview's `material`.
 - History: preparation movements carry `source = preparation` and `preparation {id, code}`; the item detail lists preparations (§18.6).
 
@@ -1220,6 +1296,7 @@ CHECKs: the statuses, the customer types (`saved` ⇒ `customer_id`; `direct` �
 | `POST /orders/{id}/delivered` | `orders.create` | `{version, outcome: accepted}` or `{version, outcome: returned, reason, items: [{item_code, count? \| kg?}]}`. |
 | `POST /orders/{id}/returns/review` | `orders.review_returns` | `{version, items: [{item_code, to_stock_count?, to_stock_kg?, to_wasted_count?, to_wasted_kg?}]}`. |
 | `GET /orders/{id}/document.pdf` | `orders.view` | The delivery note (§19.6), `application/pdf`, `inline; filename="<code>.pdf"`, `Cache-Control: no-store`. |
+| `GET /orders/delivery-note/supplier` | `orders.export_delivery_note` | `{name_km, name_en, address_km, address_en, phone, phone_display}` from Business info. The Excel itself is built and downloaded in the browser from `public/templates/delivery_note_template.xlsx`: nothing is generated or stored by the API. |
 | `POST /orders/{id}/document/send-telegram` | `orders.view` | The bot sends the delivery note to the requester's own chat → `{copy_number}` (§19.6). |
 
 Delivering, Delivered and the review store their alerts in the same transaction and send them to Telegram after the response (§16).
@@ -1231,6 +1308,7 @@ Delivering, Delivered and the review store their alerts in the same transaction 
 | `orders` (Orders) | GM, supervisor, staff | Off · View only (`orders.view`) · Record (`+ orders.create`) |
 | `order_management` (Order management) | GM, supervisor | Off · Full access (`orders.update`, `orders.cancel`) |
 | `order_returns` (Order returns) | GM, supervisor | Off · Full access (`orders.review_returns`; receives the order alerts) |
+| `order_export` (Export delivery note) | GM, supervisor, staff | Off · Full access (`orders.export_delivery_note`). The GM has it by default; supervisors and staff only when granted. A supervisor can give it only to their own staff and only while holding it (`PERMISSION_NOT_HELD` otherwise) |
 
 Defaults: general managers Orders **Record**, management and returns **Full**; supervisors Orders **Record**, management and returns **Off**; staff Off; the superadmin implicitly everything. Backfilled to existing users per these defaults (§5.3). A supervisor with Staff access sets staff Orders up to its own level (§12.3).
 
@@ -1327,7 +1405,7 @@ New preparation (type) → PP-YYYYMMDD-NNN, draft (autosave)
 | `satay_sachet` — ធ្វើសាតេកញ្ចប់ / Make satay sachets | one per pack size (2 and / or 4) | Satay sauce used (`satay_g`, g, 1 decimal), Zip bag 7 of that pack size used (`zip_bag_qty`, in that material's unit) | Satay sachets of that pack size (`sachets`, count) |
 | `packaging_material` — រៀបចំសម្ភារៈវេចខ្ចប់ / Prepare packaging materials | one per material (`prep_role = packaging`) | `quantity` of the material (its unit) | the **same quantity** of its prepared twin (**1:1**, same unit) |
 
-All values are typed in (**no recipe yet**). Lines are stored with `unit` (the material's unit when saved): a later kg ↔ g switch is converted at Finish; a switch to / from count needs the line re-entered (`VALIDATION_ERROR`).
+All values are typed in (**no recipe yet**). Lines are stored with `unit` (the material's unit when saved): a later kg ↔ g switch is converted at Finish; a switch to / from count or m² needs the line re-entered (`VALIDATION_ERROR`). A packaging line of an m² material moves the same quantity (2 decimals) to its twin; `INVENTORY_INSUFFICIENT` then reports `available_m2` / `needed_m2`.
 
 ### 21.2 Data (migration `0017`)
 
@@ -1373,3 +1451,261 @@ User references are `UserRef`s (redacted, §13); the routes are part of the reda
 Defaults: general managers Record + Full; supervisors Record + Off; staff Off; the superadmin implicitly everything; backfilled per these defaults (§5.3). A supervisor with Staff access gives staff Preparation up to its own level (§12.3).
 
 **Alerts:** finishing a preparation notifies every active holder of `preparation.update` (bell + Telegram when linked), stored in the Finish transaction and sent after the commit like production and order alerts (§16); a re-finish after a reopen says "again".
+
+---
+
+## 22. Attendance
+
+**Attendance (វត្តមាន)**, its own top-level section: tracked employees check in and out from the **Telegram Mini App** with the phone's GPS; the server decides the time, the shift and the one next action; a scheduler marks absences and forgotten check-outs and sends reminders; early check-ins and overtime count as extra time; each employee (and their managers) sees a month or a year of KPIs and days; managers see each day and fix records with a reason; **Scheduling** (§22.14) sets the tracked weekdays, holidays and each workplace's shift times and rules from a chosen date.
+
+```
+06:30  reminder "Morning check-in is open until 07:44"  →  Check in (web_app button)
+       check screen: GPS read at once, map, "35 m from Mean Chey ✅"  →  Confirm  →  the Attendance page
+07:10  recorded: late 10 min  →  "✅ Checked in — morning shift, 07:10 (late 10 min)"
+       (06:40 → "✅ Checked in — morning shift, 06:40 (20 min early)")
+07:45  everyone without a morning record → absent (scheduler; no check-out expected)
+12:00  reminder "You can check out of the morning shift until 12:59"  →  Check out
+12:25  "👋 Checked out — morning shift, 12:25 (+25 min overtime)"
+13:00  open morning records → forgot check-out (scheduler)
+```
+
+### 22.1 Who is tracked
+
+- **Active staff and supervisors**, never the general manager or the superadmin, on the **tracked days** of their workplace: the weekdays of that day's schedule version (default Monday–Sunday) that no holiday covers (§22.14).
+- Each is assigned to **one workplace** (`users.workplace_id`, `UserOut.workplace = {id, name}`). The migration backfilled every staff member and supervisor with the default workplace. Create, edit and role change (`POST /users`, `PATCH /users/{id}`, `POST /users/{id}/role`) accept `workplace_id` (an active workplace; `404 ATTENDANCE_WORKPLACE_NOT_FOUND`, `409 WORKPLACE_ARCHIVED`; for other roles `422 VALIDATION_ERROR`); without it a new or re-roled employee keeps an active workplace or gets the **default**. Reactivation keeps the workplace while it is active, else the default. A change to general manager keeps the link (unused while not tracked). Bootstrap fills any missing one. `GET /users?workplace_id=` lists the staff and supervisors assigned to a workplace.
+- Check-in needs **no permission**: being tracked is enough. Anyone else → `403 ATTENDANCE_NOT_REQUIRED`.
+- **Who is tracked on a date** (`app/attendance/tracking.py`, the one helper the scheduler, check-in, `me/today`, the bot, the Today view and the summaries all use): the role is staff or supervisor, the account is active, the date is on or after `users.attendance_start_date`, and the date is **not inside an untracked period** — plus the workplace's day-off rules (§22.14). Before the start date the employee is *not started*; a supervisor switched off (`users.attendance_tracked = false`) is *not tracked* from the day it was switched off.
+- **Untracked periods** (`attendance_untracked_periods`: `user_id`, `from_date`, `to_date` null = ongoing, `set_by`, `created_at`): turning a supervisor's tracking **off** opens a period from **today** — records already made today are kept, windows that haven't closed yet today are no longer tracked (no reminders, no absent, no forgot check-out; waiting reminders are skipped); turning it **on** closes the period at **yesterday** (or removes it when it began today) and tracking resumes from today. The history stays: those days read "Not tracked" in the summaries.
+
+### 22.2 Workplaces and their schedules
+
+**Each workplace has its own schedule per date**: a **version** (`attendance_schedule_versions`, §22.14) holds the tracked weekdays, the two shifts (one `morning` and one `afternoon`, in JSONB) and the rules; the schedule on a date is the latest version with `effective_from` ≤ that date (dates before the first version use the first). The seeded default workplace **Mean Chey** has the default schedule, every day. Times are local in `BUSINESS_TIMEZONE`; closing times are exclusive (the last minute is shown as "until").
+
+| Shift | Start–End | Check-in window | Late | Absent (refused) | Check-out window | Forgot check-out |
+|---|---|---|---|---|---|---|
+| Morning (`morning`) | 07:00–12:00 | 06:30–07:44 | after 07:00 | from 07:45 | 12:00–12:59 | from 13:00 |
+| Afternoon (`afternoon`) | 13:00–15:00 | 12:30–13:44 | after 13:00 | from 13:45 | 15:00–15:59 | from 16:00 |
+
+- **Windows derive from the shift times and the workplace's rules:** check-in `[start − open_before, start + absent_after)`; check-out `[end, end + checkout_window + 1 min)`. Defaults: **open before 30**, **absent after 45**, **check-out window 59** minutes; **max accuracy 100 m**; **reminders on**; **count early check-in** and **count overtime** on (§22.8); radius 100 m.
+- **Validation** per workplace (`VALIDATION_ERROR`, `details.fields` naming the shift or rule): both shifts given once; start < end; the shifts don't overlap; every window stays within the day; check-in closes by the end of the shift; the two check-in windows don't overlap, nor the two check-out windows (a morning check-out may overlap the afternoon check-in, 12:30–12:59); 0 < open before ≤ 120; 0 < absent after ≤ 240; 0 ≤ check-out window ≤ 180; accuracy 10–500 m.
+- **Workplaces:** name (unique among active ones, case-insensitive: `409 WORKPLACE_NAME_TAKEN`), address, latitude / longitude (6 decimals, null until set: check-in is refused with `ATTENDANCE_WORKPLACE_NOT_SET`), radius 10–5000 m, `is_default` (exactly one active default; it needs a location to become the default).
+  - **Create** copies the default workplace's **current** version (weekdays, shifts and rules) as its first version, from the creation day (upcoming versions aren't copied).
+  - **Make default** (`is_default: true`) unsets the previous one; new employees get the default when no workplace is chosen. Nobody is moved.
+  - **Delete:** refused for the default (`409 WORKPLACE_IS_DEFAULT`) and while active employees are assigned (`409 WORKPLACE_IN_USE`, `details.employees`). With attendance history it is **archived** (`is_active = false`, `archived_at`; records keep their `workplace_id`; its name is free again); without, deleted (inactive users pointing to it lose the link). Archived workplaces can't be edited, assigned or scheduled (`409 WORKPLACE_ARCHIVED`, also as a Scheduling target) until **restored**. An employee whose workplace is archived checks in at the default one.
+- **Schedule changes** are made in **Scheduling** (§22.14) for one, several or all workplaces, from a chosen date (`PUT /attendance/workplaces/{id}/schedule` is gone). Workplace responses carry the current version read-only (`schedule`: `id`, `effective_from`, `weekdays`, both shifts with their windows, the rules, `created_by` / `created_at`). Records keep a snapshot of their shift's `scheduled_start` / `scheduled_end`, so later changes never rewrite history (a correction's late minutes use the snapshot).
+
+### 22.3 Today's state and the one next action
+
+`GET /attendance/me/today` (tracked employees): `server_time`, `timezone`, `work_date`, the employee's `workplace` (name, lat / lng, radius, `has_coordinates`) for the map, its `max_accuracy_m`, both shifts **of that workplace** (start / end, the windows as instants, `phase`: `upcoming` | `check_in_open` | `in_progress` | `check_out_open` | `closed`, and the record), and **`next_action`**:
+
+- `action`: `check_in` | `check_out` | `none`, with `shift_code`, `until` (the last minute) and `closes_at`;
+- when nothing is open: `next_action`, `next_shift_code` and `next_opens_at` (today, or tomorrow's morning check-in).
+
+A pending **check-out comes first**: from 12:30 to 12:59 someone checked into the morning gets `check_out` (morning) until it's done, then `check_in` (afternoon). The Mini App shows only this one action.
+
+**Not started / not tracked:** before the employee's start date `me/today` has `next_action = none`, no shifts and `starts_on` (the start date); for a supervisor switched off `tracked = false` (else `true`, `starts_on` null), `next_action = none`. (Check-in and check-out are refused as in §22.4.)
+
+**Days off:** `day_off` is `{reason: holiday | weekday, holidays: [{id, name_km, name_en}]}` (else null). On a day off `shifts` is empty and `next_action` is `none` with the **next tracked** opening (`next_opens_at`, looked up to 400 days ahead); on other days "tomorrow" is also the next tracked day.
+
+### 22.4 Check-in and check-out
+
+`POST /attendance/check-in` and `POST /attendance/check-out` with `{latitude, longitude, accuracy_m}` from the phone's GPS. **Time is always the server's** (`app/attendance/clock.py`); the server picks the shift from the employee's workplace schedule. Checks, in this order:
+
+1. not tracked → `403 ATTENDANCE_NOT_REQUIRED` (not staff / supervisor, deactivated, or a supervisor switched off); before the start date → `409 ATTENDANCE_NOT_STARTED` (`details.start_date`);
+2. the employee's workplace is missing or has no coordinates → `409 ATTENDANCE_WORKPLACE_NOT_SET`;
+3. a day off at that workplace (§22.14) → `409 ATTENDANCE_DAY_OFF` (`reason`, `holidays`, `next_opens_at`, `next_shift_code`), for check-in and check-out;
+4. the time window:
+   - check-in: before the first window → `409 ATTENDANCE_TOO_EARLY` (`details.opens_at`, `shift_code`); from a shift's cutoff until its end → `409 ATTENDANCE_CHECKIN_CLOSED` (`shift_code`, `closed_at`, `next_opens_at`); otherwise between windows (or after the last shift) → `409 ATTENDANCE_NO_SHIFT_NOW` (`next_opens_at`, `next_shift_code`);
+   - check-out: before the shift's end (from its check-in window on) → `409 ATTENDANCE_CHECKOUT_TOO_EARLY` (`opens_at`, `shift_code`); after the window → `409 ATTENDANCE_CHECKOUT_CLOSED` (`shift_code`, `closed_at`);
+5. duplicates and order: `409 ATTENDANCE_ALREADY_CHECKED_IN`; a check-out without a check-in (or absent) → `409 ATTENDANCE_NOT_CHECKED_IN`; `409 ATTENDANCE_ALREADY_CHECKED_OUT`;
+6. GPS accuracy above the `max_accuracy_m` of that day's schedule → `422 ATTENDANCE_LOCATION_INACCURATE` (`accuracy_m`, `max`);
+7. distance (haversine) to the workplace above its radius → `422 ATTENDANCE_TOO_FAR` (`distance_m`, `radius_m`).
+
+Instants in `details` are ISO strings with the business offset. **Every refused attempt is audited** (`attendance.attempt_refused`: action, code, shift, distance and accuracy rounded; committed before the error is returned) and creates no record.
+
+On success:
+
+- **check-in:** `present` when at or before the start (to the minute: 07:00:59 is on time), else `late` with `late_minutes` = whole minutes after the start; `early_minutes` before the start (§22.8); position, accuracy and distance stored; `source = mini_app`;
+- **check-out:** `checkout_status = checked_out`, time and position stored, `overtime_minutes` after the end (§22.8);
+- the response is `{action, record, today}` (today's state after it);
+- the bot sends a **confirmation** to the user's chat after the commit, in their language, with the check-screen button: "✅ Checked in — morning shift, 07:12 (late 12 min)", "✅ Checked in — morning shift, 06:40 (20 min early)" / "👋 Checked out — morning shift, 12:25 (+25 min overtime)", "👋 Checked out — morning shift, 12:00" (nothing when not linked or without a bot).
+
+**Absent and late shifts:**
+
+- An **absent** shift (no check-in by start + absent after) needs **no check-out**: it is never marked forgot check-out, a check-out for it is refused with `409 ATTENDANCE_NOT_CHECKED_IN`, and `next_action` moves straight on to the next shift (whose check-in works as usual).
+- A **late** shift still needs its **check-out**; if it's missed, the record stays `late` with `checkout_status = forgot_checkout`.
+
+### 22.5 Records
+
+`attendance_records`, one per (`user_id`, `work_date`, `shift_code`): the workplace it was made at, the **snapshot** of `scheduled_start` / `scheduled_end`, `status` (`present` | `late` | `absent`), `late_minutes`, `early_minutes`, `overtime_minutes`, `early_counts` / `overtime_counts` (the workplace's flags when the record was created), check-in time / lat / lng / accuracy / distance, `checkout_status` (`checked_out` | `forgot_checkout` | null while open), check-out time and position, `source` (`mini_app` | `auto` | `correction`), `corrected`, `correction_reason`, `corrected_by` (a `UserRef`), `corrected_at`. CHECKs: absent ⇔ no check-in; an absent record has no check-out; a check-out time only with `checked_out`.
+
+### 22.6 Scheduler (absent, forgot check-out, reminders)
+
+A background task in the API process, **once a minute**, guarded by a Postgres advisory lock (one worker per tick), idempotent, and catching up on today's passed times after a restart. It is **evaluated per workplace**: each active workplace's windows from its schedule version for the date, for the employees assigned to it (one without an active workplace counts at the default). Only employees active and **tracked on that date** count (§22.1: started, not switched off). **Days off** (§22.14) are skipped: no absents, no forgot check-out, no reminders, and waiting reminders of that workplace's employees are `skipped`. `rerun` replays the passed cutoffs (absent, forgot check-out; never reminders) of given (workplace, date) pairs, used when days become tracked again.
+
+- **Absent:** from a shift's cutoff (start + absent after), an `absent` record (`source = auto`, that workplace) for every tracked employee of the workplace without one **who existed before the cutoff** (someone created at 10:00 isn't absent for the morning).
+- **Forgot check-out:** when a workplace's check-out window closes, its open records become `forgot_checkout`.
+- **Reminders** (when the workplace's `reminders_enabled`): when a check-in window opens, every tracked employee of that workplace with a linked Telegram account and no record for the shift; when a check-out window opens, those checked in and not out. Each reminder **once** (`attendance_reminders`, unique per user / day / shift / kind), only while its window is open (no catch-up spam after downtime; a stored one whose window closed is `skipped`, and so is one no longer needed or whose workplace turned reminders off); sent after the commit; outcome stored (`sent`, `failed` with the error, `not_linked`, `bot_off`, `skipped`). Texts (the user's language): "🕡 ម៉ោងចុះវត្តមានវេនព្រឹកបានបើកហើយ រហូតដល់ 07:44។" / "🕡 Morning check-in is open until 07:44." and "🕛 You can check out of the morning shift until 12:59.", each with a **ចុះវត្តមាន / Check in** or **ចុះចេញ / Check out** `web_app` button opening the check screen.
+- `ATTENDANCE_SCHEDULER_ENABLED` (default `true`) turns it off (the tests run ticks directly).
+
+### 22.7 Corrections
+
+- `PATCH /attendance/records/{id}` fixes a record; `POST /attendance/records` adds a missing one (`user_id`, `work_date` up to today, `shift_code`; the shift's current times at the employee's workplace are snapshotted; `409 ATTENDANCE_RECORD_EXISTS` when the shift has one). Both need a **reason** (1–500) and take `status`, `check_in_time` / `check_out_time` ("HH:MM", local, on the work date) and `checkout_status`:
+  - `absent` clears the times and positions;
+  - otherwise `check_in_time` is required and **present / late follows from it**, with `late_minutes` recalculated from the record's snapshot start; `checked_out` needs `check_out_time` (not before the check-in; implied when only the time is given); `forgot_checkout` or null clear the check-out;
+  - `early_minutes` / `overtime_minutes` are recalculated from the corrected times, the snapshot times and the record's own flags, capped by the open-before / check-out window of the record's workplace's schedule on its date (§22.8). An added record snapshots the flags of that day's schedule (also on a day off: a corrected record is kept, §22.14).
+- **Month lock:** while the employee's request for the record's month is `pending` or `approved`, neither a fix nor an added record is allowed in that month → `409 ATTENDANCE_MONTH_LOCKED` (`details.year`, `month`). A rejection unlocks it (§22.15).
+- Marks `corrected` with who / when / why; audit `attendance.correct` (`before` / `after`, `reason`, `created`). A fix that changes nothing writes nothing.
+- **Scope:** the role hierarchy. The GM and the superadmin fix staff and supervisors, a supervisor (when given Attendance corrections) staff only (`FORBIDDEN_SCOPE`); a user who isn't tracked → `422 ATTENDANCE_NOT_REQUIRED`; an unknown record → `404 ATTENDANCE_RECORD_NOT_FOUND`.
+
+### 22.8 Early check-in and overtime
+
+- **Early** = scheduled start − check-in (in whole minutes, from the minute shown: 06:40:30 is 20 min early for 07:00), else 0; at most `open_before_min`.
+- **Overtime** = check-out − scheduled end (whole minutes: 12:25:40 is 25), else 0; at most `checkout_window_min`. Forgot check-out or no check-out → 0.
+- Each workplace switches them: **`count_early_checkin`** and **`count_overtime`** (default on), part of the schedule version (Scheduling, `attendance.scheduling`). A record **snapshots** both flags when it's created (`early_counts`, `overtime_counts`); with a flag off its minutes are stored as 0. A later change affects new records only.
+- Computed at check-in / check-out and on corrections (§22.7). Migration 0019 backfilled existing records from their snapshot times (capped by their workplace's windows; flags on).
+
+### 22.9 Summary (my attendance, an employee's attendance)
+
+`GET /attendance/me/summary?year=YYYY&month=MM` (tracked employees) and `GET /attendance/users/{id}/summary?year=&month=` (`attendance.view`, the corrections scope: GM / superadmin → staff and supervisors, a supervisor → staff; hidden accounts 404, outside the scope `FORBIDDEN_SCOPE`, untracked roles `422 ATTENDANCE_NOT_REQUIRED`). `month` omitted → the **whole year**; no parameters → the **current month** in `BUSINESS_TIMEZONE`. A future period, a month outside 1–12 or a year before 2000 → `VALIDATION_ERROR`.
+
+Every figure comes from the records (their snapshot times and stored minutes, corrected values when corrected); only recorded shifts count (today's once it has a record), and **records on days off** (kept corrected ones) **don't count**:
+
+| Figure | Definition |
+|---|---|
+| scheduled minutes (per record) | `scheduled_end − scheduled_start` |
+| **present** | `present` + `late` records (`total_shifts`, `by_shift`); minutes = Σ (scheduled − late + early + overtime) |
+| **absent** | `absent` records; minutes = their scheduled minutes |
+| **late** | `late` records (`count`), Σ `late_minutes` |
+| **early** / **overtime** | records with minutes > 0 (`count`), Σ minutes |
+| `missing_minutes` | absent minutes + late minutes |
+| `extra_minutes` | early + overtime minutes |
+| `balance_minutes` | extra − missing (signed) |
+| `forgot_checkout` | records with `checkout_status = forgot_checkout` |
+
+Response: `timezone`, `period` (`year`, `month` or null, `start`, `end` = the last day listed, at most today), `employee` (`user` `UserRef`, `role`, `position`, `is_active`, `workplace`, `since` = the attendance start date, for accounts from before it the creation date), `shifts` (code and names, from the employee's workplace), `kpis`, and `days`: **newest first**, one per date from the period start (or the `since` date, if later; **days before the start date are omitted**) to **today** (no future dates; a past period in full), each with `not_tracked` (true inside an untracked period: shown as "Not tracked", its kept records are listed but **excluded from the KPIs**), `day_off` (null, or why it isn't tracked: at the workplace of that day's records, else the employee's current one) and per shift `{code, status: present | late | absent | none, record}` (`none`: no record yet; the record carries the times, the late / early / overtime minutes, `checkout_status` and the correction).
+
+**Requests in the summary:** for a monthly period the summary also has `request` (the month's request or null: `id`, `status`, `type`, requested and approved splits, `approved_with_changes`, `review_comment`, `reject_reason`, `submitted_at`, `reviewed_by` (`UserRef`), `reviewed_at`), `request_eligibility` (`eligible` \| `not_needed` \| `window_not_open` \| `window_closed`) and `month_locked` (a pending or approved request). A whole year has `request = null`, `request_eligibility = null`, `month_locked = false`.
+
+### 22.10 Endpoints
+
+| Method | Path | Guard | Notes |
+|---|---|---|---|
+| GET | `/attendance/me/today` | tracked employee | §22.3 |
+| GET | `/attendance/me/summary?year=&month=` | tracked employee | §22.9 |
+| GET | `/attendance/users/{id}/summary?year=&month=` | `attendance.view` + scope | §22.9 |
+| GET, POST | `/attendance/requests/me`, `/attendance/requests` | tracked employee | Requests: §22.15 |
+| GET | `/attendance/requests`, `/attendance/requests/{id}`, `/attendance/settings/requests` | `attendance.requests_review` (the employee reads their own) | §22.15 |
+| POST | `/attendance/requests/{id}/approve`, `/attendance/requests/{id}/reject` | `attendance.requests_review` + scope | §22.15 |
+| PUT | `/attendance/settings/requests` | superadmin | §22.15 |
+| POST | `/attendance/check-in`, `/attendance/check-out` | tracked employee | §22.4 |
+| GET | `/attendance/day?date=&workplace_id=` | `attendance.view` | Default today, all workplaces. `day_off` (the filtered workplace's, else the default's) and per workplace / row `day_off`; on a day off a row's cells are `day_off` (a kept corrected record is `recorded`) and count nothing. `shifts`: per shift `kpis` (`expected`, `present`, `late`, `absent`, `not_yet` (no record, check-in still possible), `no_record` (past the cutoff without one), `checked_out`, `forgot_checkout`) and `phase`, over every row shown (times of the filtered workplace, else the default's). `workplaces`: the same per workplace with its own shift times. `workplace_options`: active workplaces (the filter). `starts_later` and `not_tracked`: employees in scope who are **not expected** that day — attendance starts after it (rows carry `starts_on`) / a supervisor not tracked — in no KPI and not in `rows`; their cells hold only records already made. One row per employee in the viewer's scope (GM: staff and supervisors; supervisor: staff; those active that day and tracked, plus anyone with a record): `user`, `role`, `position`, `is_active`, `workplace` (that day's records' workplace, else the current one), and per shift `{state: recorded \| not_yet \| no_record, record}`, evaluated with that workplace's schedule. Supervisors first, then by name. Unknown `workplace_id` → 404. |
+| PATCH, POST | `/attendance/records/{id}`, `/attendance/records` | `attendance.correct` | §22.7 |
+| GET | `/attendance/workplace-options` | `users.view` or any workplace permission | Active workplaces `{id, name, is_default}`, default first: the user form's select and the users list filter. |
+| GET | `/attendance/workplaces?include_archived=` | `attendance.workplace_view` or `workplace_manage` | Each: name, address, lat / lng (6 decimals), radius, `has_coordinates`, `is_default`, `is_active`, `archived_at`, `schedule` (the current version, read-only: weekdays, the rules, both shifts with their windows (`check_in_opens`, `check_in_until`, `late_after`, `absent_from`, `check_out_opens`, `check_out_until`, `forgot_from`)), `employee_count` (active staff and supervisors), `has_history`, `created_by` / `updated_by`. |
+| GET | `/attendance/workplaces/{id}` | same | The same plus `employees` (active staff and supervisors assigned: `user`, `role`, `position`). |
+| POST | `/attendance/workplaces` | `attendance.workplace_manage` | Name, address, lat / lng, radius (default 100); the schedule is a copy of the default workplace's current version, from today. Audit `workplace.create`. |
+| PATCH | `/attendance/workplaces/{id}` | `attendance.workplace_manage` | Name, address, `latitude` + `longitude` together (null clears both), `radius_m` 10–5000, `is_default: true`. Audit `workplace.update` (`changes`, incl. `previous_default`). |
+| DELETE | `/attendance/workplaces/{id}` | `attendance.workplace_manage` | `{result: archived \| deleted}` (§22.2). Audit `workplace.archive` / `workplace.delete`. |
+| POST | `/attendance/workplaces/{id}/restore` | `attendance.workplace_manage` | Audit `workplace.restore`. |
+| GET, PUT, POST, PATCH, DELETE | `/attendance/scheduling…`, `/attendance/calendar`, `/attendance/holidays…` | view: `attendance.view` or `attendance.scheduling`; writes: `attendance.scheduling` | Scheduling: §22.14. (`PUT /attendance/workplaces/{id}/schedule` was removed.) |
+
+User references are `UserRef`s (redacted, §13); the routes are in the redaction and superset sweeps.
+
+### 22.11 Access
+
+| Feature | Menu | Applies to | Levels | Defaults |
+|---|---|---|---|---|
+| `attendance` (Attendance) | attendance | GM, supervisor | Off · View only (`attendance.view`) | GM View, supervisor Off |
+| `attendance_corrections` | attendance | GM, supervisor | Off · Full access (`attendance.correct`) | GM Full, supervisor Off |
+| `attendance_workplace` (Workplaces) | attendance | **GM** (set by the superadmin) | Off · View only (`attendance.workplace_view`) · Full access (`+ attendance.workplace_manage`: create, edit, delete, default) | GM View |
+| `attendance_scheduling` (Attendance scheduling) | attendance | GM, supervisor (**grantor must hold it**) | Off · Full access (`attendance.scheduling`: tracked weekdays, holidays, shift times and rules, §22.14) | GM Off, supervisor Off |
+| `attendance_requests` (Attendance requests) | attendance | GM, supervisor | Off · Full access (`attendance.requests_review`: approve, approve with changes or reject, §22.15) | GM Full, supervisor Off |
+
+The superadmin holds them implicitly; the new permissions were backfilled per these defaults (§5.1). **Attendance scheduling**: the superadmin turns it on or off for GMs (Access tab); a GM holding it can give it to supervisors; GMs without it never see it (`FEATURE_NOT_FOUND`); no cascade on revoke. Viewing Scheduling (calendar, holidays, weekdays and schedule, read-only) needs `attendance.view` or `attendance.scheduling`. Staff get no attendance permission: they check in as tracked employees, and these features don't apply to them (so a supervisor's Staff access can't give them).
+
+### 22.12 Bot
+
+- **No attendance commands** (`/checkin` / `/checkout` aren't registered or handled). The entry points are buttons:
+  - **`/start`**: for a linked Telegram account of a **tracked employee** (tracked today, or whose attendance starts later; not a supervisor switched off) the greeting has two `web_app` buttons side by side, **🍗 បើកកម្មវិធី / Open app** and **🕒 វត្តមាន / Attendance** (→ `MINI_APP_URL/attendance/check`, the check screen, which decides the action). Everyone else (general managers, deactivated accounts, unlinked chats) keeps only Open app.
+  - **Menu button:** registration sets the bot's default menu button to a `web_app` button **បើកកម្មវិធី** → `MINI_APP_URL` (the default button when it isn't HTTPS); `/start` and `/lang` set it for that chat in the user's language (**Open app** in English). `MINI_APP_URL` is part of the registration fingerprint, so it's set once and refreshed when the URL changes; polling mode sets it at startup.
+  - **Reminders** and **confirmations** carry the check-screen button; the Home card opens it too.
+- If `MINI_APP_URL` isn't HTTPS, the buttons are omitted and the bot says the app isn't configured.
+
+### 22.13 Limits
+
+- The position comes from the phone; **fake-GPS apps** can't be detected from a web app. The accuracy limit, the radius, the server's clock and the audit of refused attempts (distance, accuracy) make cheating visible, not impossible.
+- Days off are whole days per workplace (no per-shift holidays, rotas or per-person shifts); two shifts per workplace. Snapshots, versions and stable shift codes leave room for more.
+
+### 22.14 Scheduling (tracked weekdays, holidays, shift schedule)
+
+**Attendance → Scheduling** is the one place to manage, for **one workplace, several or all**: the tracked weekdays, holidays (days with no attendance) and the shift schedule and rules.
+
+**Schedule versions** (`attendance_schedule_versions`, unique per `workplace_id` + `effective_from`): `weekdays` (ISO, Monday = 1 … Sunday = 7, at least one), `shifts` (JSONB: `code`, `name_km`, `name_en`, `start_time`, `end_time` "HH:MM", `position`; codes stay `morning` / `afternoon` across versions), `open_before_min`, `absent_after_min`, `checkout_window_min`, `max_accuracy_m`, `count_early_checkin`, `count_overtime`, `reminders_enabled`, `created_by` / `created_at`. The schedule of a workplace on a date is the latest version with `effective_from` ≤ that date (before the first: the first). Migration 0020 turned each workplace's shifts and rule columns into one version from its creation date (business time zone) with all seven weekdays, then dropped `attendance_shifts` and the columns.
+
+**Changes apply from a date** (`effective_from`, default today; a past date → `VALIDATION_ERROR`):
+
+- A write creates the version on that date for every target workplace (a copy of the one in effect then, with the changed fields), or **replaces** the version already on that date. The same fields are also written into that workplace's **later upcoming versions**, so the change holds from that date on (`changes.later_versions` in the audit). A workplace where nothing changes is skipped; nothing changed anywhere → no audit entry.
+- **Upcoming versions** (`effective_from` > today) can be deleted; current or past ones → `409 ATTENDANCE_SCHEDULE_VERSION_IN_EFFECT`.
+- A change effective **today** that alters today's shift times leaves records already made with their snapshots; the new times apply to windows that haven't opened yet.
+- `workplace_ids` is a list of active workplaces or `"all"` (every active workplace at that moment; unknown → 404, archived → `409 WORKPLACE_ARCHIVED`). One transaction for all targets, holding the scheduler's advisory lock (no tick in between).
+
+**Holidays** (`attendance_holidays`: `name_km`, `name_en`, `start_date`, `end_date` (≥ start, at most 31 days), `scope` `all` | `selected`, `note` (≤ 500), created / updated by / at; `attendance_holiday_workplaces` for `selected`). `all` also covers workplaces created later. Whole days only.
+
+**A day is not tracked** at a workplace when its weekday isn't in that day's version's `weekdays`, or a holiday covers it (`all`, or `selected` including that workplace). On such days: no reminders, no automatic absent, no forgot check-out; check-in / check-out → `409 ATTENDANCE_DAY_OFF`; `me/today` shows `day_off` and the next tracked opening; the day view and summaries don't count them (expected / present / absent).
+
+**Retroactive effects.** Every holiday write and every weekday change effective today compares the (workplace, date ≤ today) pairs that are days off before and after it:
+
+- **newly off** (adding a holiday for today or earlier, widening one, untracking today's weekday): the records on those dates made at those workplaces (`attendance_records.workplace_id`) are **deleted** (auto absents and real check-ins alike) **except corrected ones** (`corrected = true`, kept; they show but don't count). One `attendance.records_removed_by_day_off` entry holds the removed records' snapshots. Records of an **employee-month locked by a request** (§22.15) are **never removed** and absents are **not recreated** for them; the response counts them in `skipped_locked` (`SchedulingWriteOut`, `HolidayWriteOut`, `HolidayCopyOut`).
+- **back on** (removing or shortening a holiday, tracking today again): the scheduler replays those dates' passed cutoffs and recreates absents where there is no record (no reminders for past windows).
+- Future dates need no cleanup. Write responses say how many records were removed (`records_removed`) and absents recreated (`absents_recreated`).
+
+**Copy from last year:** `POST /attendance/holidays/copy {from_year, to_year}` copies every holiday starting in `from_year` to the same month / day in `to_year` (Feb 29 → Feb 28; a range crossing New Year keeps its length), same names, scope, workplaces and note; one that would duplicate a holiday with the same name (km or en) and dates is skipped. Returns `{created, skipped, records_removed}`. Khmer holidays move each year, so dates are then adjusted.
+
+| Method | Path | Guard | Notes |
+|---|---|---|---|
+| GET | `/attendance/scheduling?workplace_ids=` | `attendance.view` or `attendance.scheduling` | Repeat `workplace_ids` (omit = all active). `today`, `timezone`, per workplace `current` and `upcoming` versions (with windows), `differs: {weekdays, shifts}` (the chosen workplaces' current versions differ), `workplace_options` (every active workplace). |
+| PUT | `/attendance/scheduling/weekdays` | `attendance.scheduling` | `{workplace_ids \| "all", weekdays, effective_from?}` → `{scheduling, records_removed, absents_recreated}`. Audit `attendance.weekdays_update`. |
+| PUT | `/attendance/scheduling/shifts` | `attendance.scheduling` | `{workplace_ids \| "all", shifts (both), open_before_min, absent_after_min, checkout_window_min, max_accuracy_m, count_early_checkin, count_overtime, reminders_enabled, effective_from?}`, validated as one day (§22.2) → same response. Audit `attendance.schedule_update`. |
+| DELETE | `/attendance/scheduling/versions/{id}` | `attendance.scheduling` | Upcoming only (204). Audit `attendance.schedule_version_delete`. |
+| GET | `/attendance/calendar?year=&month=&workplace_ids=` | `attendance.view` or `attendance.scheduling` | Per day: `status` `tracked` \| `off` \| `mixed`, `day_off` (when off everywhere: the first workplace's reason), `holidays` covering any chosen workplace, and per workplace `day_off` when several are chosen. |
+| GET | `/attendance/holidays?year=&workplace_id=`, `/attendance/holidays/{id}` | `attendance.view` or `attendance.scheduling` | Holidays overlapping the year (default this year), by start date; `workplace_id`: those covering it. Each: names, dates, `days`, `scope`, `workplaces` (selected), `note`, created / updated by / at. |
+| POST, PATCH | `/attendance/holidays`, `/attendance/holidays/{id}` | `attendance.scheduling` | `{name_km, name_en, start_date, end_date, scope, workplace_ids? (selected), note}` (PATCH: the whole holiday) → `{holiday, records_removed, absents_recreated}`. Audit `attendance.holiday_create` / `holiday_update`. |
+| DELETE | `/attendance/holidays/{id}` | `attendance.scheduling` | → `{holiday: null, records_removed, absents_recreated}`. Audit `attendance.holiday_delete`. |
+| POST | `/attendance/holidays/copy` | `attendance.scheduling` | Above. Audit `attendance.holiday_copy`. |
+
+All write responses (`records_removed`, `absents_recreated`) also carry `skipped_locked`: records and absents left alone because the employee's month is locked by a pending or approved request (§22.15).
+
+User references (`created_by`, `updated_by`) are redacted `UserRef`s (§13); the routes are in the redaction and superset sweeps. Access: §22.11.
+
+### 22.15 Requests (monthly missing time)
+
+After a month ends, a tracked employee whose **missing time is at least 1 hour** sends **one request** for it, saying how it will be covered: a **salary cut**, **unpaid extra work** or **both**. A reviewer approves, approves with changes or rejects. Fulfilment (payroll, doing the extra work) happens **outside the app for now**: the app records what was agreed and everyone involved sees it.
+
+- **Missing time** = the month's `balance_minutes` (extra − missing, §22.9) when negative, as a positive number (`app/attendance/requests.py`). Eligible at **60 minutes or more**; under that → `not_needed`, no request (`409 ATTENDANCE_REQUEST_NOT_NEEDED` if one is sent).
+- **Window:** from the **1st of the following month** (`BUSINESS_TIMEZONE`) to the **deadline day** of that month, inclusive. The deadline is the setting `request_deadline_day` (1–28, **default 7**, stored in `app_settings`, edited by the superadmin with `PUT /attendance/settings/requests`). Outside it, and for the current or a future month → `409 ATTENDANCE_REQUEST_WINDOW_CLOSED` (`details.opens`, `closes`). A month's eligibility: `window_not_open` (it hasn't ended), `not_needed`, `eligible` or `window_closed`; an eligible month that is closed with no request reads **No request** (no automatic action).
+- **One request per employee and month** (unique `user_id`, `year`, `month`). After a **rejection** no new request for that month (`409 ATTENDANCE_REQUEST_EXISTS`, which is checked before the window). The employee can't edit or withdraw it.
+- **Content:** `salary_cut_minutes` ≥ 0 and `unpaid_work_minutes` ≥ 0 whose **sum equals the missing time** (`422 ATTENDANCE_REQUEST_SPLIT_MISMATCH`, `details.expected` / `given`), optional `note` (≤ 500). `type` is derived from the requested split: `salary_cut`, `unpaid_work` or `both`.
+- **Snapshot:** `missing_minutes`, `extra_minutes`, `absent_minutes`, `late_minutes` and `balance_minutes` of the month are stored at submission: the request keeps showing them even if the month's records change later (after a rejection unlocks it).
+- **Month lock:** while a request is `pending` or `approved`, the employee's records in that month can't be corrected or added (`409 ATTENDANCE_MONTH_LOCKED`, §22.7), and holiday / weekday changes skip them (`skipped_locked`, §22.14); the scheduler doesn't recreate absents for them either. A **rejection unlocks** the month. Summaries report `month_locked` (§22.9).
+- **Review** (`pending` only, otherwise `409 ATTENDANCE_REQUEST_NOT_PENDING`; the row is locked, so two reviewers can't both decide):
+  - **Approve** with no split: as submitted. `approved_*_minutes` are filled.
+  - **Approve with changes:** `salary_cut_minutes` and / or `unpaid_work_minutes` (the other one defaults to the rest of the missing time), sum = the snapshot's missing time (else `ATTENDANCE_REQUEST_SPLIT_MISMATCH`) and an optional `comment`. The requested and the approved split are **both stored**; `approved_with_changes` is true when the approved split differs from the requested one.
+  - **Reject:** `reason` is required (1–500).
+  - A reviewer can't review their own request (`403 FORBIDDEN_SCOPE`).
+- **Scope:** the role hierarchy. GMs and the superadmin review staff and supervisors; a supervisor with `attendance.requests_review` reviews staff only (`FORBIDDEN_SCOPE` otherwise). The list and the pending count only include employees in scope.
+- **Notifications** (§16; Telegram when linked, plus the bell): *submitted* → the reviewers in scope (holders of `attendance.requests_review` whose scope includes the employee, plus the superadmin); *approved* / *rejected* → the employee; a **reminder** on the 1st of the month to every tracked employee whose previous month has an eligible balance and no request, **once** (the scheduler's first tick of the 1st; the month is recorded in `app_settings` `attendance.request_reminder_month`, and an employee already reminded isn't reminded again).
+- **Access:** the employee needs no permission for their own requests (`GET /attendance/requests/me`, `POST /attendance/requests`, `GET /attendance/requests/{id}`). Reviewing needs `attendance.requests_review` (Attendance requests feature, §22.11): **GM Full, supervisor Off**. The superadmin holds it implicitly.
+
+| Method | Path | Guard | Notes |
+|---|---|---|---|
+| GET | `/attendance/requests/me?year=` | tracked employee | Per month of the year (newest first, up to the current month, from the month attendance started): `balance_minutes`, `missing_minutes`, `extra_minutes`, `absent_minutes`, `late_minutes`, `eligibility`, `opens`, `closes`, `request`. Also `request_deadline_day`. |
+| POST | `/attendance/requests` | tracked employee | `{year, month, salary_cut_minutes, unpaid_work_minutes, note?}` → `201` request. Checks, in order: exists → window → needed → split. Audit `attendance.request_submit`. |
+| GET | `/attendance/requests?status=&year=&month=&user_id=&page=` | `attendance.requests_review` | In scope, **pending first (oldest first)**, then the rest newest first; 20 per page; `pending_count`. `status=no_request`: eligible months whose window is over with no request, for the chosen year / month (default: the last 3 closed months), one row per employee and month (`id` null). |
+| GET | `/attendance/requests/{id}` | the employee, or `attendance.requests_review` + scope | The request with the snapshot, both splits, the review and `month_locked`. Unknown → `404 ATTENDANCE_REQUEST_NOT_FOUND`. |
+| POST | `/attendance/requests/{id}/approve` | `attendance.requests_review` | `{salary_cut_minutes?, unpaid_work_minutes?, comment?}`. Audit `attendance.request_approve`. |
+| POST | `/attendance/requests/{id}/reject` | `attendance.requests_review` | `{reason}`. Audit `attendance.request_reject`. |
+| GET | `/attendance/settings/requests` | `attendance.requests_review` | `{request_deadline_day}` |
+| PUT | `/attendance/settings/requests` | superadmin | `{request_deadline_day}` (1–28). Audit `attendance.settings_update`. |
+
+Every user reference (`user`, `reviewed_by`) is a `UserRef` (§13); the routes are in the redaction and superset sweeps. Data: `attendance_requests` (migration `0022`).

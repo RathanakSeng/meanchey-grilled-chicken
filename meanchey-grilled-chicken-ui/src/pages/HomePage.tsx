@@ -3,6 +3,8 @@ import { useAuth, useRefreshMeWhenStale } from '@/auth/AuthProvider'
 import { RoleBadge } from '@/components/badges'
 import { NavTile } from '@/components/NavTile'
 import { useNavItems } from '@/layouts/nav'
+import { useIsTracked } from '@/pages/attendance/api'
+import { AttendanceHomeCard } from '@/pages/attendance/AttendanceCard'
 
 export function HomePage() {
   const { t } = useTranslation()
@@ -10,6 +12,7 @@ export function HomePage() {
   useRefreshMeWhenStale()
   // The top-level sections (Workstation, Settings) as large tiles; Home itself is skipped.
   const sections = useNavItems().filter((item) => !item.end)
+  const tracked = useIsTracked()
   if (!me) return null
 
   return (
@@ -23,6 +26,9 @@ export function HomePage() {
           <RoleBadge role={me.user.role} position={me.user.position} />
         </div>
       </section>
+
+      {/* Tracked employees: the attendance action first (check in / out now). */}
+      {tracked && <AttendanceHomeCard />}
 
       <div className="grid gap-4 md:grid-cols-2">
         {sections.map((item) => (

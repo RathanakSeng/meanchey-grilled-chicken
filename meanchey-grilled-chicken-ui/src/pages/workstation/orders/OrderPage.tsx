@@ -11,13 +11,12 @@ import { api } from '@/lib/api'
 import { getError, useErrorMessage } from '@/lib/errors'
 import { useFormatDate, useFormatDay, useLocalized } from '@/lib/format'
 import { paths } from '@/lib/paths'
-import { fetchPdf, printPdf, tabForPdf } from '@/lib/pdf'
-import { isTelegramMiniApp } from '@/lib/telegram'
 import { ORDER_REASON_MAX_LENGTH, type DocumentSent, type Order, type UserRef } from '@/lib/types'
 import { amountOf, invalidateOrders, orderKeys, useAmountFormat, useQuantityFormat } from './api'
 import { BoxColorLabel, DirectOrderBadge, OrderCustomerName, OrderStatusBadge, customerText, telHref } from './badges'
 import { DeliveredSheet, ReviewSheet, type DeliveredBody, type ReviewBody } from './OrderSheets'
 import { OrderSummaryView, fromApi } from './OrderSummaryView'
+import { useExportDeliveryNote } from './useExportDeliveryNote'
 
 function useByName() {
   const { t } = useTranslation()
@@ -195,6 +194,7 @@ export function OrderPage() {
   const canEdit = usePermission('orders.update')
   const canCancel = usePermission('orders.cancel')
   const canReview = usePermission('orders.review_returns')
+  const canExport = usePermission('orders.export_delivery_note')
 
   const query = useQuery({
     queryKey: orderKeys.order(orderId),
@@ -233,15 +233,11 @@ export function OrderPage() {
     setNotice(null)
     action.mutate({ path, body })
   }
-  // Delivery note: printed (PC / phone browser) or sent to the requester's Telegram chat (Mini App).
-  // Each one is counted by the API (the next one says COPY), so the order is refetched.
+  // Delivery note: exported as Excel (built in the browser, not counted) or sent as a PDF to the
+  // requester's Telegram chat. The PDF is counted by the API (the next one says COPY), so the
+  // order is refetched.
   const refreshCount = () => void queryClient.invalidateQueries({ queryKey: orderKeys.order(orderId) })
-  const print = useMutation({
-    mutationFn: (tab: Window | null) => printPdf(() => fetchPdf(`/orders/${orderId}/document.pdf`), tab),
-    onMutate: () => setDocResult(null),
-    onSuccess: refreshCount,
-    onError: (err) => setDocResult({ tone: 'error', text: errorMessage(err) }),
-  })
+  const exportExcel = useExportDeliveryNote(order, setDocResult)
   const sendToTelegram = useMutation({
     mutationFn: async () => (await api.post<DocumentSent>(`/orders/${orderId}/document/send-telegram`)).data,
     onMutate: () => setDocResult(null),
@@ -276,17 +272,12 @@ export function OrderPage() {
 
   const created = order.status === 'created'
   const menu: ActionMenuItem[] = [
-    // Outside the Mini App, sending to Telegram is the secondary way to get the note.
-    ...(!isTelegramMiniApp
-      ? [
-          {
-            key: 'send-telegram',
-            label: t('orders.document.sendTelegram'),
-            icon: 'telegram' as const,
-            onSelect: () => sendToTelegram.mutate(),
-          },
-        ]
-      : []),
+    {
+      key: 'send-telegram',
+      label: t('orders.document.sendTelegram'),
+      icon: 'telegram' as const,
+      onSelect: () => sendToTelegram.mutate(),
+    },
     ...(created && canEdit
       ? [{ key: 'edit', label: t('common.edit'), icon: 'pencil' as const, onSelect: () => navigate(paths.editOrder(order.id)) }]
       : []),
@@ -339,26 +330,15 @@ export function OrderPage() {
         actions={
           <>
             {primary && <span className="hidden sm:inline-flex">{primary}</span>}
-            {/* Printing isn't reliable inside Telegram: there the note is sent to the chat. */}
-            {isTelegramMiniApp ? (
+            {canExport && (
               <Button
                 variant="secondary"
-                loading={sendToTelegram.isPending}
-                onClick={() => sendToTelegram.mutate()}
-                title={t('orders.document.sendTelegram')}
+                loading={exportExcel.isPending}
+                onClick={() => exportExcel.mutate()}
+                title={t('orders.document.exportHint')}
               >
-                {!sendToTelegram.isPending && <Icon name="telegram" width={18} height={18} />}
-                <span className="hidden min-[400px]:inline">{t('orders.document.sendTelegramShort')}</span>
-              </Button>
-            ) : (
-              <Button
-                variant="secondary"
-                loading={print.isPending}
-                onClick={() => print.mutate(tabForPdf())}
-                title={t('orders.document.printHint')}
-              >
-                {!print.isPending && <Icon name="printer" width={18} height={18} />}
-                <span className="hidden min-[400px]:inline">{t('orders.document.print')}</span>
+                {!exportExcel.isPending && <Icon name="download" width={18} height={18} />}
+                <span className="hidden min-[400px]:inline">{t('orders.document.exportExcel')}</span>
               </Button>
             )}
             <ActionMenu items={menu} label={t('orders.actions')} />

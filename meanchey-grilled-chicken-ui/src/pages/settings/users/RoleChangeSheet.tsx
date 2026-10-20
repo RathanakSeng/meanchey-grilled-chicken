@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { Sheet } from '@/components/Sheet'
 import { Alert, Button, Field, Input, cx } from '@/components/ui'
 import { api } from '@/lib/api'
+import { TRACKED_ROLES } from '@/lib/roles'
+import { businessToday } from '@/pages/attendance/api'
 import { ClientError, getError, useErrorMessage } from '@/lib/errors'
 import { normalizePosition, POSITIONS_QUERY_KEY, usePositions } from '@/lib/usePositions'
 import { POSITION_MAX_LENGTH, type Role, type User } from '@/lib/types'
@@ -30,6 +32,7 @@ export function RoleChangeSheet({ user, roles, open, onClose, onChanged }: Props
   const positions = usePositions()
   const [role, setRole] = useState<Role | null>(null)
   const [position, setPosition] = useState('')
+  const [startDate, setStartDate] = useState(businessToday())
   const [error, setError] = useState<unknown>(null)
   const capacity = useRoleCapacity()
   // An inactive user takes no slot, so only an active one is limited by the new role's capacity.
@@ -39,11 +42,12 @@ export function RoleChangeSheet({ user, roles, open, onClose, onChanged }: Props
     if (!open) return
     setRole(roles.find((r) => !isFull(r)) ?? null)
     setPosition('')
+    setStartDate(businessToday())
     setError(null)
   }, [open, roles, capacity.data])
 
   const change = useMutation({
-    mutationFn: async (body: { role: Role; position?: string }) =>
+    mutationFn: async (body: { role: Role; position?: string; attendance_start_date?: string }) =>
       (await api.post<User>(`/users/${user.id}/role`, body)).data,
     onSuccess: (updated) => {
       queryClient.setQueryData(['user', user.id], updated)
@@ -58,6 +62,10 @@ export function RoleChangeSheet({ user, roles, open, onClose, onChanged }: Props
   })
 
   const needsPosition = role === 'staff'
+  // Moving into staff / supervisor from another kind of role starts their attendance (a staff
+  // member <-> supervisor change keeps the date).
+  const needsStart =
+    role !== null && TRACKED_ROLES.includes(role) && !TRACKED_ROLES.includes(user.role)
   const onSubmit = (e: FormEvent) => {
     e.preventDefault()
     if (!role) return
@@ -66,7 +74,11 @@ export function RoleChangeSheet({ user, roles, open, onClose, onChanged }: Props
       setError(new ClientError('POSITION_REQUIRED'))
       return
     }
-    change.mutate(needsPosition ? { role, position: value } : { role })
+    change.mutate({
+      role,
+      ...(needsPosition ? { position: value ?? undefined } : {}),
+      ...(needsStart ? { attendance_start_date: startDate } : {}),
+    })
   }
 
   const positionError = error && getError(error).code.startsWith('POSITION') ? error : null
@@ -168,6 +180,21 @@ export function RoleChangeSheet({ user, roles, open, onClose, onChanged }: Props
                   {positions.data?.map((p) => <option key={p} value={p} />)}
                 </datalist>
               </>
+            )}
+          </Field>
+        )}
+
+        {needsStart && (
+          <Field label={t('userForm.attendanceStart')} hint={t('userForm.attendanceStartHint')}>
+            {(fid) => (
+              <Input
+                id={fid}
+                type="date"
+                value={startDate}
+                min={businessToday()}
+                onChange={(e) => setStartDate(e.target.value)}
+                required
+              />
             )}
           </Field>
         )}

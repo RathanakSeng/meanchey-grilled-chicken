@@ -57,6 +57,17 @@ class BusinessIn(BaseModel):
     footer_note_en: Footer = None
 
 
+class BusinessSupplierOut(BaseModel):
+    """What the delivery note Excel export prints as the supplier (no logo, footer or audit)."""
+
+    name_km: str
+    name_en: str
+    address_km: str | None
+    address_en: str | None
+    phone: str | None
+    phone_display: str | None
+
+
 class BusinessOut(BaseModel):
     name_km: str
     name_en: str
