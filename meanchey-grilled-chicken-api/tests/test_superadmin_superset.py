@@ -98,6 +98,7 @@ async def world(client, session, superadmin, make_user) -> dict:
             DEFAULT_PERMISSIONS[Role.GENERAL_MANAGER]
             | {
                 "settings.business_info",
+                "attendance.workplace_update",
                 "attendance.workplace_manage",
                 "attendance.scheduling",
             }

@@ -48,6 +48,7 @@ async def test_gm_gets_all_phase1_partner_and_production_permissions(client, sup
         # Inventory Record, Inventory materials Full; not inventory.history (Off).
         | {"inventory.view", "inventory.materials_stock", "inventory.materials_manage"}
         | ORDERS  # Orders Record, management Full, returns Full
+        | {"orders.export_delivery_note"}
         # Preparation Record, preparation management Full.
         | {"preparation.view", "preparation.create", "preparation.update", "preparation.cancel"}
         # Attendance view + corrections + request review, the workplace view only (not its

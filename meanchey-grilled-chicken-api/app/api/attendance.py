@@ -64,6 +64,7 @@ router = APIRouter(prefix="/attendance", tags=["attendance"])
 CanView = Annotated[User, Depends(require_permission("attendance.view"))]
 CanCorrect = Annotated[User, Depends(require_permission("attendance.correct"))]
 CanManageWorkplace = Annotated[User, Depends(require_permission("attendance.workplace_manage"))]
+CanUpdateWorkplace = Annotated[User, Depends(require_permission("attendance.workplace_update"))]
 CanSchedule = Annotated[User, Depends(require_permission("attendance.scheduling"))]
 Superadmin = Annotated[User, Depends(require_role(Role.SUPERADMIN))]
 CanReview = Annotated[User, Depends(require_permission("attendance.requests_review"))]
@@ -71,11 +72,15 @@ CanViewScheduling = Annotated[
     User, Depends(require_any_permission("attendance.view", "attendance.scheduling"))
 ]
 
-WORKPLACE_PERMISSIONS = ("attendance.workplace_view", "attendance.workplace_manage")
+WORKPLACE_PERMISSIONS = (
+    "attendance.workplace_view",
+    "attendance.workplace_update",
+    "attendance.workplace_manage",
+)
 
 
 async def _can_see_workplaces(user: CurrentUser, session: SessionDep) -> User:
-    """Either workplace permission."""
+    """Any workplace permission."""
     if not (await effective_permissions(session, user)) & set(WORKPLACE_PERMISSIONS):
         raise AppError(
             403,
@@ -255,10 +260,20 @@ async def get_workplace(
 
 @router.patch("/workplaces/{workplace_id}", response_model=WorkplaceOut)
 async def update_workplace(
-    workplace_id: uuid.UUID, body: WorkplaceUpdate, actor: CanManageWorkplace, session: SessionDep
+    workplace_id: uuid.UUID, body: WorkplaceUpdate, actor: CanUpdateWorkplace, session: SessionDep
 ) -> WorkplaceOut:
     """Name, address, position (latitude + longitude together), radius (10–5000 m) and
-    `is_default: true` (the previous default stops being it)."""
+    `is_default: true` (the previous default stops being it). Changing the default also needs
+    attendance.workplace_manage (403 MISSING_PERMISSION, nothing saved)."""
+    if body.is_default is not None and "attendance.workplace_manage" not in (
+        await effective_permissions(session, actor)
+    ):
+        raise AppError(
+            403,
+            ErrorCode.MISSING_PERMISSION,
+            "Missing permission",
+            {"required": ["attendance.workplace_manage"]},
+        )
     workplace = await svc.update_workplace(session, actor, workplace_id, body)
     return await svc.workplace_out(session, workplace)
 

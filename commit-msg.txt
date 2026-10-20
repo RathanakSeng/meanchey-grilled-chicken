@@ -1,1 +1,11 @@
-<DEPLOYEMENT><APP>: Set up deployment code
+<ADD, UPDATE><BOTH><WORKPLACE-ACCESS>: Workplaces Record level (edit existing workplaces: name, address, map pin, radius; no create / delete / restore / default)
+
+- API: new permission attendance.workplace_update (GM only, km + en); attendance.workplace_manage now means create, delete / archive, restore and change the default; feature attendance_workplace levels Off · View only · Record (view + update) · Full access (view + update + manage); GM default stays View only
+- API: guards: GET workplaces any workplace permission; PATCH /attendance/workplaces/{id} needs workplace_update, is_default also needs workplace_manage (403 MISSING_PERMISSION, nothing saved); POST, DELETE, restore need workplace_manage
+- API: migration 0024: inserts attendance.workplace_update and grants it to every holder of workplace_manage (same granted_by) so Full stays Full; permission.grant audit per grant, no actor, source default_change; downgrade removes the grants and the row
+- API: tests test_workplace_access (each level against every workplace endpoint incl. is_default needing Full, level detection record / custom, GM can't set it, superadmin everything, migration 0024 keeps Full at Full); attendance access, grants catalog and superset world updated; stale orders.export_delivery_note expectations in test_grants / test_defaults fixed
+- UI: Workplace page: Location editable with workplace_update; Make default, Delete / Archive, Restore and New workplace only with workplace_manage; WORKPLACE_ACCESS accepts workplace_update
+- UI: Access tab legend "Workplaces: Record = edit existing workplaces (location, radius), but not create or delete." (the row shows Off · View only · Record · Full access); audit log labels permission grants from a level split (source default_change); km + en strings
+- Docs: API FEATURES (§5.2 permissions + migration 0024 note, route guards, features table, §22.10 workplace endpoints, §22.11 levels) and ARCHITECTURE (migration 0024, test_workplace_access); UI FEATURES (Access tab levels and legend, Workplace page by permission, audit label, access matrix) and ARCHITECTURE (routes, WORKPLACE_ACCESS)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

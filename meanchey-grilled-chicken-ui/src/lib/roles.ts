@@ -21,9 +21,10 @@ export const AUDIT_ROLES: Role[] = ['superadmin', 'general_manager']
 /** Employees whose attendance is recorded (check in / check out from the Mini App). */
 export const TRACKED_ROLES: Role[] = ['staff', 'supervisor']
 
-/** Settings → Workplaces: either workplace permission (schedules are in Scheduling). */
+/** Settings → Workplaces: any workplace permission (schedules are in Scheduling). */
 export const WORKPLACE_ACCESS = [
   { permission: 'attendance.workplace_view' },
+  { permission: 'attendance.workplace_update' },
   { permission: 'attendance.workplace_manage' },
 ]
 

@@ -153,6 +153,7 @@ async def test_permission_catalog(client, superadmin) -> None:
         "attendance.view",
         "attendance.correct",
         "attendance.workplace_view",
+        "attendance.workplace_update",
         "attendance.workplace_manage",
         "attendance.scheduling",
         "attendance.requests_review",
@@ -178,6 +179,7 @@ async def test_permission_catalog(client, superadmin) -> None:
         "orders.update",
         "orders.cancel",
         "orders.review_returns",
+        "orders.export_delivery_note",
     ]
     assert users["module"] == "users"
     assert users["name_km"]

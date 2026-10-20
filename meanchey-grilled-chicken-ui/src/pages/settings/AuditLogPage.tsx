@@ -367,6 +367,9 @@ function Details({ log }: { log: AuditLog }) {
       {d.source === 'default_backfill' && (
         <span className="block text-xs text-stone-500">{t('audit.defaultBackfill')}</span>
       )}
+      {d.source === 'default_change' && (
+        <span className="block text-xs text-stone-500">{t('audit.levelsChanged')}</span>
+      )}
       {downstream.length > 0 && (
         <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-900 ring-1 ring-amber-200">
           <p className="flex items-center gap-1 font-medium">

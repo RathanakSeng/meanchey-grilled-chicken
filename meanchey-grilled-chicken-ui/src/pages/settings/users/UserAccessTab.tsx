@@ -93,6 +93,7 @@ export function UserAccessTab({
         {has('production_plan') && <p>{t('access.legendPlan')}</p>}
         {has('staff_management') && <p>{t('access.legendStaffManagement')}</p>}
         {has('staff_access') && <p>{t('access.legendStaffAccess')}</p>}
+        {has('attendance_workplace') && <p>{t('access.legendWorkplace')}</p>}
         {/* Only the superadmin manages the GM: GM-only powers aren't feature levels. */}
         {targetRole === 'general_manager' && (
           <p className="mt-2 text-stone-700">{t('access.gmHint')}</p>

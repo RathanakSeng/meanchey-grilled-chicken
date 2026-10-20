@@ -11,6 +11,7 @@ ALL_ATTENDANCE = {
     "attendance.view",
     "attendance.correct",
     "attendance.workplace_view",
+    "attendance.workplace_update",
     "attendance.workplace_manage",
     "attendance.scheduling",
     "attendance.requests_review",
@@ -22,10 +23,16 @@ def test_registry() -> None:
     levels = {code: dict(FEATURES_BY_CODE[code].levels) for code in FEATURES_BY_CODE}
     assert levels["attendance"] == {"off": (), "view": ("attendance.view",)}
     assert levels["attendance_corrections"] == {"off": (), "full": ("attendance.correct",)}
-    assert levels["attendance_workplace"]["full"] == (
-        "attendance.workplace_view",
-        "attendance.workplace_manage",
-    )
+    assert levels["attendance_workplace"] == {
+        "off": (),
+        "view": ("attendance.workplace_view",),
+        "record": ("attendance.workplace_view", "attendance.workplace_update"),
+        "full": (
+            "attendance.workplace_view",
+            "attendance.workplace_update",
+            "attendance.workplace_manage",
+        ),
+    }
     assert FEATURES_BY_CODE["attendance_workplace"].applies_to == (Role.GENERAL_MANAGER,)
     scheduling = FEATURES_BY_CODE["attendance_scheduling"]
     assert scheduling.applies_to == (Role.GENERAL_MANAGER, Role.SUPERVISOR)

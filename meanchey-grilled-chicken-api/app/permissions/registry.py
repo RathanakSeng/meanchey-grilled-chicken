@@ -471,15 +471,25 @@ PERMISSIONS += [
         assignable_to=_GM_ONLY,
     ),
     PermissionDef(
-        code="attendance.workplace_manage",
+        code="attendance.workplace_update",
         module="attendance",
-        name_en="Edit the workplace",
+        name_en="Edit workplaces",
         name_km="កែកន្លែងធ្វើការ",
         description_en=(
-            "Create and delete workplaces; set their name, address, position on the map, radius "
-            "and the default."
+            "Edit existing workplaces: name, address, position on the map and check-in radius."
         ),
-        description_km=("បង្កើត និងលុបកន្លែងធ្វើការ ព្រមទាំងកំណត់ឈ្មោះ អាសយដ្ឋាន ទីតាំងលើផែនទី រង្វង់ និងលំនាំដើម។"),
+        description_km="កែកន្លែងធ្វើការដែលមានស្រាប់៖ ឈ្មោះ អាសយដ្ឋាន ទីតាំងលើផែនទី និងរង្វង់ចុះវត្តមាន។",
+        assignable_to=_GM_ONLY,
+    ),
+    PermissionDef(
+        code="attendance.workplace_manage",
+        module="attendance",
+        name_en="Manage workplaces",
+        name_km="គ្រប់គ្រងកន្លែងធ្វើការ",
+        description_en=(
+            "Create, delete / archive and restore workplaces, and choose the default one."
+        ),
+        description_km="បង្កើត លុប / ទុកក្នុងបណ្ណសារ និងស្ដារកន្លែងធ្វើការ ព្រមទាំងជ្រើសរើសកន្លែងលំនាំដើម។",
         assignable_to=_GM_ONLY,
     ),
     PermissionDef(
@@ -783,19 +793,28 @@ FEATURES: list[FeatureDef] = [
         name_en="Workplaces",
         name_km="កន្លែងធ្វើការ",
         description_en=(
-            "Where people check in: view only shows the workplaces, full access creates, edits "
-            "and deletes them (location, radius, default). Schedules are in Scheduling."
+            "Where people check in: view only shows the workplaces, record also edits existing "
+            "ones (name, address, location, radius), full access also creates, deletes, restores "
+            "them and sets the default. Schedules are in Scheduling."
         ),
         description_km=(
-            "កន្លែងដែលបុគ្គលិកចុះវត្តមាន៖ មើលប៉ុណ្ណោះបង្ហាញកន្លែងធ្វើការ ចំណែកសិទ្ធិពេញលេញបង្កើត កែ "
-            "និងលុបពួកវា (ទីតាំង រង្វង់ លំនាំដើម)។"
+            "កន្លែងដែលបុគ្គលិកចុះវត្តមាន៖ មើលប៉ុណ្ណោះបង្ហាញកន្លែងធ្វើការ កត់ត្រាកែកន្លែងដែលមានស្រាប់ "
+            "(ឈ្មោះ អាសយដ្ឋាន ទីតាំង រង្វង់) ចំណែកសិទ្ធិពេញលេញបង្កើត លុប ស្ដារ និងកំណត់លំនាំដើមផងដែរ។"
         ),
         # Only the superadmin manages the GM, so only it sets this.
         applies_to=(Role.GENERAL_MANAGER,),
         levels=(
             ("off", ()),
             ("view", ("attendance.workplace_view",)),
-            ("full", ("attendance.workplace_view", "attendance.workplace_manage")),
+            ("record", ("attendance.workplace_view", "attendance.workplace_update")),
+            (
+                "full",
+                (
+                    "attendance.workplace_view",
+                    "attendance.workplace_update",
+                    "attendance.workplace_manage",
+                ),
+            ),
         ),
     ),
     FeatureDef(

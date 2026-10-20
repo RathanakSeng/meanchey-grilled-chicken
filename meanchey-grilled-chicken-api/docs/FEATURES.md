@@ -322,9 +322,12 @@ The superadmin holds it implicitly; a general manager only when the superadmin t
 | `attendance.view` | See each day's attendance of the employees in scope | GM, supervisor | Attendance (View only) |
 | `attendance.correct` | Fix records and add missing ones, with a reason | GM, supervisor | Attendance corrections (Full access) |
 | `attendance.workplace_view` | See the workplaces (location, radius, default, employees; the schedule read-only) | **GM only** | Workplaces (View only) |
-| `attendance.workplace_manage` | Create, edit, delete / archive and restore workplaces; make one the default (location, radius, default and delete only) | **GM only** | Workplaces (Full access) |
+| `attendance.workplace_update` | Edit existing workplaces: name, address, map position (latitude / longitude) and check-in radius | **GM only** | Workplaces (Record) |
+| `attendance.workplace_manage` | Create, delete / archive and restore workplaces; make one the default | **GM only** | Workplaces (Full access) |
 | `attendance.scheduling` | Manage tracked weekdays, holidays, shift times and rules for one, several or all workplaces (§22.14) | GM, supervisor | Attendance scheduling (Full access; grantor must hold it) |
 | `attendance.requests_review` | Approve, change or reject the monthly attendance requests of employees in scope (§22.15) | GM, supervisor | Attendance requests (Full access) |
+
+Migration 0024 split editing out of `attendance.workplace_manage` into `attendance.workplace_update` (Workplaces gained a Record level): every holder of `workplace_manage` also got `workplace_update` (same `granted_by`), so Full stays Full; one `permission.grant` audit entry per grant, no actor, `source: default_change`. The GM default stays View only.
 
 `attendance.shifts_manage` (each workplace's schedule) was retired by migration 0020: its holders got `attendance.scheduling` (audited as `feature.set`, `source: default_change`); the row stays inactive.
 
@@ -617,9 +620,10 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | POST | `/attendance/requests/{id}/approve`, `/attendance/requests/{id}/reject` | `attendance.requests_review` + scope |
 | PUT | `/attendance/settings/requests` | superadmin |
 | GET | `/attendance/workplace-options` | `users.view` or any workplace permission |
-| GET | `/attendance/workplaces`, `/attendance/workplaces/{id}` | `attendance.workplace_view` or `workplace_manage` |
+| GET | `/attendance/workplaces`, `/attendance/workplaces/{id}` | `attendance.workplace_view`, `workplace_update` or `workplace_manage` |
 | POST | `/attendance/workplaces`, `/attendance/workplaces/{id}/restore` | `attendance.workplace_manage` |
-| PATCH, DELETE | `/attendance/workplaces/{id}` | `attendance.workplace_manage` |
+| PATCH | `/attendance/workplaces/{id}` | `attendance.workplace_update`; `is_default` also needs `attendance.workplace_manage` |
+| DELETE | `/attendance/workplaces/{id}` | `attendance.workplace_manage` |
 | GET | `/attendance/scheduling`, `/attendance/calendar`, `/attendance/holidays`, `/attendance/holidays/{id}` | `attendance.view` or `attendance.scheduling` |
 | PUT | `/attendance/scheduling/weekdays`, `/attendance/scheduling/shifts` | `attendance.scheduling` |
 | DELETE | `/attendance/scheduling/versions/{id}` | `attendance.scheduling` |
@@ -704,7 +708,7 @@ How general managers (and, for staff, supervisors with Staff access) give access
 | `preparation_management` | workstation | GM, supervisor | — | — | `preparation.update/cancel` |
 | `attendance` | attendance | GM, supervisor | `attendance.view` | — | — |
 | `attendance_corrections` | attendance | GM, supervisor | — | — | `attendance.correct` |
-| `attendance_workplace` | attendance | **GM** | `attendance.workplace_view` | — | `attendance.workplace_view/manage` |
+| `attendance_workplace` | attendance | **GM** | `attendance.workplace_view` | `attendance.workplace_view/update` | `attendance.workplace_view/update/manage` |
 | `attendance_scheduling` | attendance | GM, supervisor (grantor must hold it) | — | — | `attendance.scheduling` |
 | `attendance_requests` | attendance | GM, supervisor | — | — | `attendance.requests_review` |
 | `staff_management` | settings | GM, supervisor | `users.view` | `users.view/create` | `users.view/create/update` |
@@ -1602,10 +1606,10 @@ Response: `timezone`, `period` (`year`, `month` or null, `start`, `end` = the la
 | GET | `/attendance/day?date=&workplace_id=` | `attendance.view` | Default today, all workplaces. `day_off` (the filtered workplace's, else the default's) and per workplace / row `day_off`; on a day off a row's cells are `day_off` (a kept corrected record is `recorded`) and count nothing. `shifts`: per shift `kpis` (`expected`, `present`, `late`, `absent`, `not_yet` (no record, check-in still possible), `no_record` (past the cutoff without one), `checked_out`, `forgot_checkout`) and `phase`, over every row shown (times of the filtered workplace, else the default's). `workplaces`: the same per workplace with its own shift times. `workplace_options`: active workplaces (the filter). `starts_later` and `not_tracked`: employees in scope who are **not expected** that day — attendance starts after it (rows carry `starts_on`) / a supervisor not tracked — in no KPI and not in `rows`; their cells hold only records already made. One row per employee in the viewer's scope (GM: staff and supervisors; supervisor: staff; those active that day and tracked, plus anyone with a record): `user`, `role`, `position`, `is_active`, `workplace` (that day's records' workplace, else the current one), and per shift `{state: recorded \| not_yet \| no_record, record}`, evaluated with that workplace's schedule. Supervisors first, then by name. Unknown `workplace_id` → 404. |
 | PATCH, POST | `/attendance/records/{id}`, `/attendance/records` | `attendance.correct` | §22.7 |
 | GET | `/attendance/workplace-options` | `users.view` or any workplace permission | Active workplaces `{id, name, is_default}`, default first: the user form's select and the users list filter. |
-| GET | `/attendance/workplaces?include_archived=` | `attendance.workplace_view` or `workplace_manage` | Each: name, address, lat / lng (6 decimals), radius, `has_coordinates`, `is_default`, `is_active`, `archived_at`, `schedule` (the current version, read-only: weekdays, the rules, both shifts with their windows (`check_in_opens`, `check_in_until`, `late_after`, `absent_from`, `check_out_opens`, `check_out_until`, `forgot_from`)), `employee_count` (active staff and supervisors), `has_history`, `created_by` / `updated_by`. |
+| GET | `/attendance/workplaces?include_archived=` | any workplace permission (`workplace_view`, `workplace_update`, `workplace_manage`) | Each: name, address, lat / lng (6 decimals), radius, `has_coordinates`, `is_default`, `is_active`, `archived_at`, `schedule` (the current version, read-only: weekdays, the rules, both shifts with their windows (`check_in_opens`, `check_in_until`, `late_after`, `absent_from`, `check_out_opens`, `check_out_until`, `forgot_from`)), `employee_count` (active staff and supervisors), `has_history`, `created_by` / `updated_by`. |
 | GET | `/attendance/workplaces/{id}` | same | The same plus `employees` (active staff and supervisors assigned: `user`, `role`, `position`). |
 | POST | `/attendance/workplaces` | `attendance.workplace_manage` | Name, address, lat / lng, radius (default 100); the schedule is a copy of the default workplace's current version, from today. Audit `workplace.create`. |
-| PATCH | `/attendance/workplaces/{id}` | `attendance.workplace_manage` | Name, address, `latitude` + `longitude` together (null clears both), `radius_m` 10–5000, `is_default: true`. Audit `workplace.update` (`changes`, incl. `previous_default`). |
+| PATCH | `/attendance/workplaces/{id}` | `attendance.workplace_update` (Record); `is_default` also needs `attendance.workplace_manage` (403 `MISSING_PERMISSION`, `required: ["attendance.workplace_manage"]`, nothing saved) | Name, address, `latitude` + `longitude` together (null clears both), `radius_m` 10–5000, `is_default: true`. Audit `workplace.update` (`changes`, incl. `previous_default`). |
 | DELETE | `/attendance/workplaces/{id}` | `attendance.workplace_manage` | `{result: archived \| deleted}` (§22.2). Audit `workplace.archive` / `workplace.delete`. |
 | POST | `/attendance/workplaces/{id}/restore` | `attendance.workplace_manage` | Audit `workplace.restore`. |
 | GET, PUT, POST, PATCH, DELETE | `/attendance/scheduling…`, `/attendance/calendar`, `/attendance/holidays…` | view: `attendance.view` or `attendance.scheduling`; writes: `attendance.scheduling` | Scheduling: §22.14. (`PUT /attendance/workplaces/{id}/schedule` was removed.) |
@@ -1618,7 +1622,7 @@ User references are `UserRef`s (redacted, §13); the routes are in the redaction
 |---|---|---|---|---|
 | `attendance` (Attendance) | attendance | GM, supervisor | Off · View only (`attendance.view`) | GM View, supervisor Off |
 | `attendance_corrections` | attendance | GM, supervisor | Off · Full access (`attendance.correct`) | GM Full, supervisor Off |
-| `attendance_workplace` (Workplaces) | attendance | **GM** (set by the superadmin) | Off · View only (`attendance.workplace_view`) · Full access (`+ attendance.workplace_manage`: create, edit, delete, default) | GM View |
+| `attendance_workplace` (Workplaces) | attendance | **GM** (set by the superadmin) | Off · View only (`attendance.workplace_view`) · Record (`+ attendance.workplace_update`: edit existing workplaces — name, address, map position, radius) · Full access (`+ attendance.workplace_manage`: also create, delete / archive, restore, make default) | GM View |
 | `attendance_scheduling` (Attendance scheduling) | attendance | GM, supervisor (**grantor must hold it**) | Off · Full access (`attendance.scheduling`: tracked weekdays, holidays, shift times and rules, §22.14) | GM Off, supervisor Off |
 | `attendance_requests` (Attendance requests) | attendance | GM, supervisor | Off · Full access (`attendance.requests_review`: approve, approve with changes or reject, §22.15) | GM Full, supervisor Off |
 

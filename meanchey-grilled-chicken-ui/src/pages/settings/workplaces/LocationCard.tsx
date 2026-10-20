@@ -49,7 +49,8 @@ interface LocationCardProps {
 
 /**
  * A workplace's location: name, address, the pin (tap the map, or type latitude / longitude)
- * and the check-in radius. Read-only without attendance.workplace_manage.
+ * and the check-in radius. Read-only without attendance.workplace_update (a new one needs
+ * attendance.workplace_manage).
  */
 export function LocationCard({ workplace, canEdit, fallbackCenter, onSaved, actions }: LocationCardProps) {
   const { t } = useTranslation()

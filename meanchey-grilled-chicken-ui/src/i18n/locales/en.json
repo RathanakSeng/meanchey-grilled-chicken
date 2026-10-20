@@ -280,7 +280,8 @@
     "legendPlan": "Production plan: View only = see plans and receive production alerts; Full access = also set and confirm plans.",
     "aboveOwnAccess": "Higher than your own access",
     "legendStaffManagement": "Staff management: View only = see staff; Record = also add staff; Full access = also edit their info.",
-    "legendStaffAccess": "Staff access: Full access = can set what staff can use, up to their own access."
+    "legendStaffAccess": "Staff access: Full access = can set what staff can use, up to their own access.",
+    "legendWorkplace": "Workplaces: Record = edit existing workplaces (location, radius), but not create or delete."
   },
   "audit": {
     "title": "Audit log",
@@ -387,7 +388,8 @@
     "documentViaDownload": "Downloaded / printed",
     "documentViaTelegram": "Sent to Telegram",
     "logoChanged": "Logo changed",
-    "logoRemoved": "Logo removed"
+    "logoRemoved": "Logo removed",
+    "levelsChanged": "Granted automatically (access levels changed, the level stays the same)"
   },
   "profile": {
     "title": "My profile",

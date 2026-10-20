@@ -14,8 +14,8 @@ import { LocationCard } from './LocationCard'
 import { ScheduleSummaryCard } from './ScheduleSummaryCard'
 
 /**
- * Settings → Workplaces → one workplace: Location (workplace_manage edits; Make default,
- * Delete / archive, Restore), its current schedule (read-only, with **Edit in Scheduling**) and
+ * Settings → Workplaces → one workplace: Location (edited with workplace_update; Make default,
+ * Delete / archive and Restore with workplace_manage), its current schedule (read-only, with **Edit in Scheduling**) and
  * the employees assigned. Without an id (`/new`): the Location form only; the schedule is copied
  * from the default workplace's current one.
  */
@@ -26,6 +26,7 @@ export function WorkplacePage() {
   const errorMessage = useErrorMessage()
   const formatDate = useFormatDate()
   const canManage = usePermission('attendance.workplace_manage')
+  const canUpdate = usePermission('attendance.workplace_update')
   const query = useWorkplace(id)
   const active = useWorkplaces(false)
   const fallback = active.data?.find((w) => w.is_default && w.has_coordinates)
@@ -84,7 +85,7 @@ export function WorkplacePage() {
           {!w.is_active && <ArchivedNotice workplace={w} canManage={canManage} />}
           <LocationCard
             workplace={w}
-            canEdit={canManage && w.is_active}
+            canEdit={canUpdate && w.is_active}
             fallbackCenter={fallbackCenter}
             actions={canManage && w.is_active && <LocationActions workplace={w} />}
           />

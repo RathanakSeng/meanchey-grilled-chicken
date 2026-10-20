@@ -293,10 +293,10 @@ sequenceDiagram
       audit-logs                     RequireAccess roles=AUDIT_ROLES (superadmin, general managers)
       user-limits                    RequireAccess roles=ROLE_LIMIT_ROLES (superadmin) → UserLimitsPage
       business-info                  RequireAccess settings.business_info → BusinessInfoPage (lazy)
-      attendance/workplaces          RequireAccess anyOf WORKPLACE_ACCESS (workplace_view / _manage)
+      attendance/workplaces          RequireAccess anyOf WORKPLACE_ACCESS (workplace_view / _update / _manage)
         index                        WorkplacesPage (lazy, ?archived=1)
         new                          RequireAccess attendance.workplace_manage → WorkplacePage (lazy, create)
-        :id                          WorkplacePage (lazy; location editable with workplace_manage, schedule read-only)
+        :id                          WorkplacePage (lazy; location editable with workplace_update; default / delete / restore with workplace_manage)
       profile                        Profile
     /users, /users/*                 LegacyRedirect → /settings/users…
     /audit-logs, /audit-logs/*       LegacyRedirect → /settings/audit-logs…
@@ -351,7 +351,7 @@ useCanAccess()({ permission, roles, anyOf })     // shared by <Can>, RequireAcce
 
   - **Top level:** Home, Workstation, Attendance, Settings. Attendance uses `anyOf: [{roles: TRACKED_ROLES}, ...SCHEDULING_ACCESS]` (tracked employees, viewers *or* schedulers); its children are My attendance (`paths.myAttendance`, `roles: TRACKED_ROLES`), Today (`attendance.view`) and Scheduling (`paths.attendanceScheduling`, `anyOf: SCHEDULING_ACCESS` = `attendance.view` or `attendance.scheduling`, icon `calendar`); the employee page (`paths.attendanceEmployee(id)`, `attendance.view`) is a route without a menu entry, opened from Today; so is a workplace's scheduling (`paths.attendanceSchedulingFor(id)`), opened from Scheduling's cards or a workplace's *Edit in Scheduling*.
   - **Workstation's `children`:** Suppliers (`suppliers.view`, icon `truck`), Customers (`customers.view`, icon `store`) and Production (`production.view`, icon `chicken`).
-  - **Settings' `children`:** Users (`users.view`), Audit log (roles `superadmin`, `general_manager`), User limits, Business info, Workplaces (`anyOf: WORKPLACE_ACCESS` from `lib/roles.ts`: either workplace permission) and My profile. These carry the same rules as before.
+  - **Settings' `children`:** Users (`users.view`), Audit log (roles `superadmin`, `general_manager`), User limits, Business info, Workplaces (`anyOf: WORKPLACE_ACCESS` from `lib/roles.ts`: any workplace permission) and My profile. These carry the same rules as before.
 - **`useNavItems()`** returns the visible top-level items, each with only its visible children.
   - A section whose children are **all** filtered out is hidden, unless it has `keepWhenEmpty`.
   - **Workstation is `keepWhenEmpty`**: staff without partner permissions still get the Workstation tab, and its hub explains that nothing is available yet.

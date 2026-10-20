@@ -110,7 +110,7 @@ Home                      everyone
     ├── Users             users.view        /settings/users
     ├── Audit log         superadmin, GM    /settings/audit-logs
     ├── User limits       superadmin        /settings/user-limits
-    ├── Workplaces        attendance.workplace_view or _manage
+    ├── Workplaces        attendance.workplace_view, _update or _manage
     │                       /settings/attendance/workplaces  (?archived=1; new: /new; one: /:id)
     └── My profile        everyone          /settings/profile
 ```
@@ -571,7 +571,7 @@ What every delivery note prints at the top and bottom:
 
 ### 8.3 Workplaces (កន្លែងធ្វើការ)
 
-**Path:** `/settings/attendance/workplaces` (lazy-loaded): where people check in (location, radius, default, delete). **Who can open it:** holders of `attendance.workplace_view` or `attendance.workplace_manage` (the superadmin; general managers with Workplaces ≥ View only, the default). Each workplace has **its own schedule**, managed in Attendance → **Scheduling** (§7.6); staff and supervisors check in at the one they are assigned to (user form, §9).
+**Path:** `/settings/attendance/workplaces` (lazy-loaded): where people check in (location, radius, default, delete). **Who can open it:** holders of `attendance.workplace_view`, `attendance.workplace_update` or `attendance.workplace_manage` (the superadmin; general managers with Workplaces ≥ View only, the default). Each workplace has **its own schedule**, managed in Attendance → **Scheduling** (§7.6); staff and supervisors check in at the one they are assigned to (user form, §9).
 
 **List**
 
@@ -580,7 +580,9 @@ What every delivery note prints at the top and bottom:
 
 **Workplace page** (`/settings/attendance/workplaces/:id`): the header shows the name, *Default* / *Archived* and *Last changed by … · time*.
 
-- **Location** (edit with `attendance.workplace_manage`, read-only otherwise):
+By permission: Workplaces **View only** sees everything read-only; **Record** (`attendance.workplace_update`) also edits the Location (name, address, map pin, radius) of existing workplaces but sees no **New workplace**, **Make default**, **Delete / Archive** or **Restore**; **Full access** (`attendance.workplace_manage` too) sees all of them.
+
+- **Location** (edit with `attendance.workplace_update`, read-only otherwise; **Make default**, **Delete / Archive** and **Restore** with `attendance.workplace_manage`):
   - **Name**, **Address**; a **map picker** (Leaflet + OpenStreetMap): tap to place the pin, the radius circle drawn on the map; latitude and longitude fields (6 decimals; both or neither); **Radius** slider (10 m steps up to 1000 m) with a number field (10–5000 m). Without a position, a warning: nobody there can check in until it's set.
   - **Make default** (confirmation: new staff and supervisors get it unless another workplace is chosen; nobody is moved). Disabled until the location is set.
   - **Delete**, or **Archive** when it has attendance history (confirmation explains which). Disabled while employees are assigned, with *"Can't delete: 2 employees are assigned here."* and a **See them** link to the users list filtered by this workplace; the default shows *"The default workplace can't be deleted. Make another one the default first."*
@@ -684,8 +686,8 @@ How general managers decide what supervisors and staff can use (and how the supe
 
 - **Supervisors** (with **Staff access**, on by default) see the Access tab of **staff** only, with the same layout: Suppliers, Customers and Production. They can give a level **up to their own** (what a GM or the superadmin gave them): higher segments are disabled, with the tooltip *"Higher than your own access"* (*ខ្ពស់ជាងសិទ្ធិរបស់អ្នក*). *Off* and lower levels are always available, also for a level a GM set higher. If the server still refuses (the supervisor's access was lowered meanwhile), the message reads *"You can't give more access than you have."* When a GM lowers the supervisor later, levels the supervisor already gave stay as they are.
 - **Grouped by menu:** **Workstation** (Suppliers, Customers, Production, Production plan: GM and supervisors only), then **Attendance** (Attendance and Attendance corrections: GM and supervisors; Workplaces: general managers only, so only on the superadmin's view of a GM; **Attendance scheduling**: see below; nothing for staff), then **Settings** (Staff management: supervisors, and general managers when the superadmin views them; **Staff access**: supervisors only).
-- Each row: the feature's name and a one-line description (from the server, in the current language), and a segmented control with the levels the server lists for that feature: **Off · View only · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · ពេញលេញ*); for Production and Staff management **Off · View only · Record · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · កត់ត្រា · ពេញលេញ*); for Staff access **Off · Full access**, described as *"Can set what staff can use, up to their own access."*
-- A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't reopen finished steps (shown when Production is listed); *Full access* = can add, edit and deactivate, and in Production also reopen finished steps. When Production plan is listed: *"Production plan: View only = see plans and receive production alerts; Full access = also set and confirm plans."* When Staff management is listed: *"Staff management: View only = see staff; Record = also add staff; Full access = also edit their info."* (supervisors never deactivate people). When Staff access is listed: *"Staff access: Full access = can set what staff can use, up to their own access."*
+- Each row: the feature's name and a one-line description (from the server, in the current language), and a segmented control with the levels the server lists for that feature: **Off · View only · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · ពេញលេញ*); for Production, Staff management and Workplaces **Off · View only · Record · Full access** (*បិទ · មើលតែប៉ុណ្ណោះ · កត់ត្រា · ពេញលេញ*); for Staff access **Off · Full access**, described as *"Can set what staff can use, up to their own access."*
+- A legend at the top: *View only* = can see the list; *Record* = can start batches and fill in steps, but can't reopen finished steps (shown when Production is listed); *Full access* = can add, edit and deactivate, and in Production also reopen finished steps. When Production plan is listed: *"Production plan: View only = see plans and receive production alerts; Full access = also set and confirm plans."* When Staff management is listed: *"Staff management: View only = see staff; Record = also add staff; Full access = also edit their info."* (supervisors never deactivate people). When Staff access is listed: *"Staff access: Full access = can set what staff can use, up to their own access."* When Workplaces is listed (the superadmin's view of a GM): *"Workplaces: Record = edit existing workplaces (location, radius), but not create or delete."*
 - **Each click saves** immediately, with a spinner on that row. On error the previous level comes back and a translated message is shown.
 - From *Off*, *View only* has a dashed outline as the suggested next step; it still takes a click.
 - **Custom:** if a user's permissions match no level (only possible through the superadmin's detailed permissions), a neutral *Custom* badge is shown and no level is selected. Picking a level replaces it.
@@ -713,7 +715,7 @@ Supervisors never see detailed permissions; they see feature levels only on the 
   - password changes and resets;
   - user creation, edits, role changes (e.g. *"Staff → Supervisor"*), deactivation and reactivation;
   - access changes (*Changed access*), shown as e.g. *"Suppliers: View only → Full access"*;
-  - detailed permission grants and revokes, including automatic ones on deploy: **superadmin only** (general managers see access changes instead);
+  - detailed permission grants and revokes, including automatic ones on deploy (*Granted automatically (role default)*, or *Granted automatically (access levels changed, the level stays the same)* when a level is split, e.g. Workplaces' Record in migration 0024): **superadmin only** (general managers see access changes instead);
   - profile updates;
   - suppliers and customers added, edited, deactivated and reactivated;
   - production: batch started, step finished and step reopened (*"Step 1 · Intake"*, plus *"Also back to draft: step 2, 3"* when later steps were reopened with it), batch cancelled (with the reason). Draft saves aren't logged;
@@ -831,7 +833,8 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 | Attendance → Today (each day's attendance in scope) | ✅ staff and supervisors | Attendance = View only (default) | Attendance = View only (default Off): staff | ❌ never |
 | Fix / add attendance records | ✅ | Attendance corrections = Full (default) | Attendance corrections = Full (default Off): staff | ❌ never |
 | Settings → Workplaces (view: list, location, schedule read-only, employees) | ✅ | Workplaces ≥ View only (default; set by the superadmin) | ❌ never | ❌ never |
-| Create, edit, delete / archive, restore workplaces; make default | ✅ | Workplaces = Full (default Off; set by the superadmin) | ❌ never | ❌ never |
+| Edit existing workplaces (name, address, map pin, radius) | ✅ | Workplaces ≥ Record (default View only; set by the superadmin) | ❌ never | ❌ never |
+| Create, delete / archive, restore workplaces; make default | ✅ | Workplaces = Full (default View only; set by the superadmin) | ❌ never | ❌ never |
 | Attendance → Scheduling, read-only (calendar, holidays, weekdays, schedule) | ✅ | Attendance = View only (default) or Attendance scheduling | Attendance = View only or Attendance scheduling (default Off) | ❌ never |
 | Manage tracked weekdays, holidays, shift times and rules (one, several or all workplaces) | ✅ | Attendance scheduling = Full (default Off; set by the superadmin) | Attendance scheduling = Full (default Off; set by a GM who has it) | ❌ never |
 | Attendance → Requests: send my month's request, read it | ❌ (not tracked) | ❌ (not tracked) | ✅ always | ✅ always |
