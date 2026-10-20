@@ -108,14 +108,14 @@ Home                      everyone
 │   └── (employee)        attendance.view   /attendance/employees/:id  (?year&month; from Today)
 └── Settings              everyone          /settings
     ├── Users             users.view        /settings/users
-    ├── Audit log         superadmin, GM    /settings/audit-logs
+    ├── Audit log         superadmin; GM if allowed (audit.view)   /settings/audit-logs
     ├── User limits       superadmin        /settings/user-limits
     ├── Workplaces        attendance.workplace_view, _update or _manage
     │                       /settings/attendance/workplaces  (?archived=1; new: /new; one: /:id)
     └── My profile        everyone          /settings/profile
 ```
 
-- **Each item appears only when the user is allowed to open it.** The rules are unchanged from before: Users needs `users.view`, and Audit log is for the superadmin and general manager.
+- **Each item appears only when the user is allowed to open it.** The rules are unchanged from before: Users needs `users.view`, and Audit log needs `audit.view` (the superadmin always; a general manager only when the superadmin allows it).
 - **Settings is always shown,** because everyone can open My profile.
 - **Workstation is always shown,** even when none of its pages are visible, so its hub can explain that nothing is available yet.
 - **Staff** see Home, Workstation and Settings. Workstation shows the "no access yet" message and Settings only My profile, which follows from the permissions with no special handling. Once a general manager (or their supervisor) sets e.g. Suppliers to *View only* on the Access tab, Suppliers appears for that staff member.
@@ -541,7 +541,7 @@ After a month ends, a tracked employee whose **missing time is at least 1 hour**
   | Card | Shown to |
   |---|---|
   | Users | holders of `users.view` |
-  | Audit log | superadmin, general managers |
+  | Audit log | superadmin; general managers given Audit log (`audit.view`) |
   | User limits | superadmin |
   | Business info | superadmin; general managers given Business info (`settings.business_info`) |
   | Workplaces | superadmin; general managers with Workplaces ≥ View only (default) |
@@ -693,6 +693,7 @@ How general managers decide what supervisors and staff can use (and how the supe
 - **Custom:** if a user's permissions match no level (only possible through the superadmin's detailed permissions), a neutral *Custom* badge is shown and no level is selected. Picking a level replaces it.
 - **Attendance requests** (Off · Full access, under Attendance; GM Full, supervisor Off) is listed for general managers and supervisors like the other Attendance features (the Access tab reads the feature list from the server, so it appears by itself).
 - **Inventory history** (Off · View only, under Workstation) and **Attendance scheduling** (Off · Full access, under Attendance) appear only where the viewer may give them: the superadmin on general managers and supervisors, and a general manager on supervisors **only while that GM has it**. A GM without it never sees the row, with no hint. Both default to Off.
+- **Audit log** (Off · View only, under Settings) is listed only on a general manager, so only the superadmin sets it; default Off. *View only* opens Settings → Audit log for that GM (with its usual filtering); *Off* removes it again.
 - Rows are disabled only when the user is deactivated; single segments only when above a supervisor's own access. No explanation mentions other roles.
 - Defaults: supervisors start with Suppliers, Customers and Production at **Full access**, **Production plan Off**, **Staff management View only** and **Staff access Full access**; staff with everything **Off**; general managers at **Full access**. Supervisors who had Staff management at Full access before this default changed were moved to View only once (audit log: *"New default for supervisors"*, by System).
 - **General manager as the target** (superadmin only): a hint under the legend says *"Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced)."* Lowering Staff management takes creating / editing users (at *Off*, the Users list) away from the GM.
@@ -707,7 +708,7 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 
 ## 12. Audit log
 
-**Path:** `/settings/audit-logs`. **Who can open it:** general managers and the superadmin. General managers don't see entries made by the superadmin (nor detailed permission changes).
+**Path:** `/settings/audit-logs`. **Who can open it:** holders of `audit.view`: the superadmin always, a general manager only when the superadmin sets its **Audit log** feature to *View only* (Access tab; default Off). Without it the menu item and the Settings card are hidden and the address shows *No access*. General managers don't see entries made by the superadmin (nor detailed permission changes).
 
 - A chronological list of security events:
   - sign-ins and failed sign-ins;
@@ -802,7 +803,7 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 | User detail → Access tab | ✅ | ✅ (supervisors, staff) | Staff access = Full (default ✅): staff only, up to its own levels | ❌ |
 | Set staff access (Suppliers, Customers, Production of staff) | ✅ | ✅ | ✅ default (Staff access), never above its own | ❌ |
 | User detail → Permissions (advanced) | ✅ | ❌ | ❌ | ❌ |
-| Settings → Audit log | ✅ everything | ✅ without detailed permission entries | ❌ | ❌ |
+| Settings → Audit log | ✅ everything | only if the superadmin allows it (Audit log, default Off); then without detailed permission entries | ❌ | ❌ |
 | Workstation → Suppliers (list, figures) | ✅ | ✅ | Suppliers ≥ View only (default Full) | Suppliers ≥ View only (default Off) |
 | Add / edit / deactivate suppliers | ✅ | ✅ | Suppliers = Full (default) | Suppliers = Full |
 | Workstation → Customers (list, figures) | ✅ | ✅ | Customers ≥ View only (default Full) | Customers ≥ View only (default Off) |

@@ -444,6 +444,24 @@ PERMISSIONS += [
 
 PERMISSIONS += [
     PermissionDef(
+        code="audit.view",
+        module="settings",
+        name_en="View audit log",
+        name_km="មើលកំណត់ហេតុសកម្មភាព",
+        description_en=(
+            "Open the audit log: who did what and when (the superadmin's own entries and access "
+            "changes stay hidden)."
+        ),
+        description_km=(
+            "បើកកំណត់ហេតុសកម្មភាព៖ អ្នកណាធ្វើអ្វី និងនៅពេលណា (កំណត់ត្រារបស់ប្រព័ន្ធ និងការផ្លាស់ប្តូរសិទ្ធិនៅតែលាក់)។"
+        ),
+        # Given to the general manager by the superadmin only (Audit log feature).
+        assignable_to=_GM_ONLY,
+    ),
+]
+
+PERMISSIONS += [
+    PermissionDef(
         code="attendance.view",
         module="attendance",
         name_en="View attendance",
@@ -893,6 +911,17 @@ FEATURES: list[FeatureDef] = [
         # Only the superadmin manages the GM, so only it can turn this on.
         applies_to=(Role.GENERAL_MANAGER,),
         levels=(("off", ()), ("full", ("settings.business_info",))),
+    ),
+    FeatureDef(
+        code="audit_log",
+        menu="settings",
+        name_en="Audit log",
+        name_km="កំណត់ហេតុសកម្មភាព",
+        description_en="See the audit log: who did what and when.",
+        description_km="មើលកំណត់ហេតុសកម្មភាព៖ អ្នកណាធ្វើអ្វី និងនៅពេលណា។",
+        # Only the superadmin manages the GM, so only it can turn this on. Off by default.
+        applies_to=(Role.GENERAL_MANAGER,),
+        levels=(("off", ()), ("view", ("audit.view",))),
     ),
 ]
 

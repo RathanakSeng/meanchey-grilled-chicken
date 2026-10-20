@@ -165,7 +165,7 @@ async def test_permission_catalog(client, superadmin) -> None:
         "preparation.cancel",
     ]
     assert settings["module"] == "settings"
-    assert [p["code"] for p in settings["permissions"]] == ["settings.business_info"]
+    assert [p["code"] for p in settings["permissions"]] == ["settings.business_info", "audit.view"]
     assert [p["code"] for p in inventory["permissions"]] == [
         "inventory.view",
         "inventory.history",

@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.models import AuditLog, Notification, Role, RoleLimit
 from app.models.role_limit import DEFAULT_ROLE_LIMITS
-from tests.conftest import assert_error, auth
+from tests.conftest import allow_audit, assert_error, auth
 from tests.test_production import PRODUCED, Api, ok
 
 
@@ -215,6 +215,7 @@ async def test_limit_change_is_audited_and_hidden_from_gms(
     assert [(log.actor_id, log.details) for log in logs] == [
         (superadmin.id, {"role": "staff", "from": 10, "to": 12})
     ]
+    await allow_audit(gm)
     items = ok(await client.get("/audit-logs?page_size=100", headers=auth(gm)))["items"]
     assert all(i["action"] != "settings.role_limit_update" for i in items)
 
@@ -296,6 +297,7 @@ async def test_both_gms_get_alerts_and_see_the_same_audit_log(client, session, m
     def actions(items):
         return [(i["action"], i["created_at"]) for i in items]
 
+    await allow_audit(gm1, gm2)
     log1 = ok(await client.get("/audit-logs?page_size=100", headers=auth(gm1)))["items"]
     log2 = ok(await client.get("/audit-logs?page_size=100", headers=auth(gm2)))["items"]
     assert actions(log1) == actions(log2) and log1

@@ -15,9 +15,6 @@ export const SUPERADMIN_LOGIN = 'superadmin'
 /** Who may set the role limits (Settings → User limits). */
 export const ROLE_LIMIT_ROLES: Role[] = ['superadmin']
 
-/** Who may open the audit log. */
-export const AUDIT_ROLES: Role[] = ['superadmin', 'general_manager']
-
 /** Employees whose attendance is recorded (check in / check out from the Mini App). */
 export const TRACKED_ROLES: Role[] = ['staff', 'supervisor']
 

@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.models import AuditLog, Role
 from app.permissions.registry import DEFAULT_PERMISSIONS
-from tests.conftest import assert_error, auth
+from tests.conftest import allow_audit, assert_error, auth
 from tests.test_production import Api, ok
 
 HISTORY = "inventory.history"
@@ -132,6 +132,7 @@ async def test_audit_entries_hidden_from_gms_without_it(
     def features_in(r) -> set[str]:
         return {e["details"]["feature"] for e in ok(r)["items"]}
 
+    await allow_audit(gm, other_gm)
     url = "/audit-logs?action=feature.set"
     assert features_in(await client.get(url, headers=auth(gm))) == {
         "inventory_history",

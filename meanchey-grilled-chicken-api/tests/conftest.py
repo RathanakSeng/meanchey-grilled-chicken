@@ -195,6 +195,14 @@ def make_user(session: AsyncSession) -> MakeUser:
     return _make
 
 
+async def allow_audit(*users: User) -> None:
+    """Give general managers the audit log (`audit.view`, off by default; the superadmin's call)."""
+    async with SessionLocal() as s:
+        for user in users:
+            s.add(UserPermission(user_id=user.id, permission_code="audit.view"))
+        await s.commit()
+
+
 def auth(user: User) -> dict[str, str]:
     return {"Authorization": f"Bearer {create_access_token(user.id)}"}
 

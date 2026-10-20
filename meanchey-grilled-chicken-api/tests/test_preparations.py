@@ -13,7 +13,7 @@ from sqlalchemy import select, update
 from app.models import AuditLog, InventoryBalance, InventoryMovement, Role
 from app.permissions import registry
 from app.services.preparation_service import business_today
-from tests.conftest import assert_error, auth
+from tests.conftest import allow_audit, assert_error, auth
 from tests.test_migration_step_dates import _alembic, _run
 from tests.test_production import ok
 
@@ -553,6 +553,7 @@ async def test_audit_entries(client, gm, prep, stocked, session) -> None:
     assert {r.details["code"] for r in rows} == {p["code"]}
     assert rows[1].details["sachets_2"] == 40
     assert rows[3].details["reason"] == "Spoiled" and rows[3].details["was"] == "draft"
+    await allow_audit(gm)
     logs = ok(await client.get("/audit-logs?entity_type=preparation", headers=auth(gm)))
     assert logs["items"][0]["entity"] == {"type": "preparation", "id": p["id"], "name": p["code"]}
     assert await session.scalar(select(InventoryMovement.id).limit(1)) is not None

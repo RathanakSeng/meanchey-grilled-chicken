@@ -136,7 +136,7 @@ This is enforced through the `users.reset_password` permission, whose `assignabl
 The limits are set by the superadmin (§17).
 
 - **Role decides WHO** a user may act on. **Permissions decide WHAT** they may do.
-- Nobody can act on a user at the same or a higher level, including themselves. Users edit themselves through `/me`. With several general managers, **a GM can't view, edit, deactivate, reset, change the role of or set access for another GM** (`403 FORBIDDEN_SCOPE`); only the superadmin manages GMs. Everything else is shared: every GM manages all supervisors and staff, sees the same audit log and receives the production alerts.
+- Nobody can act on a user at the same or a higher level, including themselves. Users edit themselves through `/me`. With several general managers, **a GM can't view, edit, deactivate, reset, change the role of or set access for another GM** (`403 FORBIDDEN_SCOPE`); only the superadmin manages GMs. Everything else is shared: every GM manages all supervisors and staff, sees the same audit log (when the superadmin allows it, §6) and receives the production alerts.
 - Roles can be changed (promote / demote, §4); the new role needs a free slot under its limit (§17).
 - **Attendance** (§22) is recorded for active **staff and supervisors** only; each has a workplace (`users.workplace_id`, the default one), never the general manager or the superadmin.
 
@@ -312,8 +312,9 @@ Staff can't hold either. The alerts go to whoever holds `production_plan.view`, 
 | Code | Meaning | Assignable to | In feature (level) |
 |---|---|---|---|
 | `settings.business_info` | Edit the business info printed on delivery notes (names, address, phone, logo, footer note) and preview the note | **GM only** | Business info (Full access) |
+| `audit.view` | Open the audit log (§6), with the general manager's filtering (§13) | **GM only** | Audit log (View only) |
 
-The superadmin holds it implicitly; a general manager only when the superadmin turns Business info on for it. It's in nobody's defaults and isn't backfilled. Printing delivery notes needs only `orders.view` (§19.6): there is no document permission.
+The superadmin holds both implicitly; a general manager only when the superadmin turns Business info / Audit log on for it. They're in nobody's defaults and aren't backfilled (existing GMs lost the audit log when it moved behind `audit.view`, until the superadmin allows it). Printing delivery notes needs only `orders.view` (§19.6): there is no document permission.
 
 **Module `attendance`** (§22)
 
@@ -342,7 +343,7 @@ Cancelling batches is a general-manager decision, like deactivating users: `prod
 | Role | On creation |
 |---|---|
 | Superadmin | Implicitly holds **every** active permission. Nothing is stored. |
-| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions, `inventory.view` and `inventory.materials_stock` (Inventory **Record**), `inventory.materials_manage` (Inventory materials **Full**; **not** `inventory.history`: the superadmin allows it per GM) all five `orders.*` permissions (Orders Record, Order management Full, Order returns Full) and all four `preparation.*` permissions (Preparation Record, Preparation management Full). **Not** `settings.business_info` (Business info Off: the superadmin allows it per GM). Attendance **View only**, Attendance corrections **Full**, Attendance requests **Full**, Workplace **View only** (`attendance.view`, `attendance.correct`, `attendance.requests_review`, `attendance.workplace_view`); Attendance scheduling **Off** (the superadmin allows it per GM). |
+| General manager | All `users` permissions assignable to the GM (incl. `users.delete`, `users.reset_password`, `permissions.grant`; not `users.manage_access`), all partner permissions, all four `production.*` permissions, both `production_plan.*` permissions, `inventory.view` and `inventory.materials_stock` (Inventory **Record**), `inventory.materials_manage` (Inventory materials **Full**; **not** `inventory.history`: the superadmin allows it per GM) all five `orders.*` permissions (Orders Record, Order management Full, Order returns Full) and all four `preparation.*` permissions (Preparation Record, Preparation management Full). **Not** `settings.business_info` (Business info Off) and **not** `audit.view` (Audit log Off): the superadmin allows them per GM. Attendance **View only**, Attendance corrections **Full**, Attendance requests **Full**, Workplace **View only** (`attendance.view`, `attendance.correct`, `attendance.requests_review`, `attendance.workplace_view`); Attendance scheduling **Off** (the superadmin allows it per GM). |
 | Supervisor | Suppliers, Customers and Production at **Full access** (view, record, reopen finished steps; not cancel); **Production plan Off**; **Inventory Record** (material stock), Inventory materials **Off**; **Orders Record**, Order management and Order returns **Off**; **Preparation Record**, Preparation management **Off**; Attendance and Attendance corrections **Off**; **Staff management View only** (`users.view`); **Staff access Full** (`users.manage_access`). Limited to what the creator holds (`permissions.grant` covers `users.manage_access`). The GM gives plan access (and with it the alerts) to the supervisors who need it, and allows adding / editing staff per supervisor. |
 | Staff | Every feature **Off** (no permissions). |
 
@@ -400,7 +401,7 @@ Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `ta
 | Settings | `settings.role_limit_update` (`role`, `from`, `to`; `null` = unlimited). Superadmin only, so hidden from general managers. `settings.business_update` (`changes`: field → `[old, new]` for the text fields; the logo as `"logo": "changed"` / `"removed"`, never its bytes), only when something changed (§20). A GM given Business info sees its own entries; the superadmin's are hidden from it like everything it does. |
 | Profile | `profile.update`; `profile.telegram_link` / `profile.telegram_unlink` (the superadmin's Telegram link, §7.5; hidden from the GM like everything the superadmin does) |
 
-`GET /audit-logs` is available to the **superadmin and general manager only** (§13 for what general managers don't see). This is a role check, not a permission. It supports filters (`action`, `actor_id`, `target_user_id`, `entity_type`, `entity_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references, and `entity: {type, id, name}` for supplier / customer / production batch / order / material / preparation entries (the record's current name, or the batch / order / preparation code, falling back to the logged one).
+`GET /audit-logs` needs `audit.view`: the **superadmin** always (implicit), a **general manager** only when the superadmin sets its **Audit log** feature to View only (§12.1; default Off). Supervisors and staff can't hold it. Without it → `403 MISSING_PERMISSION`. What a general manager sees is filtered as before (§13). It supports filters (`action`, `actor_id`, `target_user_id`, `entity_type`, `entity_id`, `date_from`, `date_to`) and paging. Each entry includes compact actor and target references, and `entity: {type, id, name}` for supplier / customer / production batch / order / material / preparation entries (the record's current name, or the batch / order / preparation code, falling back to the logged one).
 
 ---
 
@@ -549,7 +550,7 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | DELETE | `/users/{id}/permissions/{code}` | role: superadmin + grant rules |
 | GET | `/users/{id}/features` | `permissions.grant` or `users.manage_access` + scope |
 | PUT | `/users/{id}/features/{feature}` | `permissions.grant` or `users.manage_access` + scope + level rules and cap (§12.3) |
-| GET | `/audit-logs` | role: superadmin or general manager |
+| GET | `/audit-logs` | `audit.view` (superadmin implicit; a GM with Audit log) |
 | GET | `/settings/role-limits` | role: superadmin |
 | PUT | `/settings/role-limits/{role}` | role: superadmin |
 | GET, PUT | `/settings/business` | `settings.business_info` (superadmin implicit; a GM with Business info) |
@@ -714,10 +715,13 @@ How general managers (and, for staff, supervisors with Staff access) give access
 | `staff_management` | settings | GM, supervisor | `users.view` | `users.view/create` | `users.view/create/update` |
 | `staff_access` | settings | supervisor | — | — | `users.manage_access` |
 | `business_info` | settings | **GM** | — | — | `settings.business_info` |
+| `audit_log` | settings | **GM** | `audit.view` | — | — |
 
 **Staff management:** *View only* = see staff; *Record* = also add staff; *Full access* = also edit their info (name, phone, Telegram username, position, language). Deactivating stays GM-only (`users.delete`). A GM with default permissions still reads as Full access.
 
 **Business info** (GM only, §20): *Full access* = edit the business info printed on delivery notes. It applies only to the general manager, so only the superadmin can turn it on; default Off.
+
+**Audit log** (GM only, §6): *View only* = open the audit log, filtered as in §13. Only the superadmin can turn it on; default Off. Switching it off removes access at once.
 
 **Attendance** (§22.11): *View only* = see each day's attendance of the people in scope (and Scheduling, read-only); **Attendance corrections** *Full access* = fix and add records. **Workplaces** applies to the GM only, so only the superadmin sets it (default View only). **Attendance scheduling** *Full access* = manage tracked weekdays, holidays, shift times and rules (§22.14); grantor must hold it: the superadmin turns it on for a GM, and a GM holding it can give it to supervisors (defaults Off for both).
 
@@ -773,7 +777,7 @@ The superadmin can use these endpoints too. Adding and editing staff info stay s
 - **Features a grantor doesn't hold** (`grantor_must_hold`, e.g. Inventory history, §12.3) don't exist for that grantor: left out of `GET /users/{id}/features`, `404 FEATURE_NOT_FOUND` on PUT (not a permission error, which would reveal it), and their `feature.set` entries are left out of that GM's audit log (`details.feature`).
 - **GM feature levels** are visible only to the superadmin: only it manages the GM, and `feature.set` entries it makes are left out of the GM's audit log like everything else it does.
 - **Lookups by id:** every per-user endpoint (`GET/PATCH /users/{id}`, deactivate, reactivate, reset-password, features, …) answers `404 USER_NOT_FOUND` when a non-superadmin asks for the superadmin, not `403 FORBIDDEN_SCOPE`, which would confirm it exists.
-- **Audit log for general managers:** left out are every entry **made by** the superadmin, every entry whose **target** is the superadmin (e.g. its sign-ins), and all `permission.grant` / `permission.revoke` entries (incl. `default_backfill`); the GM sees `feature.set` instead. Entries without an actor (failed sign-ins, lockouts) stay. The `actor_id` / `target_user_id` filters never match the superadmin.
+- **Audit log for general managers** (only with `audit.view`, §6): left out are every entry **made by** the superadmin, every entry whose **target** is the superadmin (e.g. its sign-ins), and all `permission.grant` / `permission.revoke` entries (incl. `default_backfill`); the GM sees `feature.set` instead. Entries without an actor (failed sign-ins, lockouts) stay. The `actor_id` / `target_user_id` filters never match the superadmin.
 - **Wording:** no error message, detail or schema text reachable by non-superadmins names the superadmin or lists roles. `FORBIDDEN_ROLE` carries no `allowed_roles`; `FORBIDDEN_SCOPE` doesn't name the role; `422` messages for enum/literal fields don't list the allowed values.
 - **API docs** (`/docs`, `/redoc`, `/openapi.json`) describe every role, so they are served only when `API_DOCS_ENABLED=true`, or when it is unset and `ENVIRONMENT=development` (the default). Set `ENVIRONMENT=production` in production.
 - **UI:** one build for everyone. The superadmin's role label is "System" / "ប្រព័ន្ធ", like the API's redacted references; its extra screens are runtime checks. Their code is in the bundle (visible in browser dev tools), but they never receive superadmin data because the API redacts it.

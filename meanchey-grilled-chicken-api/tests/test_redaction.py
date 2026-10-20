@@ -69,6 +69,11 @@ async def world(client, session, superadmin, make_user) -> dict:
         "telegram_username": "gina_gm",
     }
     gm_id = (await post("/users", gm_body))["id"]
+    # The audit log is off for a GM until the superadmin allows it.
+    r = await client.put(
+        f"/users/{gm_id}/features/audit_log", json={"level": "view"}, headers=auth(superadmin)
+    )
+    assert r.status_code == 200, r.text
     sup_body = {"role": "supervisor", "full_name": "Sam Super", "telegram_username": "sam_sup"}
     sup_id = (await post("/users", sup_body))["id"]
     staff_body = {

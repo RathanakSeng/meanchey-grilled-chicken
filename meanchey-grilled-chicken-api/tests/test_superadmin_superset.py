@@ -90,14 +90,15 @@ BODIES: dict[tuple[str, str], dict] = {
 
 @pytest.fixture
 async def world(client, session, superadmin, make_user) -> dict:
-    # With Business info and the attendance workplace / shifts (off by default), so their
-    # routes are compared too.
+    # With Business info, the audit log and the attendance workplace / shifts (off by default),
+    # so their routes are compared too.
     gm = await make_user(
         Role.GENERAL_MANAGER,
         perms=sorted(
             DEFAULT_PERMISSIONS[Role.GENERAL_MANAGER]
             | {
                 "settings.business_info",
+                "audit.view",
                 "attendance.workplace_update",
                 "attendance.workplace_manage",
                 "attendance.scheduling",

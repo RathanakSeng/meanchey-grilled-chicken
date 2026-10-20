@@ -86,7 +86,7 @@ src/
 │   ├── pdf.ts             # PDFs from the API: fetchPdf (blob, JSON errors), openPdf
 │   │                      #   (hidden frame + print dialog on PCs, new tab on phones), openPdf
 │   ├── paths.ts           # app routes (paths.users, paths.user(id)…), legacy prefixes, parentPath, isUnder
-│   ├── roles.ts           # isSuperadmin, AUDIT_ROLES, ROLE_LIMIT_ROLES, SUPERADMIN_LOGIN: superadmin checks in one place;
+│   ├── roles.ts           # isSuperadmin, ROLE_LIMIT_ROLES, SUPERADMIN_LOGIN: superadmin checks in one place;
 │   │                      #   TRACKED_ROLES (staff, supervisor: attendance)
 │   ├── useRoleCapacity.ts # ['role-capacity'] query, byRole(), invalidateRoleCapacity()
 │   ├── types.ts           # API types (mirror of the API schemas)
@@ -290,7 +290,7 @@ sequenceDiagram
         new                          RequireAccess users.create → UserForm(create)
         :id                          UserDetail (?tab=permissions)
         :id/edit                     RequireAccess users.update → UserForm(edit)
-      audit-logs                     RequireAccess roles=AUDIT_ROLES (superadmin, general managers)
+      audit-logs                     RequireAccess permission=audit.view (superadmin; a GM when allowed)
       user-limits                    RequireAccess roles=ROLE_LIMIT_ROLES (superadmin) → UserLimitsPage
       business-info                  RequireAccess settings.business_info → BusinessInfoPage (lazy)
       attendance/workplaces          RequireAccess anyOf WORKPLACE_ACCESS (workplace_view / _update / _manage)
@@ -371,7 +371,7 @@ useCanAccess()({ permission, roles, anyOf })     // shared by <Can>, RequireAcce
   - The Create User form offers `me.manageable_roles`; **Change role** offers the manageable roles other than the user's current one, and is shown only with `users.update` when there is at least one (so never to supervisors).
 - **Security boundary:** the API. UI checks only avoid showing dead-end actions.
 - **System references.** Every user reference from the API is a `UserRef` with `is_system`; render `is_system` (or a null `id`) as "System" without a link. The API uses it for actions by the system and to hide the superadmin from everyone else.
-- **The superadmin in the UI.** Superadmin checks go through `lib/roles.ts` (`isSuperadmin`, `AUDIT_ROLES`, `SUPERADMIN_LOGIN`). Its role label (`roles.superadmin`) is "System" / "ប្រព័ន្ធ", the same word the API uses when it hides the superadmin from others. The code is a single bundle; the superadmin-only screens are ordinary runtime checks.
+- **The superadmin in the UI.** Superadmin checks go through `lib/roles.ts` (`isSuperadmin`, `ROLE_LIMIT_ROLES`, `SUPERADMIN_LOGIN`; the audit log is behind the `audit.view` permission, not a role). Its role label (`roles.superadmin`) is "System" / "ប្រព័ន្ធ", the same word the API uses when it hides the superadmin from others. The code is a single bundle; the superadmin-only screens are ordinary runtime checks.
 
 ## 9. Layouts and Telegram integration
 

@@ -13,7 +13,7 @@ from app.bootstrap import bootstrap
 from app.models import AuditLog, Customer, InventoryMovement, Permission, Role, UserPermission
 from app.permissions import registry
 from app.services.production_service import business_today
-from tests.conftest import assert_error, auth
+from tests.conftest import allow_audit, assert_error, auth
 from tests.test_production import Api, ok
 
 ORDER_CODES = ["orders.view", "orders.create", "orders.update", "orders.cancel"]
@@ -860,6 +860,7 @@ async def test_kg_arithmetic_is_exact(client, gm, orders, api, supplier, custome
 async def test_audit_log_names_the_order(client, gm, orders, customer) -> None:
     order = await orders.create(customer, [box(packs_big=1)])
     ok(await orders.cancel(order))
+    await allow_audit(gm)
     r = await client.get("/audit-logs", params={"entity_type": "order"}, headers=auth(gm))
     entries = ok(r)["items"]
     assert [e["action"] for e in entries] == ["order.cancel", "order.create"]

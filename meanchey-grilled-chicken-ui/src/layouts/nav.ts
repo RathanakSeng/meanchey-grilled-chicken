@@ -2,7 +2,6 @@ import { useCanAccess, type AccessRule } from '@/auth/usePermission'
 import type { IconName } from '@/components/icons'
 import { paths } from '@/lib/paths'
 import {
-  AUDIT_ROLES,
   REQUESTS_ACCESS,
   ROLE_LIMIT_ROLES,
   SCHEDULING_ACCESS,
@@ -161,7 +160,8 @@ export const NAV_ITEMS: NavItem[] = [
         labelKey: 'nav.audit',
         descriptionKey: 'settings.auditDescription',
         icon: 'audit',
-        roles: AUDIT_ROLES,
+        // The superadmin holds it implicitly; a general manager only when the superadmin allows it.
+        permission: 'audit.view',
       },
       {
         to: paths.userLimits,

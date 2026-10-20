@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from app.models import AuditLog, Role
 from app.services import production_service
-from tests.conftest import assert_error, auth
+from tests.conftest import allow_audit, assert_error, auth
 
 BYPRODUCTS = ["gizzard", "liver", "heart", "head"]
 STEP_KEYS = ("raw_material", "produced", "standardize")
@@ -1004,6 +1004,7 @@ async def test_supplier_options(client, gm) -> None:
 
 async def test_audit_entries_link_to_the_batch(api, client, gm, supplier) -> None:
     batch = await api.step1(supplier)
+    await allow_audit(gm)
     r = await client.get(
         "/audit-logs", params={"entity_type": "production_batch"}, headers=auth(gm)
     )

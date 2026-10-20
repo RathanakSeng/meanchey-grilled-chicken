@@ -10,7 +10,7 @@ from sqlalchemy import delete, select, update
 from app.models import AuditLog, InventoryMaterial, ProductionBatch, Role
 from app.permissions import registry
 from app.services import material_service
-from tests.conftest import assert_error, auth, set_marinade_stock
+from tests.conftest import allow_audit, assert_error, auth, set_marinade_stock
 from tests.test_production import PRODUCED, Api, ok
 
 DEFAULT_NAMES = {
@@ -203,6 +203,7 @@ async def test_add_and_remove_with_reason(client, session, gm) -> None:
     ]
     assert logs[2].details["balance_after"] == "1.250" and logs[2].details["unit"] == "kg"
     # The audit log names the material.
+    await allow_audit(gm)
     page = ok(await client.get("/audit-logs?action=material.stock_remove", headers=auth(gm)))
     assert page["items"][0]["entity"]["name"] == "String"
 

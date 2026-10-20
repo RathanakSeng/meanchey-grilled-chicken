@@ -4,15 +4,16 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.deps import SessionDep, require_role
-from app.models import AuditLog, Role, User
+from app.deps import SessionDep, require_permission
+from app.models import AuditLog, User
 from app.schemas.audit import AuditEntityRef, AuditLogOut, AuditLogPage
 from app.schemas.common import UserRef
 from app.services.audit_service import entity_names, list_audit_logs
 
 router = APIRouter(prefix="/audit-logs", tags=["audit"])
 
-AuditViewer = Annotated[User, Depends(require_role(Role.SUPERADMIN, Role.GENERAL_MANAGER))]
+# The superadmin holds it implicitly; a general manager only when the superadmin allows it.
+AuditViewer = Annotated[User, Depends(require_permission("audit.view"))]
 
 
 def _ref(user: User | None) -> UserRef | None:

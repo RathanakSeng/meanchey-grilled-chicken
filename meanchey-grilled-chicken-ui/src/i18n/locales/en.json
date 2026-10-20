@@ -272,7 +272,8 @@
       "attendance_corrections": "Attendance corrections",
       "attendance_workplace": "Workplaces",
       "attendance_shifts": "Schedules",
-      "attendance_requests": "Attendance requests"
+      "attendance_requests": "Attendance requests",
+      "audit_log": "Audit log"
     },
     "legendRecord": "Record: can start batches and fill in steps, but can't reopen finished steps.",
     "gmHint": "Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced).",

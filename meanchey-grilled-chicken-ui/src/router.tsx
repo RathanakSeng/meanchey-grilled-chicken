@@ -5,7 +5,6 @@ import { Spinner } from '@/components/ui'
 import { AppShell } from '@/layouts/AppShell'
 import { LEGACY_PREFIXES, paths } from '@/lib/paths'
 import {
-  AUDIT_ROLES,
   REQUESTS_ACCESS,
   ROLE_LIMIT_ROLES,
   SCHEDULING_ACCESS,
@@ -394,7 +393,7 @@ export const router = createBrowserRouter([
               {
                 path: 'audit-logs',
                 element: (
-                  <RequireAccess roles={AUDIT_ROLES}>
+                  <RequireAccess permission="audit.view">
                     <AuditLogPage />
                   </RequireAccess>
                 ),

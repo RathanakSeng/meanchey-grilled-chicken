@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.models import AuditLog, Role
 from app.permissions import registry
-from tests.conftest import assert_error, auth
+from tests.conftest import allow_audit, assert_error, auth
 
 GM_ONLY = {"users.delete", "users.reset_password", "permissions.grant", "production.delete"}
 
@@ -68,13 +68,15 @@ async def test_superadmin_sees_the_gm_at_full_access(client, superadmin, make_us
                 "attendance_requests",
             ],
         ),
-        # Staff access is for supervisors only; Business info for the GM only.
-        ("settings", ["staff_management", "business_info"]),
+        # Staff access is for supervisors only; Business info and the audit log for the GM only.
+        ("settings", ["staff_management", "business_info", "audit_log"]),
     ]
     features = await _features(client, superadmin, gm)
     # Full access everywhere, except Inventory, Orders and Preparation (Record: their highest
-    # level), Inventory history and Business info (Off until the superadmin allows them).
+    # level), Inventory history, Business info and the audit log (Off until the superadmin allows
+    # them).
     assert features.pop("business_info")["current_level"] == "off"
+    assert features.pop("audit_log")["current_level"] == "off"
     assert features.pop("inventory")["current_level"] == "record"
     assert features.pop("inventory_history")["current_level"] == "off"
     assert features.pop("orders")["current_level"] == "record"
@@ -124,6 +126,7 @@ async def test_superadmin_sets_gm_levels(
     assert log.actor_id == superadmin.id and log.target_user_id == gm.id
     assert log.details["feature"] == feature and log.details["to"] == level
     # Made by the superadmin, so the GM's audit log leaves it out.
+    await allow_audit(gm)
     r = await client.get("/audit-logs?action=feature.set", headers=auth(gm))
     assert r.json()["items"] == []
 
