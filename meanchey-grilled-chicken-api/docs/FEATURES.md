@@ -858,7 +858,7 @@ Weights are exact decimals (`NUMERIC`, `Decimal` in Python), accepted as JSON nu
 | `sachets_4_manual`, `sachets_2_manual` | `false` (default, "auto"): the count follows its pack count; `true`: typed by hand and kept |
 | `comment` | at most 1000 characters (trimmed; empty → null). Optional, **except when the packs differ from the plan or the sachets differ from the packs** (below). |
 
-All of these (except the comment and the sachets) are required at Finish. The API field names stay `big_packages` / `small_packages`; only the displayed names changed.
+All of these (except the comment and the sachets) are required at Finish. The app prefills empty step 3 fields when the form opens (packs = the confirmed plan, rejected wings / thighs 0, each by-product carried forward whole with 0 rejected) and saves them through the normal draft PATCH; the API itself sets no defaults. The API field names stay `big_packages` / `small_packages`; only the displayed names changed.
 
 **Satay sachets** (one per pack: **4-Piece Pack → 4-piece satay sachet**, **2-Piece Pack → 2-piece satay sachet**):
 

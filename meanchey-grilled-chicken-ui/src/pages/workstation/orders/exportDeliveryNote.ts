@@ -1,4 +1,4 @@
-import type { Cell, Row, Worksheet } from 'exceljs'
+import type { Cell, CellRichTextValue, Font, Row, Worksheet } from 'exceljs'
 
 /**
  * Delivery note as an Excel file, built in the browser from public/templates/delivery_note_template.xlsx
@@ -7,6 +7,10 @@ import type { Cell, Row, Worksheet } from 'exceljs'
  * Template layout (sheet "Delivery Note"): supplier B3 name · B4 tel · B5 address; customer B7 name ·
  * B8 tel · B9–B10 address; F7 date; item rows from row 13 (A no. · C description · D unit), the
  * ISSUED BY / CONFIRMED BY blocks right below the table.
+ *
+ * Fonts: once filled, every cell with text (the template's labels too) gets Khmer OS Content when the
+ * text has any Khmer letter, otherwise Trebuchet MS (rich text: per run). Size, bold, colour are kept,
+ * except that everything the export writes (supplier, customer, date, item rows) is size 11.
  */
 
 export const TEMPLATE_URL = '/templates/delivery_note_template.xlsx'
@@ -18,6 +22,8 @@ const TEMPLATE_ITEM_ROWS = 2
 /** Characters that fit across B–D (the customer address, before it continues on row 10). */
 const ADDRESS_LINE_CHARS = 52
 const MAX_NAME_CHARS = 80
+/** Font size of everything the export writes; the template's own labels keep theirs. */
+const VALUE_FONT_SIZE = 11
 
 export interface DeliveryNoteParty {
   name: string
@@ -78,6 +84,7 @@ export async function exportDeliveryNoteXlsx(input: DeliveryNoteInput): Promise<
     const sheet = workbook.getWorksheet('Delivery Note') ?? workbook.worksheets[0]
     if (!sheet) throw new Error('The template has no sheet')
     fill(sheet, input)
+    applyFonts(sheet)
     buffer = (await workbook.xlsx.writeBuffer()) as ArrayBuffer
   } catch (cause) {
     throw new ExportError('build', cause)
@@ -112,7 +119,7 @@ function fillItems(sheet: Worksheet, items: DeliveryNoteInput['items']) {
 
   items.forEach((item, i) => {
     const row = sheet.getRow(FIRST_ITEM_ROW + i)
-    row.getCell('A').value = i + 1
+    put(row.getCell('A'), i + 1)
     put(row.getCell('C'), item.name)
     put(row.getCell('D'), item.unit)
   })
@@ -164,13 +171,50 @@ function oneLine(text: string): string {
     .join(', ')
 }
 
-const KHMER = /[ក-៿᧠-᧿]/
-const KHMER_FONT = 'Khmer OS Siemreap'
-
-/** Set a cell's text; Khmer text gets Khmer OS Siemreap (the rest of the cell's font is kept). */
-function put(cell: Cell, value: string) {
+/** Write a value the export fills in, at size 11. */
+function put(cell: Cell, value: string | number) {
   cell.value = value
-  if (KHMER.test(value)) cell.font = { ...cell.font, name: KHMER_FONT }
+  setFont(cell, { size: VALUE_FONT_SIZE })
+}
+
+// --- Fonts ---------------------------------------------------------------------------------------
+
+/** Khmer letters, signs and digits (U+1780–17FF) and Khmer symbols (U+19E0–19FF). */
+const KHMER = /[ក-៿᧠-᧿]/
+export const KHMER_FONT = 'Khmer OS Content'
+export const ENGLISH_FONT = 'Trebuchet MS'
+
+/** The font for a piece of text: Khmer OS Content when it has any Khmer letter, else Trebuchet MS. */
+export function fontFor(text: string): string {
+  return KHMER.test(text) ? KHMER_FONT : ENGLISH_FONT
+}
+
+/** Every cell holding a value gets the font its text needs; the rest of its font is kept. */
+function applyFonts(sheet: Worksheet) {
+  sheet.eachRow({ includeEmpty: false }, (row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      const value = cell.value
+      if (value == null) return
+      let text = cell.text
+      if (typeof value === 'object' && 'richText' in value) {
+        const rich = value as CellRichTextValue
+        cell.value = {
+          richText: rich.richText.map((run) => ({ ...run, font: { ...run.font, name: fontFor(run.text) } })),
+        }
+        text = rich.richText.map((run) => run.text).join('')
+      }
+      setFont(cell, { name: fontFor(text) })
+    })
+  })
+}
+
+/**
+ * Cells loaded from the template share one style object per look, so the style is copied first:
+ * changing it in place would change every cell that shares it.
+ */
+function setFont(cell: Cell, font: Partial<Font>) {
+  const style = structuredClone(cell.style)
+  cell.style = { ...style, font: { ...style.font, ...font } }
 }
 
 /** The customer address over B9 and B10: its own line break, else split at a word near the width. */

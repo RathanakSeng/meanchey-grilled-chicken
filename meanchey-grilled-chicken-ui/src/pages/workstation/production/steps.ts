@@ -198,6 +198,30 @@ export function standardizeFromBatch(batch: ProductionBatch): StandardizeValues 
   }
 }
 
+/**
+ * Prefill for empty step 3 fields (all editable): packs from the confirmed plan, rejected wings and
+ * thighs 0, and each by-product with nothing typed yet carried forward whole (rejected 0). The form
+ * starts from these, so autosave puts them on the server (Finish validates the saved copy).
+ */
+export function standardizeDefaults(batch: ProductionBatch, v: StandardizeValues): StandardizeValues {
+  const plan = batch.plan?.status === 'confirmed' ? batch.plan : null
+  const or = (input: string, fallback: string) => (input.trim() ? input : fallback)
+  return {
+    ...v,
+    big_packages: or(v.big_packages, countToInput(plan?.expected_big)),
+    small_packages: or(v.small_packages, countToInput(plan?.expected_small)),
+    rejected_wings: or(v.rejected_wings, '0'),
+    rejected_thighs: or(v.rejected_thighs, '0'),
+    byproducts: Object.fromEntries(
+      Object.entries(v.byproducts).map(([code, row]) => {
+        const produced = toInput(byproductRow(batch, code)?.produced_kg)
+        const untouched = !row.carry_kg.trim() && !row.rejected_kg.trim()
+        return [code, untouched && produced ? { carry_kg: produced, rejected_kg: '0' } : row]
+      }),
+    ),
+  }
+}
+
 export function standardizePayload(v: StandardizeValues): Record<string, unknown> {
   return compact({
     big_packages: countPayload(v.big_packages),

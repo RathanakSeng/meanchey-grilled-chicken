@@ -27,6 +27,7 @@ import {
   rawFromBatch,
   rawInputErrors,
   rawPayload,
+  standardizeDefaults,
   standardizeFinishErrors,
   standardizeFromBatch,
   standardizeInputErrors,
@@ -51,9 +52,14 @@ function useStep<V>(
   fromBatch: (b: ProductionBatch) => V,
   toPayload: (v: V) => Record<string, unknown>,
   onFinished: (b: ProductionBatch) => void,
+  /** Prefill for empty fields: differs from the server copy, so autosave saves it. */
+  withDefaults?: (b: ProductionBatch, v: V) => V,
 ) {
   const queryClient = useQueryClient()
-  const [values, setValues] = useState<V>(() => fromBatch(batch))
+  const [values, setValues] = useState<V>(() => {
+    const v = fromBatch(batch)
+    return withDefaults ? withDefaults(batch, v) : v
+  })
   const onSaved = useCallback(
     (b: ProductionBatch) => queryClient.setQueryData(productionKeys.batch(b.id), b),
     [queryClient],
@@ -408,6 +414,7 @@ export function StandardizeForm({ batch, onFinished }: FormProps) {
     standardizeFromBatch,
     standardizePayload,
     onFinished,
+    standardizeDefaults,
   )
   const errors = standardizeInputErrors(values)
   const pieces = pieceBalance(batch, values)
