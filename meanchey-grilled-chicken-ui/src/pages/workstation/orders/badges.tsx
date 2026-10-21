@@ -1,7 +1,7 @@
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Badge, cx } from '@/components/ui'
-import type { BoxColor, CustomerBrief, OrderStatus } from '@/lib/types'
+import { BOX_COLORS, type BoxColor, type CustomerBrief, type OrderListItem, type OrderStatus } from '@/lib/types'
 import { STATUS_TONES } from './api'
 
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
@@ -9,21 +9,20 @@ export function OrderStatusBadge({ status }: { status: OrderStatus }) {
   return <Badge tone={STATUS_TONES[status]}>{t(`orders.status.${status}`)}</Badge>
 }
 
-/** A small white / black square, the colour of the box. */
-export function BoxSwatch({ color, className }: { color: BoxColor; className?: string }) {
-  return (
-    <span
-      aria-hidden
-      className={cx(
-        'inline-block h-3.5 w-3.5 shrink-0 rounded-[4px] ring-1 ring-inset',
-        color === 'white' ? 'bg-white ring-stone-400' : 'bg-stone-900 ring-stone-900',
-        className,
-      )}
-    />
-  )
+const SWATCHES: Record<BoxColor, string> = {
+  white: 'bg-white ring-1 ring-inset ring-stone-400',
+  black: 'bg-stone-900 ring-1 ring-inset ring-stone-900',
+  // Bags: a dashed outline (plastic), half filled (delivery), like the printed delivery note.
+  plastic_bag: 'border border-dashed border-stone-500 bg-white',
+  delivery_bag: 'bg-[linear-gradient(135deg,theme(colors.stone.900)_50%,white_50%)] ring-1 ring-inset ring-stone-900',
 }
 
-/** "▢ White box" / "■ Black box" (ប្រអប់ស / ប្រអប់ខ្មៅ). */
+/** A small square marking the container: white / black box, plastic / delivery bag. */
+export function BoxSwatch({ color, className }: { color: BoxColor; className?: string }) {
+  return <span aria-hidden className={cx('inline-block h-3.5 w-3.5 shrink-0 rounded-[4px]', SWATCHES[color], className)} />
+}
+
+/** "▢ White box" / "■ Black box" / "Plastic bag" / "Delivery bag" (ប្រអប់ស / ប្រអប់ខ្មៅ / …). */
 export function BoxColorLabel({ color, count }: { color: BoxColor; count?: number }) {
   const { t } = useTranslation()
   return (
@@ -34,21 +33,37 @@ export function BoxColorLabel({ color, count }: { color: BoxColor; count?: numbe
   )
 }
 
-/** "▢ 2 · ■ 1" for list rows. */
-export function BoxCounts({ white, black }: { white: number; black: number }) {
+/** "2 white boxes, 1 plastic bag" (containers without boxes left out). */
+export function boxCountsText(t: TFunction, counts: Partial<Record<BoxColor, number>>) {
+  return BOX_COLORS.filter((c) => (counts[c] ?? 0) > 0)
+    .map((c) => t(`orders.colorCount.${c}`, { count: counts[c] }))
+    .join(', ')
+}
+
+/** "▢ 2 · ■ 1" for list rows; the bags only when the order has some. */
+export function BoxCounts({ counts }: { counts: Record<BoxColor, number> }) {
   const { t } = useTranslation()
+  const shown = BOX_COLORS.filter((c) => c === 'white' || c === 'black' || counts[c] > 0)
   return (
-    <span className="inline-flex items-center gap-2 tabular-nums" aria-label={t('orders.boxCountsLabel', { white, black })}>
-      <span className="inline-flex items-center gap-1">
-        <BoxSwatch color="white" />
-        {white}
-      </span>
-      <span className="inline-flex items-center gap-1">
-        <BoxSwatch color="black" />
-        {black}
-      </span>
+    <span className="inline-flex items-center gap-2 tabular-nums" aria-label={boxCountsText(t, counts)}>
+      {shown.map((c) => (
+        <span key={c} className="inline-flex items-center gap-1">
+          <BoxSwatch color={c} />
+          {counts[c]}
+        </span>
+      ))}
     </span>
   )
+}
+
+/** The list row's box counts per container. */
+export function listBoxCounts(item: OrderListItem): Record<BoxColor, number> {
+  return {
+    white: item.white_boxes,
+    black: item.black_boxes,
+    plastic_bag: item.plastic_bag_boxes,
+    delivery_bag: item.delivery_bag_boxes,
+  }
 }
 
 /** The order's customer as one line of text: the name, or "Direct order · 012 345 678". */

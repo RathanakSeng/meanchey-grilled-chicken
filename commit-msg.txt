@@ -1,8 +1,12 @@
-<UPDATE><UI><DELIVERY-NOTE, PRODUCTION>: Excel delivery note fonts by script (Khmer OS Content / Trebuchet MS, values size 11); step 3 prefilled from the plan and the produced by-products
+<ADD, UPDATE><BOTH><ORDER-BOX-TYPES>: Plastic bag and delivery bag as box types; "+ Add box" opens a menu to pick the type
 
-- UI: delivery note Excel: every cell with text (template labels included) gets Khmer OS Content when it has any Khmer letter (U+1780–17FF, U+19E0–19FF), otherwise Trebuchet MS; rich text per run; bold / colour kept
-- UI: delivery note Excel: everything the export writes (supplier, customer, date, item no., name, quantity) is font size 11 (VALUE_FONT_SIZE); template labels keep their size
-- UI: delivery note Excel: style copied per cell before any font change (template cells share one style object, so an in-place change leaked to neighbouring cells)
-- UI: step 3 prefill for empty fields only, all editable: 4-piece / 2-piece packs from the confirmed plan, rejected wings / thighs 0, each untouched by-product carried forward whole (produced kg) with 0 rejected
-- UI: useStep takes an optional withDefaults applied to the initial state only (fromBatch stays the server copy), so autosave saves the prefill like typing and Finish validates it
-- Docs: UI FEATURES (step 3 prefill, Excel fonts and size) and ARCHITECTURE (put / VALUE_FONT_SIZE, applyFonts / style copy, useStep withDefaults); API FEATURES (step 3 prefill done by the app, the API sets no defaults) and ARCHITECTURE (design decision, Excel fonts and size note)
+- API: migration 0026: order_boxes color CHECK also accepts plastic_bag and delivery_bag (downgrade restores the old CHECK and fails while an order has a bag)
+- API: BOX_COLORS (white, black, plastic_bag, delivery_bag) drives the summary order, list counts (plastic_bag_boxes / delivery_bag_boxes added to GET /orders items), audit counts and the alert payload
+- API: Out for delivery alert lists only the containers with boxes ("2 white boxes, 1 plastic bag"); old alerts with only white / black still render
+- API: delivery note PDF: Plastic bags / Delivery bags sections and markers, black and white only (dashed outline, half filled)
+- API: tests: bags on create / summary / list / audit / edit, alert texts, markers and labels, migration 0026 round trip
+- UI: order form: one "+ Add box ▾" button replacing "+ White box" / "+ Black box"; it opens a menu of the 4 types with their swatches, adds the picked one and scrolls to the new card; "Box N" no longer wraps on narrow phones
+- UI: ActionMenu: optional trigger (a secondary Button with custom content) and a leading node per item; the first item is focused on open, ↑ / ↓ / Home / End move, Esc gives focus back; Button forwards its ref; chevronDown icon
+- UI: BoxSwatch for the 4 containers; BoxCounts shows the bags only when > 0; boxCountsText for the list's aria-label and the bell's Out for delivery text
+- UI: i18n (en / km): the 2 new types, colorCount plurals, addBox "Add box" / "បន្ថែមប្រអប់"
+- Docs: API FEATURES (audit, alert payload and text, order_boxes color, list fields, delivery note markers and sections) and ARCHITECTURE (ER color, migration 0026, markers, tests, receipt decision); UI FEATURES (Add box menu, list counts, summary, delivery note, bell text) and ARCHITECTURE (ActionMenu trigger / leading / keyboard, badges, BOX_COLORS design decision)

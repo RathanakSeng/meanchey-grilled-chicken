@@ -8,7 +8,14 @@ import { api } from '@/lib/api'
 import { useCalendarNames, useFormatDate } from '@/lib/format'
 import { paths } from '@/lib/paths'
 import { useDuration } from '@/pages/attendance/api'
-import type { AppNotification, NotificationPage, OrderAlertItem, PreparationAlertMaterial } from '@/lib/types'
+import { boxCountsText } from '@/pages/workstation/orders/badges'
+import {
+  BOX_COLORS,
+  type AppNotification,
+  type NotificationPage,
+  type OrderAlertItem,
+  type PreparationAlertMaterial,
+} from '@/lib/types'
 import { Icon } from './icons'
 import { Sheet } from './Sheet'
 import { Button, Spinner, cx } from './ui'
@@ -112,10 +119,10 @@ export function useNotificationText() {
       const customer = p.customer ?? t('orders.directOrderWithPhone', { phone: p.customer_phone ?? '—' })
       const common = { code: p.code, customer }
       if (n.type === 'order.delivering') {
-        return {
-          text: t('notifications.orderDelivering', { ...common, white: p.white ?? 0, black: p.black ?? 0 }),
-          comment: null,
-        }
+        // "2 white boxes, 1 plastic bag" (alerts from before the bags only carry white / black).
+        const counts = Object.fromEntries(BOX_COLORS.map((c) => [c, Number(p[c] ?? 0)]))
+        const boxes = boxCountsText(t, counts) || t('notifications.orderNothing')
+        return { text: t('notifications.orderDelivering', { ...common, boxes }), comment: null }
       }
       if (n.type === 'order.delivered') return { text: t('notifications.orderDelivered', common), comment: null }
       if (n.type === 'order.return_pending') {

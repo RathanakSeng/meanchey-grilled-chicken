@@ -110,6 +110,8 @@ async def test_recipients_and_one_alert_per_status(
         "actor_id": str(staff.id),
         "white": 1,
         "black": 1,
+        "plastic_bag": 0,
+        "delivery_bag": 0,
         "repeat": False,
     }
     assert {r.telegram_status for r in rows} == {"bot_off"}
@@ -221,7 +223,7 @@ async def test_telegram_texts_and_open_order_button(
     customer_html = "Dara &lt;Shop&gt; &amp; Co"
     # Khmer is the default language.
     assert len(texts) == 3
-    assert texts[0] == (f"🚚 <b>{code}</b> សម្រាប់ {customer_html} កំពុងដឹកជញ្ជូន — ប្រអប់ស 1 / ប្រអប់ខ្មៅ 1។")
+    assert texts[0] == (f"🚚 <b>{code}</b> សម្រាប់ {customer_html} កំពុងដឹកជញ្ជូន — ប្រអប់ស 1, ប្រអប់ខ្មៅ 1។")
     assert texts[1].startswith(f"↩️ <b>{code}</b>៖ {customer_html} បានប្រគល់ទំនិញមកវិញ — កញ្ចប់ ៤ ដុំ 2, ")
     assert "0.100 គ.ក" in texts[1] and "“Box &lt;wet&gt;”" in texts[1]
     # 2 of 3 packs and 0.1 of 0.3 kg came back: partly returned.
@@ -246,8 +248,14 @@ def test_english_texts() -> None:
     cases = [
         (
             row("order.delivering", white=2, black=1),
-            "🚚 <b>OR-20261003-001</b> for Dara &lt;Shop&gt; is out for delivery — 2 white / "
-            "1 black boxes.",
+            "🚚 <b>OR-20261003-001</b> for Dara &lt;Shop&gt; is out for delivery — 2 white boxes, "
+            "1 black box.",
+        ),
+        (
+            # Containers without boxes are left out.
+            row("order.delivering", white=0, black=0, plastic_bag=1, delivery_bag=3),
+            "🚚 <b>OR-20261003-001</b> for Dara &lt;Shop&gt; is out for delivery — 1 plastic bag, "
+            "3 delivery bags.",
         ),
         (
             row("order.delivered"),

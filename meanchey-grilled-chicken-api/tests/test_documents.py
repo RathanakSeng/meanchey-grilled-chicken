@@ -18,6 +18,7 @@ from app.documents import delivery_note, render
 from app.documents.delivery_note import INVOICE, build_context, kind_for, sample_order
 from app.main import app
 from app.models import AuditLog, Role
+from app.models.order import BOX_COLORS
 from app.permissions import registry
 from tests.conftest import assert_error, auth
 from tests.telegram_fakes import RecordingSession
@@ -332,6 +333,10 @@ def test_logo_qr_and_sample_marker() -> None:
     css = (render.TEMPLATES / "receipt.css").read_text(encoding="utf-8").lower()
     colours = {c for c in __import__("re").findall(r"#[0-9a-f]{3,6}\b", css)}
     assert colours <= {"#000", "#fff"}
+    # Every container has a marker and its labels.
+    for color in BOX_COLORS:
+        assert f".marker.{color}" in css
+        assert color in delivery_note.COLORS and color in delivery_note.COLOR_SECTIONS
 
 
 # --- Real PDFs -----------------------------------------------------------------------------------

@@ -882,7 +882,7 @@
     "orderNothing": "nothing",
     "orderItemCount": "{{count}} × {{name}}",
     "orderItemKg": "{{kg}} kg {{name}}",
-    "orderDelivering": "{{code}} for {{customer}} is out for delivery — {{white}} white / {{black}} black boxes.",
+    "orderDelivering": "{{code}} for {{customer}} is out for delivery — {{boxes}}.",
     "orderDelivered": "{{code}}: delivered to {{customer}}, everything accepted.",
     "orderReturnPending": "{{code}}: {{customer}} returned items — {{summary}}. Review the return.",
     "orderReturnsReviewed": "{{code}}: return reviewed — {{outcome}} ({{toStock}} to stock, {{toWasted}} wasted).",
@@ -1056,13 +1056,26 @@
     },
     "colors": {
       "white": "White box",
-      "black": "Black box"
+      "black": "Black box",
+      "plastic_bag": "Plastic bag",
+      "delivery_bag": "Delivery bag"
     },
     "colorBoxes": {
       "white": "White boxes: {{count}}",
-      "black": "Black boxes: {{count}}"
+      "black": "Black boxes: {{count}}",
+      "plastic_bag": "Plastic bags: {{count}}",
+      "delivery_bag": "Delivery bags: {{count}}"
     },
-    "boxCountsLabel": "{{white}} white, {{black}} black boxes",
+    "colorCount": {
+      "white_one": "{{count}} white box",
+      "white_other": "{{count}} white boxes",
+      "black_one": "{{count}} black box",
+      "black_other": "{{count}} black boxes",
+      "plastic_bag_one": "{{count}} plastic bag",
+      "plastic_bag_other": "{{count}} plastic bags",
+      "delivery_bag_one": "{{count}} delivery bag",
+      "delivery_bag_other": "{{count}} delivery bags"
+    },
     "kpi": {
       "created": "Created",
       "delivering": "Delivering",
@@ -1125,10 +1138,7 @@
     "boxes": "Boxes",
     "boxTitle": "Box {{n}}",
     "boxesTitle": "Boxes ({{count}})",
-    "addBox": {
-      "white": "White box",
-      "black": "Black box"
-    },
+    "addBox": "Add box",
     "duplicateBox": "Duplicate",
     "removeBox": "Remove",
     "item": "Item",

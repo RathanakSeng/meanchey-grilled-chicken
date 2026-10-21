@@ -41,7 +41,7 @@ OrderListStatus = Literal[
     "fully_returned",
     "cancelled",
 ]
-BoxColor = Literal["white", "black"]
+BoxColor = Literal["white", "black", "plastic_bag", "delivery_bag"]
 CustomerType = Literal["saved", "direct"]
 # Raw input: normalized (phone) / trimmed (location) by the service.
 Phone = Annotated[str, Field(max_length=40)]
@@ -210,7 +210,8 @@ class TotalSummary(BaseModel):
 
 
 class OrderSummary(BaseModel):
-    """Per colour (white, then black; colours without boxes left out) and the grand total.
+    """Per container (white box, black box, plastic bag, delivery bag; those without boxes left
+    out) and the grand total.
     Items in catalog order: 4-Piece Packs, 2-Piece Packs, packed by-products."""
 
     colors: list[ColorSummary]
@@ -281,6 +282,8 @@ class OrderListItem(BaseModel):
     driver: UserRef | None
     white_boxes: int
     black_boxes: int
+    plastic_bag_boxes: int
+    delivery_bag_boxes: int
     created_at: datetime
     updated_at: datetime
 

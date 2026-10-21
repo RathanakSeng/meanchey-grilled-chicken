@@ -15,7 +15,7 @@ import { paths } from '@/lib/paths'
 import type { CustomerOption, OrderCustomerType, OrderListItem, OrderStats, Page } from '@/lib/types'
 import { useDebounced } from '@/lib/useDebounced'
 import { orderKeys } from './api'
-import { BoxCounts, OrderCustomerName, OrderStatusBadge } from './badges'
+import { BoxCounts, OrderCustomerName, OrderStatusBadge, listBoxCounts } from './badges'
 
 // Chips; "completed" = success, partly or fully returned.
 const STATUSES = ['all', 'created', 'delivering', 'return_pending', 'completed', 'cancelled'] as const
@@ -315,7 +315,7 @@ export function OrderListPage() {
                       {formatDay(item.delivery_date, { day: 'numeric', month: 'short' })}
                       {driverName(item) && ` · ${driverName(item)}`}
                     </span>
-                    <BoxCounts white={item.white_boxes} black={item.black_boxes} />
+                    <BoxCounts counts={listBoxCounts(item)} />
                   </span>
                 </button>
               </li>
@@ -357,7 +357,7 @@ export function OrderListPage() {
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums">{formatDay(item.delivery_date)}</td>
                     <td className="px-4 py-3">{driverName(item) ?? <span className="text-stone-400">—</span>}</td>
                     <td className="px-4 py-3">
-                      <BoxCounts white={item.white_boxes} black={item.black_boxes} />
+                      <BoxCounts counts={listBoxCounts(item)} />
                     </td>
                     <td className="px-4 py-3">
                       <OrderStatusBadge status={item.status} />

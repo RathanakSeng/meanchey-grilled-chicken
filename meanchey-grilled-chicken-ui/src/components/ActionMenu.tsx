@@ -1,11 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { Icon, type IconName } from './icons'
-import { cx } from './ui'
+import { Button, cx } from './ui'
 
 export interface ActionMenuItem {
   key: string
   label: string
   icon?: IconName
+  /** Drawn before the label instead of an icon (e.g. a box swatch). */
+  leading?: ReactNode
   tone?: 'default' | 'danger'
   onSelect(): void
 }
@@ -13,10 +15,21 @@ export interface ActionMenuItem {
 const MENU_WIDTH = 192
 
 /**
- * A "⋮" button with a small menu. The menu uses fixed positioning, so it isn't clipped by
- * scrolling/overflow containers such as tables. Renders nothing when there are no items.
+ * A "⋮" button with a small menu, or a secondary button with `trigger` as its content (e.g.
+ * "+ Add box ▾"). The menu uses fixed positioning, so it isn't clipped by scrolling/overflow
+ * containers such as tables. Opening focuses the first item; ↑ / ↓ / Home / End move, Esc closes
+ * and gives focus back to the button. Renders nothing when there are no items.
  */
-export function ActionMenu({ items, label }: { items: ActionMenuItem[]; label: string }) {
+export function ActionMenu({
+  items,
+  label,
+  trigger,
+}: {
+  items: ActionMenuItem[]
+  /** The ⋮ button's accessible name (ignored with `trigger`, whose text names it). */
+  label: string
+  trigger?: ReactNode
+}) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number; up: boolean } | null>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
@@ -42,7 +55,25 @@ export function ActionMenu({ items, label }: { items: ActionMenuItem[]; label: s
       }
     }
     const close = () => setOpen(false)
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        close()
+        buttonRef.current?.focus()
+        return
+      }
+      const buttons = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])]
+      const at = buttons.indexOf(document.activeElement as HTMLButtonElement)
+      const next =
+        e.key === 'ArrowDown' ? (at + 1) % buttons.length
+        : e.key === 'ArrowUp' ? (at - 1 + buttons.length) % buttons.length
+        : e.key === 'Home' ? 0
+        : e.key === 'End' ? buttons.length - 1
+        : null
+      if (next !== null && buttons.length > 0) {
+        e.preventDefault()
+        buttons[next].focus()
+      }
+    }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('touchstart', onDown)
     window.addEventListener('scroll', close, true)
@@ -57,23 +88,35 @@ export function ActionMenu({ items, label }: { items: ActionMenuItem[]; label: s
     }
   }, [open])
 
+  // Focus the first item once the menu is placed.
+  useEffect(() => {
+    if (open && pos) menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+  }, [open, pos])
+
   if (items.length === 0) return null
+  const toggle = (e: ReactMouseEvent) => {
+    e.stopPropagation()
+    setOpen((o) => !o)
+  }
   return (
     <>
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          setOpen((o) => !o)
-        }}
-        className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-800"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={label}
-      >
-        <Icon name="more" strokeWidth={3} />
-      </button>
+      {trigger ? (
+        <Button ref={buttonRef} variant="secondary" onClick={toggle} aria-haspopup="menu" aria-expanded={open}>
+          {trigger}
+        </Button>
+      ) : (
+        <button
+          ref={buttonRef}
+          type="button"
+          onClick={toggle}
+          className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-800"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={label}
+        >
+          <Icon name="more" strokeWidth={3} />
+        </button>
+      )}
       {open && pos && (
         <div
           ref={menuRef}
@@ -91,6 +134,7 @@ export function ActionMenu({ items, label }: { items: ActionMenuItem[]; label: s
               key={item.key}
               tone={item.tone}
               icon={item.icon}
+              leading={item.leading}
               onClick={() => {
                 setOpen(false)
                 item.onSelect()
@@ -108,11 +152,13 @@ export function ActionMenu({ items, label }: { items: ActionMenuItem[]; label: s
 function MenuButton({
   tone = 'default',
   icon,
+  leading,
   onClick,
   children,
 }: {
   tone?: 'default' | 'danger'
   icon?: IconName
+  leading?: ReactNode
   onClick(): void
   children: ReactNode
 }) {
@@ -122,11 +168,11 @@ function MenuButton({
       role="menuitem"
       onClick={onClick}
       className={cx(
-        'flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm',
-        tone === 'danger' ? 'text-red-600 hover:bg-red-50' : 'text-stone-700 hover:bg-stone-50',
+        'flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm focus:outline-none',
+        tone === 'danger' ? 'text-red-600 hover:bg-red-50 focus:bg-red-50' : 'text-stone-700 hover:bg-stone-50 focus:bg-stone-50',
       )}
     >
-      {icon && <Icon name={icon} width={16} height={16} />}
+      {leading ?? (icon && <Icon name={icon} width={16} height={16} />)}
       {children}
     </button>
   )

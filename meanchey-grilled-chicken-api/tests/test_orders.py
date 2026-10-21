@@ -353,6 +353,42 @@ async def test_create_validation(orders, customer, boxes, loc) -> None:
     assert loc in [f["loc"] for f in r.json()["error"]["details"]["fields"]]
 
 
+async def test_plastic_and_delivery_bags(client, session, gm, orders, customer) -> None:
+    order = await orders.create(
+        customer,
+        [
+            box("delivery_bag", packs_big=2),
+            box("plastic_bag", liver="0.2"),
+            box("white", packs_small=1),
+            box("delivery_bag", packs_small=1),
+        ],
+    )
+    assert [b["color"] for b in order["boxes"]] == [
+        "delivery_bag",
+        "plastic_bag",
+        "white",
+        "delivery_bag",
+    ]
+    # Summary per container, white box → black box → plastic bag → delivery bag.
+    assert [(c["color"], c["boxes"]) for c in order["summary"]["colors"]] == [
+        ("white", 1),
+        ("plastic_bag", 1),
+        ("delivery_bag", 2),
+    ]
+    log = await session.scalar(select(AuditLog).where(AuditLog.action == "order.create"))
+    assert (log.details["plastic_bag_boxes"], log.details["delivery_bag_boxes"]) == (1, 2)
+
+    body = ok(await client.get("/orders", params={"q": order["code"]}, headers=auth(gm)))
+    (item,) = body["items"]
+    assert (item["white_boxes"], item["black_boxes"]) == (1, 0)
+    assert (item["plastic_bag_boxes"], item["delivery_bag_boxes"]) == (1, 2)
+
+    # A box can be changed to a bag on edit.
+    boxes = [{"color": "plastic_bag", "lines": [{"item_code": "packs_big", "count": 1}]}]
+    order = ok(await orders.patch(order, boxes=boxes))
+    assert [c["color"] for c in order["summary"]["colors"]] == ["plastic_bag"]
+
+
 async def test_create_rejects_bad_colour_and_extra_fields(orders, customer) -> None:
     r = await orders.create_raw(customer, [{"color": "red", "lines": []}])
     assert_error(r, 422, "VALIDATION_ERROR")
@@ -411,6 +447,8 @@ async def test_edit_replaces_boxes_and_records_a_diff(
     assert changes["boxes"]["to"] == {
         "white": 0,
         "black": 1,
+        "plastic_bag": 0,
+        "delivery_bag": 0,
         "items": {"byproduct_packed.heart": "0.300"},
     }
 
@@ -828,6 +866,7 @@ async def test_stats_and_list_filters(client, gm, orders, api, supplier, custome
     row = ok(await client.get("/orders", params={"q": created["code"]}, headers=auth(gm)))
     (item,) = row["items"]
     assert (item["white_boxes"], item["black_boxes"]) == (1, 1)
+    assert (item["plastic_bag_boxes"], item["delivery_bag_boxes"]) == (0, 0)
     assert item["customer"]["name"] == "Dara Shop"
 
 

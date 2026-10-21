@@ -33,18 +33,13 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   block?: boolean
 }
 
-export function Button({
-  variant = 'primary',
-  loading = false,
-  block = false,
-  className,
-  children,
-  disabled,
-  type = 'button',
-  ...props
-}: ButtonProps) {
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  { variant = 'primary', loading = false, block = false, className, children, disabled, type = 'button', ...props },
+  ref,
+) {
   return (
     <button
+      ref={ref}
       type={type}
       disabled={disabled || loading}
       className={cx(
@@ -61,7 +56,7 @@ export function Button({
       {children}
     </button>
   )
-}
+})
 
 const controlClass =
   'block w-full rounded-lg border-0 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm ring-1 ring-inset ring-stone-300 placeholder:text-stone-400 focus:ring-2 focus:ring-inset focus:ring-brand-500 disabled:bg-stone-100 disabled:text-stone-500'

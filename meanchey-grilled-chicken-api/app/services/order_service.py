@@ -821,7 +821,7 @@ async def list_orders(
     total = await session.scalar(select(func.count()).select_from(base.subquery())) or 0
     rows = (
         await session.execute(
-            base.add_columns(_box_count("white"), _box_count("black"))
+            base.add_columns(*(_box_count(c) for c in BOX_COLORS))
             .order_by(Order.delivery_date.desc(), Order.code.desc(), Order.id)
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -838,12 +838,11 @@ async def list_orders(
             customer=_customer_brief(o, customers),
             delivery_date=o.delivery_date,
             driver=_ref(users, o.driver_id),
-            white_boxes=white or 0,
-            black_boxes=black or 0,
+            **{f"{c}_boxes": n or 0 for c, n in zip(BOX_COLORS, counts, strict=True)},
             created_at=o.created_at,
             updated_at=o.updated_at,
         )
-        for o, white, black in rows
+        for o, *counts in rows
     ]
     return items, total
 

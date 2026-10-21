@@ -7,7 +7,8 @@ created ──► delivering ──► return_pending ──► partly_returned 
 ```
 
 - `orders`: one row per order, code OR-YYYYMMDD-NNN (per creation day, `order_counters`).
-- `order_boxes`: the boxes of an order, white or black, in order (`position`).
+- `order_boxes`: the boxes of an order, in order (`position`): a white box, a black box, a plastic
+  bag or a delivery bag (`color`).
 - `order_box_items`: one line per item per box. Packs carry a whole `count`, packed by-products a
   `kg`. Lines are rows so prices (`unit_price`, `amount`) can be added later.
 - `order_return_items`: what came back, per item (recorded at Delivered), then how it was split
@@ -54,7 +55,8 @@ ORDER_STATUSES = (
     "fully_returned",
     "cancelled",
 )
-BOX_COLORS = ("white", "black")
+# The container of a box (named `color` since the first two were white / black boxes).
+BOX_COLORS = ("white", "black", "plastic_bag", "delivery_bag")
 # saved: a customer from Customers; direct: no saved customer, a phone (+ location) for this order.
 CUSTOMER_TYPES = ("saved", "direct")
 ORDER_NOTE_MAX_LENGTH = 1000

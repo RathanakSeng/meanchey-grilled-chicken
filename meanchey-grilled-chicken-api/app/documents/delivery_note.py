@@ -75,10 +75,14 @@ LABELS: dict[str, tuple[str, str]] = {
 COLORS: dict[str, tuple[str, str]] = {
     "white": ("ប្រអប់ស", "White box"),
     "black": ("ប្រអប់ខ្មៅ", "Black box"),
+    "plastic_bag": ("ថង់ប្លាស្ទិក", "Plastic bag"),
+    "delivery_bag": ("កាបូបដឹកជញ្ជូន", "Delivery bag"),
 }
 COLOR_SECTIONS: dict[str, tuple[str, str]] = {
     "white": ("ប្រអប់ស", "White boxes"),
     "black": ("ប្រអប់ខ្មៅ", "Black boxes"),
+    "plastic_bag": ("ថង់ប្លាស្ទិក", "Plastic bags"),
+    "delivery_bag": ("កាបូបដឹកជញ្ជូន", "Delivery bags"),
 }
 STATUSES: dict[str, tuple[str, str]] = {
     "created": ("បានបង្កើត", "Created"),

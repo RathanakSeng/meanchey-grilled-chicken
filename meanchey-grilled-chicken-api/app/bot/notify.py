@@ -29,6 +29,7 @@ from app.bot.setup import create_bot
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Language, Notification, User, utcnow
+from app.models.order import BOX_COLORS
 from app.services.notification_service import (
     COMPLETED,
     ORDER_DELIVERED,
@@ -72,6 +73,19 @@ def _items_text(lang: Language, items: list[dict[str, Any]] | None) -> str:
     return ", ".join(parts) if parts else t(lang, "order_nothing")
 
 
+def _boxes_text(lang: Language, payload: dict[str, Any]) -> str:
+    """ "2 white boxes, 1 plastic bag": containers without boxes left out (alerts from before the
+    bags only carry white / black)."""
+    parts = []
+    for color in BOX_COLORS:
+        n = int(payload.get(color) or 0)
+        if n:
+            # English plural: boxes, bags.
+            s = "" if n == 1 else "es" if color in ("white", "black") else "s"
+            parts.append(t(lang, f"boxes_{color}", n=n, s=s))
+    return ", ".join(parts) if parts else t(lang, "order_nothing")
+
+
 def customer_text(lang: Language, name: str | None, phone: str | None) -> str:
     """The order's customer, escaped: the name, or "Direct order · 012 345 678" without one."""
     if name:
@@ -89,8 +103,7 @@ def _order_message(row: Notification, lang: Language) -> str:
             "order_delivering",
             code=code,
             customer=customer,
-            white=p.get("white", 0),
-            black=p.get("black", 0),
+            boxes=_boxes_text(lang, p),
         )
     if row.type == ORDER_DELIVERED:
         return t(lang, "order_delivered", code=code, customer=customer)

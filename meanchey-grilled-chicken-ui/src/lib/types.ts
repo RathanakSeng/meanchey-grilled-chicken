@@ -651,7 +651,10 @@ export type OrderStatus =
   | 'partly_returned'
   | 'fully_returned'
   | 'cancelled'
-export type BoxColor = 'white' | 'black'
+/** The container of a box (named "color" since the first two were white / black boxes). */
+export type BoxColor = 'white' | 'black' | 'plastic_bag' | 'delivery_bag'
+/** In the API's order (summaries, list counts, the Add box choice). */
+export const BOX_COLORS: BoxColor[] = ['white', 'black', 'plastic_bag', 'delivery_bag']
 /** Packs are counted (whole numbers), packed by-products weighed (kg, 3 decimals). */
 export type OrderUnit = 'count' | 'kg'
 
@@ -678,7 +681,7 @@ export interface OrderBox {
 }
 
 export interface OrderSummary {
-  /** White, then black (colours without boxes left out). */
+  /** White box, black box, plastic bag, delivery bag (those without boxes left out). */
   colors: { color: BoxColor; boxes: number; items: OrderQuantity[] }[]
   total: { boxes: number; items: OrderQuantity[] }
 }
@@ -763,6 +766,8 @@ export interface OrderListItem {
   driver: UserRef | null
   white_boxes: number
   black_boxes: number
+  plastic_bag_boxes: number
+  delivery_bag_boxes: number
   created_at: string
   updated_at: string
 }

@@ -158,6 +158,14 @@ h3 {
 .marker.white {
   background: #fff;
 }
+/* Bags, still black and white: a dashed outline (plastic bag), half filled (delivery bag). */
+.marker.plastic_bag {
+  background: #fff;
+  border-style: dashed;
+}
+.marker.delivery_bag {
+  background: linear-gradient(135deg, #000 50%, #fff 50%);
+}
 .box {
   margin-bottom: 1.5mm;
   padding-bottom: 1mm;

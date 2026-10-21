@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { ActionMenu } from '@/components/ActionMenu'
 import { Icon } from '@/components/icons'
 import { SegmentedControl } from '@/components/SegmentedControl'
 import { Alert, Button, Card, Field, Input, PageHeader, Select, Spinner, cx } from '@/components/ui'
@@ -11,6 +12,7 @@ import { getError, useErrorMessage } from '@/lib/errors'
 import { useLocalized } from '@/lib/format'
 import { paths } from '@/lib/paths'
 import {
+  BOX_COLORS,
   ORDER_NOTE_MAX_LENGTH,
   PARTNER_LOCATION_MAX_LENGTH,
   PHONE_MAX_DIGITS,
@@ -147,7 +149,7 @@ function liveSummary(form: FormState, items: Map<string, AvailableItem>, order: 
   const sorted = (m: Map<string, SummaryRow>) =>
     [...m.values()].sort((a, b) => order.indexOf(a.item_code) - order.indexOf(b.item_code))
   const total = new Map<string, SummaryRow>()
-  const colors = (['white', 'black'] as BoxColor[]).flatMap((color) => {
+  const colors = BOX_COLORS.flatMap((color) => {
     const boxes = form.boxes.filter((b) => b.color === color)
     if (boxes.length === 0) return []
     const rows = new Map<string, SummaryRow>()
@@ -213,11 +215,12 @@ function BoxCard({
         errors[`box:${box.key}`] ? 'ring-red-300' : 'ring-stone-200',
       )}
       aria-label={t('orders.boxTitle', { n: index + 1 })}
+      data-box-key={box.key}
     >
       <header className="flex items-center justify-between gap-2 border-b border-stone-100 px-4 py-2.5">
         <span className="flex items-center gap-2 text-sm font-semibold text-stone-900">
           <BoxSwatch color={box.color} className="h-4 w-4" />
-          {t('orders.boxTitle', { n: index + 1 })}
+          <span className="whitespace-nowrap">{t('orders.boxTitle', { n: index + 1 })}</span>
           <span className="font-normal text-stone-500">· {t(`orders.colors.${box.color}`)}</span>
         </span>
         <span className="flex items-center gap-1">
@@ -304,8 +307,8 @@ function BoxCard({
 
 /**
  * Create an order, or edit a Created one (`orders.update`): customer, delivery date, driver, note
- * and the boxes builder (+ White box / + Black box, lines with the stock available, Duplicate /
- * Remove), with a live per-colour summary (sticky on desktop; a bar that opens at the bottom on
+ * and the boxes builder (a box type: White box / Black box / Plastic bag / Delivery bag, then Add;
+ * lines with the stock available, Duplicate / Remove), with a live per-container summary (sticky on desktop; a bar that opens at the bottom on
  * phones) and amber warnings when a total is above the stock. Saving opens the order page.
  */
 export function OrderFormPage({ mode }: { mode: 'create' | 'edit' }) {
@@ -348,6 +351,12 @@ export function OrderFormPage({ mode }: { mode: 'create' | 'edit' }) {
   const [showErrors, setShowErrors] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [summaryOpen, setSummaryOpen] = useState(false)
+  // The box just added from Add box: scrolled into view, so a phone shows it was added.
+  const [addedBox, setAddedBox] = useState<string | null>(null)
+  useEffect(() => {
+    if (!addedBox) return
+    document.querySelector(`[data-box-key="${addedBox}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [addedBox])
 
   useEffect(() => {
     if (mode === 'edit' && existing.data && form === null) {
@@ -560,15 +569,26 @@ export function OrderFormPage({ mode }: { mode: 'create' | 'edit' }) {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-stone-900">{t('orders.boxes')}</h2>
-        <div className="flex gap-2">
-          {(['white', 'black'] as BoxColor[]).map((color) => (
-            <Button key={color} variant="secondary" onClick={() => setBoxes([...form.boxes, emptyBox(color)])}>
+        <ActionMenu
+          label={t('orders.addBox')}
+          trigger={
+            <>
               <Icon name="plus" width={16} height={16} />
-              <BoxSwatch color={color} />
-              {t(`orders.addBox.${color}`)}
-            </Button>
-          ))}
-        </div>
+              {t('orders.addBox')}
+              <Icon name="chevronDown" width={16} height={16} />
+            </>
+          }
+          items={BOX_COLORS.map((color) => ({
+            key: color,
+            label: t(`orders.colors.${color}`),
+            leading: <BoxSwatch color={color} className="h-4 w-4" />,
+            onSelect: () => {
+              const box = emptyBox(color)
+              setBoxes([...form.boxes, box])
+              setAddedBox(box.key)
+            },
+          }))}
+        />
       </div>
       {visibleErrors.boxes && <Alert tone="error">{t(visibleErrors.boxes)}</Alert>}
       {stock.isError && <Alert tone="error">{errorMessage(stock.error)}</Alert>}

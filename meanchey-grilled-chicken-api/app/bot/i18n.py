@@ -72,14 +72,14 @@ TEXTS: dict[str, dict[Language, str]] = {
     },
     # --- Order alerts (app/bot/notify.py) ---
     "order_delivering": {
-        Language.KM: (
-            "🚚 <b>{code}</b> សម្រាប់ {customer} កំពុងដឹកជញ្ជូន — ប្រអប់ស {white} / ប្រអប់ខ្មៅ {black}។"
-        ),
-        Language.EN: (
-            "🚚 <b>{code}</b> for {customer} is out for delivery — {white} white / {black} black "
-            "boxes."
-        ),
+        Language.KM: "🚚 <b>{code}</b> សម្រាប់ {customer} កំពុងដឹកជញ្ជូន — {boxes}។",
+        Language.EN: "🚚 <b>{code}</b> for {customer} is out for delivery — {boxes}.",
     },
+    # "{boxes}" of order_delivering: one part per container with boxes, joined with ", ".
+    "boxes_white": {Language.KM: "ប្រអប់ស {n}", Language.EN: "{n} white box{s}"},
+    "boxes_black": {Language.KM: "ប្រអប់ខ្មៅ {n}", Language.EN: "{n} black box{s}"},
+    "boxes_plastic_bag": {Language.KM: "ថង់ប្លាស្ទិក {n}", Language.EN: "{n} plastic bag{s}"},
+    "boxes_delivery_bag": {Language.KM: "កាបូបដឹកជញ្ជូន {n}", Language.EN: "{n} delivery bag{s}"},
     "order_delivered": {
         Language.KM: "✅ <b>{code}</b>៖ បានដឹកដល់ {customer} អតិថិជនទទួលយកទាំងអស់។",
         Language.EN: "✅ <b>{code}</b>: delivered to {customer}, everything accepted.",
