@@ -9,6 +9,9 @@ version, then the values.
 - Planned pieces = 2 × big + small; they must fit in the produced wings **and** thighs
   (PRODUCTION_PLAN_EXCEEDS_OUTPUT), checked on save (when both values are set) and on confirm.
 - Confirm needs both values (VALIDATION_ERROR). Editing a confirmed plan keeps it confirmed.
+- Satay sachets (information only): the detail shows the sachets the plan needs (one per pack:
+  expected_big 4-piece, expected_small 2-piece) against the stock, and how many are short;
+  confirming is allowed either way (step 3 Finish is where stock is enforced).
 """
 
 import uuid
@@ -34,6 +37,7 @@ from app.schemas.production import (
     PlanListItem,
     PlanListStatus,
     PlanPage,
+    PlanSachetsOut,
     PlanUpdate,
     ProducedByproductOut,
     ProducedSummary,
@@ -297,5 +301,27 @@ async def plan_detail(session: AsyncSession, batch: ProductionBatch) -> PlanDeta
         ),
         plan=prod.plan_out(batch.plan, users),
         plan_legacy=prod.plan_legacy(batch),
+        sachets=await _sachets(session, batch),
         editable=editable(batch),
+    )
+
+
+async def _sachets(session: AsyncSession, batch: ProductionBatch) -> PlanSachetsOut | None:
+    """Sachets needed vs in stock while step 3 is still to come (tracked, active batches)."""
+    plan = batch.plan
+    if (
+        plan is None
+        or plan.expected_big is None
+        or plan.expected_small is None
+        or not batch.inventory_tracked
+        or batch.status != "in_progress"
+        or (batch.packaging is not None and batch.packaging.finished)
+    ):
+        return None
+    needed = {"4": plan.expected_big, "2": plan.expected_small}
+    in_stock = await prod.sachet_stock(session)
+    return PlanSachetsOut(
+        needed=needed,
+        in_stock=in_stock,
+        short={size: max(needed[size] - in_stock[size], 0) for size in needed},
     )

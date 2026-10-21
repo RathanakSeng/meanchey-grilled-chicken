@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthProvider'
 import { Can } from '@/auth/Can'
-import { RoleBadge, UserStatusBadges } from '@/components/badges'
+import { RoleBadge, TelegramNotLinkedBadge, UserStatusBadges } from '@/components/badges'
 import { Icon } from '@/components/icons'
 import { Alert, Button, Card, EmptyState, Input, PageHeader, Select, Spinner } from '@/components/ui'
 import { Avatar } from '@/components/ProfileMenu'
@@ -204,6 +204,7 @@ export function UsersListPage() {
                     <div className="mt-1 flex flex-wrap gap-1">
                       <RoleBadge role={u.role} position={u.position} />
                       <UserStatusBadges user={u} />
+                      <TelegramNotLinkedBadge user={u} />
                     </div>
                   </div>
                   <Icon name="chevronRight" className="text-stone-400" />
@@ -236,7 +237,12 @@ export function UsersListPage() {
                         <span className="font-medium text-stone-900">{u.full_name}</span>
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-stone-600">@{u.telegram_username}</td>
+                    <td className="px-4 py-3 text-stone-600">
+                      <span className="flex flex-wrap items-center gap-2">
+                        @{u.telegram_username}
+                        <TelegramNotLinkedBadge user={u} />
+                      </span>
+                    </td>
                     <td className="px-4 py-3">
                       <RoleBadge role={u.role} position={u.position} />
                     </td>

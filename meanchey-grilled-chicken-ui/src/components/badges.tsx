@@ -27,6 +27,13 @@ export function isLocked(user: User): boolean {
   return user.locked_until !== null && new Date(user.locked_until) > new Date()
 }
 
+/** Users list: alerts and reminders can't reach this active user on Telegram yet. */
+export function TelegramNotLinkedBadge({ user }: { user: User }) {
+  const { t } = useTranslation()
+  if (!user.is_active || user.telegram_linked) return null
+  return <Badge>{t('status.telegramNotLinked')}</Badge>
+}
+
 export function UserStatusBadges({ user }: { user: User }) {
   const { t } = useTranslation()
   return (

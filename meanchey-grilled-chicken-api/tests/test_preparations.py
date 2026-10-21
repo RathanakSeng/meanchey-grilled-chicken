@@ -13,7 +13,7 @@ from sqlalchemy import select, update
 from app.models import AuditLog, InventoryBalance, InventoryMovement, Role
 from app.permissions import registry
 from app.services.preparation_service import business_today
-from tests.conftest import allow_audit, assert_error, auth
+from tests.conftest import allow_audit, assert_error, auth, set_sachet_stock
 from tests.test_migration_step_dates import _alembic, _run
 from tests.test_production import ok
 
@@ -53,6 +53,12 @@ class Prep:
         p = await self.create(type_)
         p = ok(await self.save(p, lines=lines, note=note))
         return ok(await self.action(p, "finish"))
+
+
+@pytest.fixture(autouse=True)
+async def no_sachets(session) -> None:
+    """Satay sachets here come only from the preparations (no test stock)."""
+    await set_sachet_stock(session, 0, 0)
 
 
 @pytest.fixture

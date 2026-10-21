@@ -23,6 +23,9 @@ Not production step 3 (Standardize): a preparation only converts materials.
   transaction (holders of `preparation.update`; Telegram after the commit).
 - **Reopen** (`preparation.update`): finished → draft, values kept, its movements reversed
   (blocked by INVENTORY_INSUFFICIENT when the outputs are no longer in stock), date cleared.
+  Production step 3 takes satay sachets from the preparations oldest first, so a counted output
+  must still be covered by this preparation's own remaining contribution (what production
+  hasn't taken from it); otherwise INVENTORY_INSUFFICIENT with that remainder as `available_count`.
 - **Cancel** (`preparation.cancel`, reason): a draft is just cancelled; a finished one is
   reversed first. Cancelled is read-only.
 - Line quantities are stored in `unit`, the material's unit when the line was saved: a later
@@ -554,9 +557,34 @@ async def _reverse(session: AsyncSession, actor: User, p: Preparation, cause: st
         )
         for m in originals
     ]
+    await _guard_outputs(session, p, deltas)
     await inventory_service.apply_movements(
         session, actor, deltas, source="preparation", preparation_id=p.id
     )
+
+
+async def _guard_outputs(session: AsyncSession, p: Preparation, deltas: list[Delta]) -> None:
+    """Counted outputs taken back must still belong to this preparation (production step 3 may
+    have used some of its sachets): refuse with INVENTORY_INSUFFICIENT, nothing written."""
+    needed: dict[str, int] = {}
+    for d in deltas:
+        if d.count is not None and d.count < 0:
+            needed[d.item_code] = needed.get(d.item_code, 0) - d.count
+    if not needed:
+        return
+    # Every balance of the reversal locked (item_code order) before the contributions are read.
+    balances = await inventory_service.lock_balances(session, [d.item_code for d in deltas])
+    codes = sorted(needed)
+    own = await inventory_service.preparation_contributions(session, codes, preparation_id=p.id)
+    items = await inventory_service.resolve(session, codes)
+    short = []
+    for code in codes:
+        have = sum(n for _, n in own[code])
+        if have < needed[code]:
+            entry = inventory_service._short_entry(items[code], balances[code], needed[code], None)
+            short.append({**entry, "available_count": have})
+    if short:
+        raise inventory_service._insufficient(short)
 
 
 async def reopen(

@@ -9,15 +9,22 @@ sender (no hint about why or about the account's role).
 Once linked, the superadmin receives production alerts on Telegram. Mini App sign-in matches
 users by their bound Telegram id first, so opening the Mini App from that account also signs the
 superadmin in.
+
+Everyone else is bound by Telegram username, either at Mini App sign-in
+(`auth_service.login_with_telegram`) or when they press Start in the bot (`bind_on_start`, the
+same rule), so alerts and attendance reminders reach them without opening the app first.
 """
 
 import secrets
 from datetime import timedelta
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import AppError
 from app.core.security import hash_token
+from app.core.usernames import normalize_telegram_username
 from app.models import Language, Role, TelegramLinkToken, User, utcnow
 from app.schemas.notification import TelegramLinkOut
 from app.services.audit_service import record
@@ -80,3 +87,49 @@ async def consume(session: AsyncSession, raw: str, telegram_user_id: int) -> Lan
     record(session, "profile.telegram_link", actor_id=user.id, target_user_id=user.id)
     await session.commit()
     return user.language
+
+
+async def bind_on_start(
+    session: AsyncSession, telegram_user_id: int, telegram_username: str | None
+) -> bool:
+    """`/start`: bind this Telegram id to the active user with the same (normalized) Telegram
+    username, exactly like Mini App sign-in. Nothing happens when an active user is already bound
+    to this id, when the matching account is bound to another id, or for the superadmin (it links
+    with its one-time link). True when it bound an account."""
+    if not telegram_username:
+        return False
+    try:
+        username = normalize_telegram_username(telegram_username)
+    except AppError:
+        return False
+    bound = await session.scalar(
+        select(User.id).where(User.telegram_user_id == telegram_user_id, User.is_active)
+    )
+    if bound is not None:
+        return False
+    user = await session.scalar(
+        select(User)
+        .where(
+            User.telegram_username == username,
+            User.is_active,
+            User.telegram_user_id.is_(None),
+            User.role != Role.SUPERADMIN,
+        )
+        .with_for_update()
+    )
+    if user is None:
+        return False
+    user.telegram_user_id = telegram_user_id
+    record(
+        session,
+        "auth.telegram_bound",
+        actor_id=user.id,
+        target_user_id=user.id,
+        details={"telegram_user_id": telegram_user_id, "via": "bot_start"},
+    )
+    try:
+        await session.commit()
+    except IntegrityError:  # the id was bound concurrently (one active user per Telegram id)
+        await session.rollback()
+        return False
+    return True

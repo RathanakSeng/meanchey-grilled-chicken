@@ -224,6 +224,9 @@ export function UserDetailPage() {
                   {t(user.telegram_linked ? 'status.telegramLinked' : 'status.telegramNotLinked')}
                 </Badge>
               </span>
+              {user.is_active && !user.telegram_linked && (
+                <span className="mt-1 block text-xs font-normal text-stone-500">{t('telegramLink.notLinkedHint')}</span>
+              )}
             </Item>
             <Item label={t('userForm.role')}>{t(`roles.${user.role}`)}</Item>
             {user.position && (

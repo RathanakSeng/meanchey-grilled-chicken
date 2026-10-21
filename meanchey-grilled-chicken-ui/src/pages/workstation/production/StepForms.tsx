@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '@/components/icons'
-import { Alert, Field, Select, cx } from '@/components/ui'
+import { Alert, Badge, Field, Select, cx } from '@/components/ui'
 import { api } from '@/lib/api'
 import { ClientError, getError } from '@/lib/errors'
 import { useLocalized } from '@/lib/format'
@@ -22,6 +22,7 @@ import {
   producedFromBatch,
   producedInputErrors,
   producedPayload,
+  sachetUses,
   rawFinishErrors,
   rawFromBatch,
   rawInputErrors,
@@ -32,6 +33,8 @@ import {
   standardizePayload,
   type Errors,
   type PieceBalance,
+  type SachetUse,
+  type StandardizeValues,
 } from './steps'
 import { useAutosaveDraft } from './useAutosaveDraft'
 
@@ -367,6 +370,35 @@ function BalanceMeter({ label, balance }: { label: string; balance: PieceBalance
   )
 }
 
+/** "auto" or "Reset to auto", and "In stock: 120" (red when the count is higher). */
+function SachetHint({ use, stock, onReset }: { use: SachetUse; stock: number | null; onReset(): void }) {
+  const { t } = useTranslation()
+  const short = stock !== null && use.used !== null && use.used > stock
+  return (
+    <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      {use.manual ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault()
+            onReset()
+          }}
+          className="font-medium text-brand-700 underline-offset-2 hover:underline"
+        >
+          {t('production.sachets.reset')}
+        </button>
+      ) : (
+        <span>{t('production.sachets.followsPacks')}</span>
+      )}
+      {stock !== null && (
+        <span className={short ? 'font-medium text-red-700' : undefined}>
+          {t('production.sachets.inStock', { count: stock })}
+        </span>
+      )}
+    </span>
+  )
+}
+
 export function StandardizeForm({ batch, onFinished }: FormProps) {
   const { t } = useTranslation()
   const name = useByproductNames(batch)
@@ -395,6 +427,8 @@ export function StandardizeForm({ batch, onFinished }: FormProps) {
         small_packages: t('production.fields.smallPackages'),
         rejected_wings: t('production.fields.rejectedWings'),
         rejected_thighs: t('production.fields.rejectedThighs'),
+        sachets_4: t('production.fields.sachets4'),
+        sachets_2: t('production.fields.sachets2'),
         comment: t('production.fields.comment'),
       }[key] ?? key
     )
@@ -406,7 +440,23 @@ export function StandardizeForm({ batch, onFinished }: FormProps) {
   const actualSmall = whole(values.small_packages)
   // Packs that differ from the plan need a comment (the API refuses Finish otherwise).
   const differs = packsDiffer(batch, actualBig, actualSmall) === true
-  const commentMissing = differs && !values.comment.trim()
+  // One satay sachet per pack: a count that differs needs the same comment.
+  const sachets = sachetUses(values)
+  const sachetsDiffer = sachets.some((s) => s.differs)
+  const stockOf = (size: 4 | 2) => batch.standardize?.sachet_stock?.[size] ?? null
+  const sachetsShort = sachets.filter((s) => {
+    const stock = stockOf(s.size)
+    return stock !== null && s.used !== null && s.used > stock
+  })
+  const commentRequired = differs || sachetsDiffer
+  const commentMissing = commentRequired && !values.comment.trim()
+  const setSachets = (size: 4 | 2, patch: { input?: string; manual: boolean }) => {
+    const change: Partial<StandardizeValues> =
+      size === 4
+        ? { sachets_4_manual: patch.manual, ...(patch.input !== undefined && { sachets_4: patch.input }) }
+        : { sachets_2_manual: patch.manual, ...(patch.input !== undefined && { sachets_2: patch.input }) }
+    set(change)
+  }
   const blockers = [
     ...missingBlocker(standardizeFinishErrors(values), label, t),
     ...(pieces.wings.left !== 0 ? [t('production.blockers.wings')] : []),
@@ -414,7 +464,15 @@ export function StandardizeForm({ batch, onFinished }: FormProps) {
     ...Object.entries(byproducts)
       .filter(([, b]) => b.left !== 0)
       .map(([code]) => t('production.blockers.byproduct', { name: name(code) })),
-    ...(commentMissing ? [t('production.blockers.planComment')] : []),
+    ...(commentMissing && differs ? [t('production.blockers.planComment')] : []),
+    ...(commentMissing && sachetsDiffer ? [t('production.blockers.sachetComment')] : []),
+    ...sachetsShort.map((s) =>
+      t('production.blockers.sachets', {
+        size: s.size,
+        available: stockOf(s.size),
+        needed: s.used,
+      }),
+    ),
   ]
 
   return (
@@ -459,7 +517,30 @@ export function StandardizeForm({ batch, onFinished }: FormProps) {
           onChange={(rejected_thighs) => set({ rejected_thighs })}
           error={errors.rejected_thighs}
         />
+        {sachets.map((use) => (
+          <NumberField
+            key={use.size}
+            label={
+              <span className="inline-flex items-center gap-2">
+                {t(`production.fields.sachets${use.size}`)}
+                {!use.manual && <Badge tone="neutral">{t('production.sachets.auto')}</Badge>}
+              </span>
+            }
+            mode="numeric"
+            value={use.input}
+            onChange={(input) => setSachets(use.size, { input, manual: true })}
+            error={errors[`sachets_${use.size}`]}
+            hint={
+              <SachetHint
+                use={use}
+                stock={stockOf(use.size)}
+                onReset={() => setSachets(use.size, { manual: false })}
+              />
+            }
+          />
+        ))}
       </div>
+      {sachetsDiffer && <Alert tone="warning">{t('production.sachets.differ')}</Alert>}
 
       <PlanVsActual batch={batch} actualBig={actualBig} actualSmall={actualSmall} />
 
@@ -526,14 +607,14 @@ export function StandardizeForm({ batch, onFinished }: FormProps) {
       </fieldset>
 
       {differs && <Alert tone="warning">{t('plans.differsWarning')}</Alert>}
-      <Field label={differs ? `${t('production.fields.comment')} *` : t('production.fields.comment')}>
+      <Field label={commentRequired ? `${t('production.fields.comment')} *` : t('production.fields.comment')}>
         {(id) => (
           <textarea
             id={id}
             rows={3}
             maxLength={PRODUCTION_COMMENT_MAX_LENGTH}
             value={values.comment}
-            required={differs}
+            required={commentRequired}
             aria-invalid={commentMissing || undefined}
             onChange={(e) => set({ comment: e.target.value })}
             className={cx(

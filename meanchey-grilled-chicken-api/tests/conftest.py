@@ -83,6 +83,14 @@ def _migrated_database() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _known_bot_username(monkeypatch) -> None:
+    """The bot's @username without a getMe call (GET /me/telegram-bot, the route sweeps)."""
+    from app.bot import notify
+
+    monkeypatch.setattr(notify, "_bot_username", "meanchey_test_bot")
+
+
+@pytest.fixture(autouse=True)
 async def _clean_database() -> None:
     async with engine.begin() as conn:
         await conn.execute(
@@ -105,6 +113,7 @@ async def _clean_database() -> None:
         )
         await session.commit()
         await set_marinade_stock(session, MARINADE_TEST_STOCK_G)
+        await set_sachet_stock(session, SACHET_TEST_STOCK, SACHET_TEST_STOCK)
 
 
 # Step 2 Finish takes its marinade_g out of the Marinade sauce material: every test starts with
@@ -127,6 +136,24 @@ async def set_marinade_stock(session: AsyncSession, grams: Decimal) -> None:
             kg=None if material.unit == "g" else grams / 1000,
         )
     )
+    await session.commit()
+
+
+# Step 3 Finish takes one satay sachet per pack: every test starts with plenty of both sizes, set
+# on the balances directly (no preparation behind them, so the sachets are taken unattributed).
+# Sachet tests set their own amounts with set_sachet_stock or make them with preparations.
+SACHET_TEST_STOCK = 1_000_000
+
+
+async def set_sachet_stock(session: AsyncSession, size_4: int, size_2: int) -> None:
+    from app.inventory.catalog import SATAY_SACHET_2, SATAY_SACHET_4
+    from app.services.inventory_service import ensure_balances
+
+    await ensure_balances(session, [SATAY_SACHET_4, SATAY_SACHET_2])
+    for code, count in ((SATAY_SACHET_4, size_4), (SATAY_SACHET_2, size_2)):
+        await session.execute(
+            update(InventoryBalance).where(InventoryBalance.item_code == code).values(count=count)
+        )
     await session.commit()
 
 

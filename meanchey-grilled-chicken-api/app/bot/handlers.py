@@ -134,10 +134,17 @@ async def on_start(message: Message, command: CommandObject) -> None:
     if args.startswith(telegram_link_service.START_PREFIX):
         await on_link(message, args.removeprefix(telegram_link_service.START_PREFIX))
         return
+    async with SessionLocal() as session:
+        bound = await telegram_link_service.bind_on_start(
+            session, message.from_user.id, message.from_user.username
+        )
     lang = await get_language(message.from_user.id)
     name = escape(message.from_user.first_name or "")
+    text = t(lang, "start", name=name)
+    if bound:
+        text = f"{text}\n\n{t(lang, 'start_linked')}"
     attendance = await _is_tracked(message.from_user.id)
-    await _answer(message, t(lang, "start", name=name), lang, attendance=attendance)
+    await _answer(message, text, lang, attendance=attendance)
     await set_chat_menu(message, lang)
 
 

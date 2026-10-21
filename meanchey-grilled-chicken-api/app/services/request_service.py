@@ -54,13 +54,14 @@ from app.services.notification_service import (
     REQUEST_APPROVED,
     REQUEST_REJECTED,
     REQUEST_REMINDER,
+    REQUEST_REVIEW_PERMISSION,
     REQUEST_SUBMITTED,
     notify_users,
     recipients,
 )
 
 ENTITY = "attendance_request"
-PERMISSION = "attendance.requests_review"
+PERMISSION = REQUEST_REVIEW_PERMISSION
 PAGE_SIZE = 20
 NO_REQUEST_MONTHS = 3  # months looked at for `no_request` rows when none is chosen
 

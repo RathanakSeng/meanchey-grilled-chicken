@@ -61,6 +61,7 @@ It returns:
    1. by `telegram_user_id`, if one is already bound;
    2. otherwise by normalized Telegram username, among active users with no binding yet. The Telegram user id is then **bound** to that user.
 4. After binding, the account matches **only** by id. Renaming the Telegram account doesn't break login, and someone else taking the old username can't log in.
+   - The same binding also happens when the user presses **Start** in the bot (§7.4), so alerts and attendance reminders reach users who never opened the Mini App.
 5. No match → `USER_NOT_REGISTERED`. A match on a deactivated user → `ACCOUNT_DISABLED`.
 
 The forced password change still applies after a Telegram login.
@@ -373,7 +374,8 @@ Grant and revoke are idempotent.
 
 - `permissions`: the user's effective codes, meaning active permissions that are granted to them and still assignable to their role. The UI builds menus from them;
 - `manageable_roles`, `can_self_reset_password`;
-- `can_manage_features`: holds `permissions.grant` **or** `users.manage_access`, i.e. may set feature levels (the Access tab): the GM and the superadmin for anyone they manage, a supervisor with Staff access for staff.
+- `can_manage_features`: holds `permissions.grant` **or** `users.manage_access`, i.e. may set feature levels (the Access tab): the GM and the superadmin for anyone they manage, a supervisor with Staff access for staff;
+- `telegram_alerts`: holds an alert permission (`production_plan.view`, `orders.review_returns`, `preparation.update`, `attendance.requests_review`, §16.1) **or** is tracked for attendance (today or starting later, §22). Alerts and reminders then go to Telegram, so with `user.telegram_linked = false` the app asks the user to open the bot and press Start.
 
 `GET /users/{id}/permissions` (superadmin only) returns every permission assignable to the target's role, grouped by module. Each item has `granted`, `granted_by`, `granted_at`, `can_edit` and `reason` (the error code of the first rule that blocks editing, or `null`).
 
@@ -391,7 +393,7 @@ Every security-relevant action writes to `audit_logs` (`actor_id`, `action`, `ta
 | Access | `feature.set`: one entry per change, `details = {feature, from, to, added, removed}` (`from` may be `custom`). The actor is whoever set it (a GM, the superadmin or a supervisor). No individual `permission.*` entries are written for it. `details.source = "default_change"` and no actor: written by a migration that changed a default for existing users (migration `0009`: supervisors' Staff management Full → View only). |
 | Suppliers | `supplier.create`, `supplier.update` (field diff), `supplier.deactivate`, `supplier.reactivate`. `details.name` holds the record's name. |
 | Customers | `customer.create`, `customer.update` (field diff), `customer.deactivate`, `customer.reactivate`. `details.name` holds the record's name. |
-| Production | `production.create`, `production.step_finish` (`step`: 1–3), `production.step_reopen` (`step`, `reopened_steps`: e.g. `[1, 2, 3]`), `production.cancel` (`reason`). `details.code` holds the batch code. **Draft saves are not audited.** |
+| Production | `production.create`, `production.step_finish` (`step`: 1–3; step 3 also `sachets_4_used`, `sachets_2_used`), `production.step_reopen` (`step`, `reopened_steps`: e.g. `[1, 2, 3]`), `production.cancel` (`reason`). `details.code` holds the batch code. **Draft saves are not audited.** |
 | Packaging plan | `production_plan.update` (`changes`: field → `[old, new]`, only when something changed), `production_plan.confirm` (`expected_big`, `expected_small`). `entity_type = production_batch`, `details.code` = the batch code. |
 | Inventory | `inventory.adjust` (`item_code`, `name_en`, `name_km`, `from` / `to` = `{count, kg}`, `reason`): only entries from before production items became read-only (§18.5), kept as the record. Production movements are in the inventory history (§18), not the audit log. |
 | Orders | `order.document_printed` (`copy`: 1 = the original, 2+ = copies; `via`: `download` / `telegram`): one per delivery note generated (§19.6); the Business info preview isn't audited. `order.create` (`customer` (the name; null for a direct order), `customer_type`, `customer_phone` (readable), `customer_location`, `delivery_date`, `white_boxes`, `black_boxes`, `items`), `order.update` (`changes`: field → `{from, to}` for `customer`, `customer_type`, `customer_phone`, `customer_location` (the order's customer snapshot, §19.2), `delivery_date`, `driver`, `note`, `boxes` = `{white, black, items}`; only when something changed), `order.cancel` (`reason`), `order.delivering` (`items`: the totals that left stock), `order.delivered` (`outcome`: `accepted` / `returned`, with `reason` and `returned` items), `order.returns_reviewed` (`outcome`: `partly_returned` / `fully_returned`, `to_stock`, `to_wasted`). Items are `[{item_code, name_en, name_km, count, kg}]`. `entity_type = order`, `details.code` = the order code. |
@@ -450,7 +452,7 @@ In Docker, prefix these with `docker compose exec api`.
 
 | Command | Behavior |
 |---|---|
-| `/start` | Greets the user in their language, with a hint in the other language, and shows an **Open app** WebApp button pointing to `MINI_APP_URL`. For a linked **tracked employee** (active staff or supervisor) a second button sits next to it: **🕒 វត្តមាន / Attendance** → the check screen `/attendance/check` (§22.12). |
+| `/start` | **Binds** the sender's Telegram account first when no active user is bound to its id yet: the active user with the same normalized Telegram username and no binding (exactly the Mini App rule, §1.2) gets `telegram_user_id`, audited as `auth.telegram_bound` with `details.via = "bot_start"`, and the greeting ends with *"✅ Your Telegram account is now linked. Alerts will be sent here."* An account already bound to another id is never rebound, and the superadmin is never bound this way (it uses its link, §7.5). Then it greets the user in their language, with a hint in the other language, and shows an **Open app** WebApp button pointing to `MINI_APP_URL`. For a linked **tracked employee** (active staff or supervisor) a second button sits next to it: **🕒 វត្តមាន / Attendance** → the check screen `/attendance/check` (§22.12). |
 | `/start link_<token>` | The superadmin's one-time link (§7.5): binds the sender's Telegram account and replies *"✅ Telegram linked."* An unknown, expired or used token, or a Telegram account already bound to another active user, gets one neutral reply (*"This link can't be used. Create a new one in the app."*). |
 | `/lang` | Toggles the bot language between Khmer and English. If the Telegram account is linked to a user, their app language is updated too. |
 
@@ -470,7 +472,7 @@ The superadmin has no Telegram username, so it can't be matched on first Mini Ap
 2. Opening the link and tapping **Start** sends `/start link_<token>`. A valid, unexpired, unused token sets the superadmin's `telegram_user_id` to the sender's id, marks the token (and any other unused one of that user) used and writes `profile.telegram_link`. The reply names no role.
 3. `DELETE /me/telegram-link` (superadmin only) clears `telegram_user_id` (`profile.telegram_unlink`); `204` also when nothing was linked.
 
-- `/auth/me` shows the state as `user.telegram_linked` (every account has it; the superadmin's card uses it). The Telegram id itself is never in any response.
+- `/auth/me` shows the state as `user.telegram_linked`. Every user response has it (`GET /users`, `GET /users/{id}`, …, within the viewer's scope; the superadmin stays hidden as usual), so managers see who hasn't linked yet. The Telegram id itself is never in any response.
 - **Mini App sign-in:** Telegram sign-in matches users by their bound Telegram id first, so once linked, opening the Mini App from that Telegram account **signs the superadmin in** too (it still has no username, so nothing else changes). This is intended: the linked account is the superadmin's own.
 
 ---
@@ -501,7 +503,7 @@ Every error has the same shape:
 | Users | `USER_NOT_FOUND`, `USER_INACTIVE`, `INVALID_TELEGRAM_USERNAME`, `DUPLICATE_TELEGRAM_USERNAME`, `ROLE_LIMIT_REACHED` (409, `details = {role, limit, active}`), `GM_ALREADY_EXISTS` (kept, no longer raised), `POSITION_REQUIRED`, `POSITION_NOT_ALLOWED` |
 | Suppliers & customers | `SUPPLIER_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `DUPLICATE_PHONE` (409), `INVALID_PHONE` (422, `details.min_digits` / `max_digits`), `SUPPLIER_INACTIVE` (422, production step 1 finish) |
 | Production | `PRODUCTION_NOT_FOUND` (404), `PRODUCTION_STEP_NOT_READY` (409), `PRODUCTION_STEP_FINISHED` (409), `PRODUCTION_STEP_LOCKED` (409; no longer raised, kept for compatibility), `PRODUCTION_BALANCE_MISMATCH` (422, `details.wings` / `details.thighs`), `PRODUCTION_CONFLICT` (409, `details.batch`), `PRODUCTION_CANCELLED` (409), `PRODUCTION_COMPLETED` (409) |
-| Packaging plan | `PRODUCTION_PLAN_REQUIRED` (409: step 3 save / finish while the plan isn't confirmed), `PRODUCTION_PLAN_LOCKED` (409: plan change after step 3 is finished), `PRODUCTION_PLAN_EXCEEDS_OUTPUT` (422, `details.wings` / `details.thighs`: `{available, planned}`), `PRODUCTION_PLAN_COMMENT_REQUIRED` (422, `details.planned` / `details.actual`: `{big, small}`) |
+| Packaging plan | `PRODUCTION_PLAN_REQUIRED` (409: step 3 save / finish while the plan isn't confirmed), `PRODUCTION_PLAN_LOCKED` (409: plan change after step 3 is finished), `PRODUCTION_PLAN_EXCEEDS_OUTPUT` (422, `details.wings` / `details.thighs`: `{available, planned}`), `PRODUCTION_PLAN_COMMENT_REQUIRED` (422, `details.planned` / `details.actual`: `{big, small}`; when the satay sachets differ too, also `details.sachets` and `details.reasons = ["plan", "sachets"]`), `PRODUCTION_SACHET_COMMENT_REQUIRED` (422: satay sachets used differ from the packs and there's no comment; `details = {"4": {expected, used}, "2": {expected, used}}`, §14.1) |
 | Notifications | `NOTIFICATION_NOT_FOUND` (404: unknown, or someone else's) |
 | Orders | `ORDER_NOT_FOUND` (404), `ORDER_CONFLICT` (409, `details.order`: the current order), `ORDER_INVALID_STATUS` (409, `details.status`: the action isn't allowed in the order's status), `CUSTOMER_INACTIVE` (422: the chosen customer is deactivated), `CUSTOMER_NOT_FOUND` (422 on orders), `INVALID_PHONE` (422: a direct order's phone), `DRIVER_NOT_ALLOWED` (422: the driver isn't an active staff member or supervisor) |
 | Documents | `DOCUMENT_UNAVAILABLE` (503: WeasyPrint's system libraries are missing, or rendering took longer than 20 s; nothing counted) |
@@ -530,6 +532,7 @@ All paths are prefixed with `/api/v1`. Interactive docs are at `/docs`.
 | GET | `/auth/me` | signed in (allowed while a password change is pending) |
 | PATCH | `/me` | signed in |
 | POST | `/me/reset-password` | `users.reset_password` |
+| GET | `/me/telegram-bot` | signed in: `{url: "https://t.me/<bot>"}` (the bot username from `getMe`, cached), where pressing Start links the account (§7.4); no bot token or Telegram unreachable → `503 TELEGRAM_NOT_CONFIGURED` |
 | POST, DELETE | `/me/telegram-link` | role: superadmin (§7.5) |
 | GET | `/notifications` | signed in (own only) |
 | POST | `/notifications/{id}/read` | signed in (own only) |
@@ -851,14 +854,25 @@ Weights are exact decimals (`NUMERIC`, `Decimal` in Python), accepted as JSON nu
 | `small_packages` | **2-Piece Packs** (កញ្ចប់ ២ ដុំ): whole ≥ 0; 1 pack = 1 wing + 1 thigh |
 | `rejected_wings`, `rejected_thighs` | whole ≥ 0 |
 | Per by-product: `carry_kg` (carried forward), `rejected_kg` | Finish: required, ≥ 0 |
-| `comment` | at most 1000 characters (trimmed; empty → null). Optional, **except when the packs differ from the plan** (below). |
+| `sachets_4_used`, `sachets_2_used` | **Satay sachets used** (សាតេកញ្ចប់): whole ≥ 0. One per pack by default: 4-piece sachets follow `big_packages`, 2-piece follow `small_packages` (below). |
+| `sachets_4_manual`, `sachets_2_manual` | `false` (default, "auto"): the count follows its pack count; `true`: typed by hand and kept |
+| `comment` | at most 1000 characters (trimmed; empty → null). Optional, **except when the packs differ from the plan or the sachets differ from the packs** (below). |
 
-All of these (except the comment) are required at Finish. The API field names stay `big_packages` / `small_packages`; only the displayed names changed.
+All of these (except the comment and the sachets) are required at Finish. The API field names stay `big_packages` / `small_packages`; only the displayed names changed.
+
+**Satay sachets** (one per pack: **4-Piece Pack → 4-piece satay sachet**, **2-Piece Pack → 2-piece satay sachet**):
+
+- **Drafts:** the step 3 PATCH accepts the four fields. While a size's `*_manual` is `false` (sent, or already stored) the server stores **the current pack count** and ignores a `*_used` value, so "auto" survives across devices and follows every pack change. With `*_manual: true` the sent `*_used` (or the stored value) is kept; sending `*_manual: false` resets it to the pack count. A manual count may be cleared (`null`).
+- **Finish:** a `null` count defaults to its pack count. A count that differs from its pack count (higher or lower) needs the **same `comment`** as the plan rule: else `422 PRODUCTION_SACHET_COMMENT_REQUIRED` with `details = {"4": {expected, used}, "2": {expected, used}}`. **One comment covers both reasons**; when the packs also differ from the plan, `PRODUCTION_PLAN_COMMENT_REQUIRED` comes first and its `details` gain `sachets` and `reasons: ["plan", "sachets"]`.
+- **Inventory** (tracked batches only, §18.2): Finish takes `sachets_4_used` out of `satay_sachet_4` and `sachets_2_used` out of `satay_sachet_2`; not enough → `409 INVENTORY_INSUFFICIENT` (item, available, needed) and step 3 stays a draft. Reopen gives them back. Untracked batches record the counts but never move sachets.
+- **Responses:** `standardize` has the four fields, plus `sachet_stock = {"4": count, "2": count}` (what Finish takes from) for viewers with `production.create` while step 3 of a tracked, in-progress batch is a draft (`null` otherwise).
+- **Audit:** `production.step_finish` of step 3 adds `sachets_4_used` / `sachets_2_used`.
+- **Before sachets existed** (migration `0025`): every step 3 row got its pack counts, manual `false`; no movement was written for the past.
 
 **Step 3 and the plan** (§15):
 
 - Saving or finishing step 3 while the plan isn't `confirmed` → `409 PRODUCTION_PLAN_REQUIRED` (checked after the step state, before the version).
-- At Finish, when `big_packages ≠ expected_big` **or** `small_packages ≠ expected_small`, a non-empty `comment` is required → else `422 PRODUCTION_PLAN_COMMENT_REQUIRED` with `details = {planned: {big, small}, actual: {big, small}}`. Checked after the piece balance.
+- At Finish, when `big_packages ≠ expected_big` **or** `small_packages ≠ expected_small`, a non-empty `comment` is required → else `422 PRODUCTION_PLAN_COMMENT_REQUIRED` with `details = {planned: {big, small}, actual: {big, small}}` (plus `sachets` / `reasons` when the sachets differ too, above). Checked after the piece balance, before the sachet rule and the stock.
 - `standardize.plan_matches` in responses: `true` / `false` once both actual counts and both plan values exist, else `null`.
 
 **Piece balance: enforced by the API at Finish** (`422 PRODUCTION_BALANCE_MISMATCH`):
@@ -946,6 +960,7 @@ Between step 2 and step 3 a planner decides how many **4-Piece Packs** (`expecte
 - **Confirm** needs both values → else `VALIDATION_ERROR` (`details.fields` locations `["plan", "expected_big"]` / `["plan", "expected_small"]`).
 - **Editing a confirmed plan** (step 3 not finished) keeps it confirmed; `updated_by/at` change. A confirmed plan can't lose a value (`null` → `VALIDATION_ERROR`).
 - **Step 2 must be finished:** while it is a draft again after a reopen, saving or confirming → `409 PRODUCTION_STEP_NOT_READY` (the counts may still change).
+- **Satay sachets (information only):** the detail's `sachets` compares what the plan needs (one per pack: `expected_big` 4-piece, `expected_small` 2-piece sachets) with the stock: `{needed: {"4", "2"}, in_stock: {"4", "2"}, short: {"4", "2"}}` (`short` = needed − in stock when positive, else 0). `null` until both expected counts are set, for untracked batches, and once step 3 is finished or the batch is cancelled. Confirming is allowed even when short: the stock is enforced at step 3 Finish.
 - **Concurrency:** every plan write locks the batch row and uses the **batch `version`** (stale → `409 PRODUCTION_CONFLICT` with the batch in `details.batch`), and increments it, like the steps. Checks run in this order: not found, cancelled, locked, step 2 finished, version, values.
 
 ### 15.4 Endpoints
@@ -953,7 +968,7 @@ Between step 2 and step 3 a planner decides how many **4-Piece Packs** (`expecte
 | Endpoint | Notes |
 |---|---|
 | `GET /production-plans` | `status`: `pending` (default; batch in progress), `confirmed` (batch in progress, step 3 not finished), `completed` (batch completed), `all` (any batch that isn't cancelled); `q` (batch code or supplier name); paging 20 (max 100). Newest production date first. Items: `batch_id`, `code`, `batch_status`, `supplier`, `production_date` (step 2), `quantity`, `wings_count`, `thighs_count`, `status`, `expected_big`, `expected_small`, `updated_at`. Also `pending_count` (plans waiting, whatever the filter). |
-| `GET /production-plans/{batch_id}` | The plan (or `null` + `plan_legacy`), step 2 (`status`, `production_date`, wings / thighs kg and count, by-products with catalog names and kg, marinade g), step 3's actual packs and comment, the batch `version`, `status`, `current_step`, supplier and quantity, and `editable` (step 2 finished, step 3 not finished, batch not cancelled). |
+| `GET /production-plans/{batch_id}` | The plan (or `null` + `plan_legacy`), step 2 (`status`, `production_date`, wings / thighs kg and count, by-products with catalog names and kg, marinade g), step 3's actual packs and comment, the batch `version`, `status`, `current_step`, supplier and quantity, `sachets` (needed vs in stock, §15.3), and `editable` (step 2 finished, step 3 not finished, batch not cancelled). |
 | `PATCH /production-plans/{batch_id}` | `production_plan.manage`. Body `{version, expected_big?, expected_small?, note?}` (partial; `null` clears). Returns the detail. |
 | `POST /production-plans/{batch_id}/confirm` | `production_plan.manage`. Body `{version}`. Returns the detail. |
 
@@ -994,7 +1009,7 @@ Production and order alerts, stored in the app (the bell) and sent on Telegram.
 | `pending` | not attempted yet |
 | `sent` | delivered (`sent_at`) |
 | `failed` | Telegram refused or couldn't be reached (blocked bot, network); `telegram_error` holds the reason and it's logged. **Not retried automatically.** |
-| `not_linked` | the recipient has no Telegram account bound |
+| `not_linked` | the recipient has no Telegram account bound (they link it by pressing Start in the bot, §7.4; the next alert is then sent) |
 | `bot_off` | no bot token, `BOT_MODE=off`, or webhook mode without a running bot |
 
 - Webhook mode sends with the API's own bot; polling mode creates a short-lived bot in the API process (the poller is a separate process).
@@ -1029,6 +1044,8 @@ Buttons are inline `web_app` buttons to `MINI_APP_URL` + `/workstation/productio
 | `GET /notifications` | Own notifications, newest first; `unread_only`, paging (20, max 100). Each item: `id`, `type`, `entity_type`, `entity_id`, `payload` (without `actor_id`), `actor` (`UserRef`: "System" for the superadmin, §13), `created_at`, `read_at`, `telegram_status`. Also `unread_count` (all unread, whatever the page). |
 | `POST /notifications/{id}/read` | Marks one read (idempotent). Someone else's → `404 NOTIFICATION_NOT_FOUND`. |
 | `POST /notifications/read-all` | `{updated, unread_count}`. |
+
+The UI marks an item whose `telegram_status` is `not_linked` or `failed` as not sent to Telegram.
 
 ---
 
@@ -1097,13 +1114,14 @@ Only for batches with `inventory_tracked = true` (§18.4). All quantities come f
 |---|---|
 | **Finish step 1** | Chicken +quantity, +weight_kg |
 | **Finish step 2** | Chicken −quantity, −weight_kg · Wings +wings_count, +wings_kg · Thighs +thighs_count, +thighs_kg · each By-product (processed) +produced_kg · **Marinade sauce −marinade_g** (in the material's unit: g, or kg = g ÷ 1000 rounded to 3 decimals) |
-| **Finish step 3** | Wings −wings_count, −wings_kg · Thighs −thighs_count, −thighs_kg · 4-Piece Packs +big_packages · 2-Piece Packs +small_packages · Wasted Wings +rejected_wings, +estimated kg · Wasted Thighs +rejected_thighs, +estimated kg · each By-product (processed) −(carry_kg + rejected_kg) · By-product (packed) +carry_kg · Wasted by-product +rejected_kg |
+| **Finish step 3** | Wings −wings_count, −wings_kg · Thighs −thighs_count, −thighs_kg · 4-Piece Packs +big_packages · 2-Piece Packs +small_packages · Wasted Wings +rejected_wings, +estimated kg · Wasted Thighs +rejected_thighs, +estimated kg · each By-product (processed) −(carry_kg + rejected_kg) · By-product (packed) +carry_kg · Wasted by-product +rejected_kg · **Satay sachets (4-piece) −sachets_4_used · Satay sachets (2-piece) −sachets_2_used**, split across preparations (below) |
 
 - **Estimated waste kg** = rejected count × (step 2 kg ÷ step 2 count), rounded to 3 decimals, with `kg_estimated = true` on the movement (and `kg_estimated` on the wasted Wings / Thighs items).
 - **By-products:** the processed stock loses only what step 3 assigned (carry + rejected). Since the by-product balance is a UI-only rule (§14.1), an unassigned remainder stays in the processed stock, visible; assigning more than the processed stock holds (all batches) is refused (§18.3).
 - **Reopen** step N: the movements of every step sent back to draft are reversed, **latest step first**, each as a new movement with `reversal_of` = the original and `reason = "reopen"`. Finishing again writes fresh movements.
 - **Cancel:** every un-reversed movement of the batch is reversed (`reason = "cancel"`). (A completed batch can't be cancelled, so that's at most steps 1 and 2.)
 - A movement is reversed **at most once** (unique index on `reversal_of`). Draft saves never write movements.
+- **Satay sachets consumed by production:** each size's count is taken from the preparations that made the sachets by their current net contribution, **oldest preparation first** (FIFO, the order of the item breakdown, §18.6): one movement per (item, preparation), `source = production`, with both `batch_id` (and `step = 3`) and `preparation_id`. So the sachet breakdown by preparation still adds up to the balance. A reversal keeps the original's `preparation_id`: reopening step 3 gives each preparation its sachets back. The batch's `stock_changes` sums them into one row per item.
 - **Marinade reversal:** written in the material's **current** unit (it may have switched kg ↔ g since). Materials are left out of the "stock already used in orders" guard (§18.10): the marinade isn't attributed to batches.
 - All in the same transaction as the action; the batch row is locked first, then the balances (§18.3).
 
@@ -1241,7 +1259,7 @@ Unknown material → `404 MATERIAL_NOT_FOUND`. Every write returns the material.
 
 The **Prepared** section (`section = group = prepared`, shown as its own sub-tab between Packed and Wasted) holds what preparations (§21) make. Origin `preparation`: nobody sets or adds them by hand (`set` → `INVENTORY_ITEM_PRODUCTION_ONLY` like everything else; the material add / remove routes act on the raw material only).
 
-- **Satay sachets:** `satay_sachet_2`, `satay_sachet_4` (count), catalog items.
+- **Satay sachets:** `satay_sachet_2`, `satay_sachet_4` (count), catalog items. **Used by production step 3** (one per pack, §14.1), oldest preparation first (§18.2): their breakdown shows what each preparation still has. A preparation whose sachets production already used can't be reopened or cancelled: reversing needs **its own** remaining sachets → else `409 INVENTORY_INSUFFICIENT` with that remainder as `available_count` (§21).
 - **Prepared twins:** every material with `prep_role = packaging` has a twin, `<material item_code>_prepared`, resolved from the material at runtime (no table): the **same names, unit and icon**, section Prepared. Its balance row is created at startup for existing materials and when such a material is created (and on demand). Archiving the material hides its twin from the overview **unless the twin has stock**. A kg ↔ g switch of the material converts the twin (§18.11); an m² material's twin is in m² too (2 decimals, `m2` column).
 - **`prep_role`** (`inventory_materials`, migration `0017`): `none` (not preparable; Marinade sauce) · `packaging` (moved 1:1 to its twin; **the default for new materials**) · `satay_sauce` · `zip_bag_2` · `zip_bag_4` (the satay sachet inputs; at most one material each, a partial unique index). The migration set Marinade → none, Satay sauce / Zip bag 7 (2) / Zip bag 7 (4) by their icon key (else English name), everything else packaging. **It isn't editable in the UI yet (to be decided later)**; it's returned on materials (`prep_role`) and on the overview's `material`.
 - History: preparation movements carry `source = preparation` and `preparation {id, code}`; the item detail lists preparations (§18.6).
@@ -1429,7 +1447,7 @@ All values are typed in (**no recipe yet**). Lines are stored with `unit` (the m
   - packaging line: −material, +its prepared twin (same quantity and unit, also for g and counted materials);
   - **not enough stock → `409 INVENTORY_INSUFFICIENT`** (items, available, needed; §18.3) and nothing changes;
   - `prepared_date` = today in `BUSINESS_TIMEZONE`; movements `source = preparation`, `preparation_id`; the alert is stored (§16).
-- **Reopen** (`preparation.update`): finished → draft, values kept; its open movements are reversed (`reversal_of`, `reason = "reopen"`, in each item's current unit); blocked by `INVENTORY_INSUFFICIENT` when the outputs are no longer in stock; `prepared_date` cleared.
+- **Reopen** (`preparation.update`): finished → draft, values kept; its open movements are reversed (`reversal_of`, `reason = "reopen"`, in each item's current unit); blocked by `INVENTORY_INSUFFICIENT` when the outputs are no longer in stock, or when production step 3 already used this preparation's sachets (its **own** remaining count must cover them, §18.12); `prepared_date` cleared.
 - **Cancel** (`preparation.cancel`, reason 1–500 required): a draft is cancelled; a finished one is reversed first (`reason = "cancel"`, same block). Cancelled is read-only.
 - **Audit** (`entity_type = preparation`): `preparation.create`, `preparation.finish`, `preparation.reopen`, `preparation.cancel` (§6). Draft saves aren't audited.
 
@@ -1553,7 +1571,7 @@ A background task in the API process, **once a minute**, guarded by a Postgres a
 
 - **Absent:** from a shift's cutoff (start + absent after), an `absent` record (`source = auto`, that workplace) for every tracked employee of the workplace without one **who existed before the cutoff** (someone created at 10:00 isn't absent for the morning).
 - **Forgot check-out:** when a workplace's check-out window closes, its open records become `forgot_checkout`.
-- **Reminders** (when the workplace's `reminders_enabled`): when a check-in window opens, every tracked employee of that workplace with a linked Telegram account and no record for the shift; when a check-out window opens, those checked in and not out. Each reminder **once** (`attendance_reminders`, unique per user / day / shift / kind), only while its window is open (no catch-up spam after downtime; a stored one whose window closed is `skipped`, and so is one no longer needed or whose workplace turned reminders off); sent after the commit; outcome stored (`sent`, `failed` with the error, `not_linked`, `bot_off`, `skipped`). Texts (the user's language): "🕡 ម៉ោងចុះវត្តមានវេនព្រឹកបានបើកហើយ រហូតដល់ 07:44។" / "🕡 Morning check-in is open until 07:44." and "🕛 You can check out of the morning shift until 12:59.", each with a **ចុះវត្តមាន / Check in** or **ចុះចេញ / Check out** `web_app` button opening the check screen.
+- **Reminders** (when the workplace's `reminders_enabled`): when a check-in window opens, every tracked employee of that workplace with a linked Telegram account and no record for the shift; when a check-out window opens, those checked in and not out. Each reminder **once** (`attendance_reminders`, unique per user / day / shift / kind), only while its window is open (no catch-up spam after downtime; a stored one whose window closed is `skipped`, and so is one no longer needed or whose workplace turned reminders off); sent after the commit; outcome stored (`sent`, `failed` with the error, `not_linked`, `bot_off`, `skipped`). Reminders and check-in / check-out confirmations use the same binding as alerts: pressing Start in the bot links an employee (§7.4). Texts (the user's language): "🕡 ម៉ោងចុះវត្តមានវេនព្រឹកបានបើកហើយ រហូតដល់ 07:44។" / "🕡 Morning check-in is open until 07:44." and "🕛 You can check out of the morning shift until 12:59.", each with a **ចុះវត្តមាន / Check in** or **ចុះចេញ / Check out** `web_app` button opening the check screen.
 - `ATTENDANCE_SCHEDULER_ENABLED` (default `true`) turns it off (the tests run ticks directly).
 
 ### 22.7 Corrections
@@ -1635,7 +1653,7 @@ The superadmin holds them implicitly; the new permissions were backfilled per th
 ### 22.12 Bot
 
 - **No attendance commands** (`/checkin` / `/checkout` aren't registered or handled). The entry points are buttons:
-  - **`/start`**: for a linked Telegram account of a **tracked employee** (tracked today, or whose attendance starts later; not a supervisor switched off) the greeting has two `web_app` buttons side by side, **🍗 បើកកម្មវិធី / Open app** and **🕒 វត្តមាន / Attendance** (→ `MINI_APP_URL/attendance/check`, the check screen, which decides the action). Everyone else (general managers, deactivated accounts, unlinked chats) keeps only Open app.
+  - **`/start`**: binds an unlinked account by username first (§7.4). For a linked Telegram account of a **tracked employee** (tracked today, or whose attendance starts later; not a supervisor switched off) the greeting has two `web_app` buttons side by side, **🍗 បើកកម្មវិធី / Open app** and **🕒 វត្តមាន / Attendance** (→ `MINI_APP_URL/attendance/check`, the check screen, which decides the action). Everyone else (general managers, deactivated accounts, unlinked chats) keeps only Open app.
   - **Menu button:** registration sets the bot's default menu button to a `web_app` button **បើកកម្មវិធី** → `MINI_APP_URL` (the default button when it isn't HTTPS); `/start` and `/lang` set it for that chat in the user's language (**Open app** in English). `MINI_APP_URL` is part of the registration fingerprint, so it's set once and refreshed when the URL changes; polling mode sets it at startup.
   - **Reminders** and **confirmations** carry the check-screen button; the Home card opens it too.
 - If `MINI_APP_URL` isn't HTTPS, the buttons are omitted and the bot says the app isn't configured.

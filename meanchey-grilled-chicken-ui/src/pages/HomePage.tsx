@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth, useRefreshMeWhenStale } from '@/auth/AuthProvider'
 import { RoleBadge } from '@/components/badges'
 import { NavTile } from '@/components/NavTile'
+import { TelegramConnectBanner } from '@/components/TelegramConnectBanner'
 import { useNavItems } from '@/layouts/nav'
 import { useIsTracked } from '@/pages/attendance/api'
 import { AttendanceHomeCard } from '@/pages/attendance/AttendanceCard'
@@ -26,6 +27,9 @@ export function HomePage() {
           <RoleBadge role={me.user.role} position={me.user.position} />
         </div>
       </section>
+
+      {/* Alerts and reminders can't reach an unlinked Telegram account: ask to press Start. */}
+      <TelegramConnectBanner />
 
       {/* Tracked employees: the attendance action first (check in / out now). */}
       {tracked && <AttendanceHomeCard />}

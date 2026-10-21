@@ -187,7 +187,11 @@ class ProductionOutput(StepMixin, Base):
 
 
 class ProductionPackaging(StepMixin, Base):
-    """Step 3 (standardize). `packaging_date` is recorded when it is finished."""
+    """Step 3 (standardize). `packaging_date` is recorded when it is finished.
+
+    Satay sachets used (one per pack: 4-piece sachet per 4-piece pack, 2-piece per 2-piece):
+    while `sachets_*_manual` is false the server keeps `sachets_*_used` equal to the pack count;
+    true means staff typed the value and it is kept."""
 
     __tablename__ = "production_packaging"
     __table_args__ = (
@@ -198,6 +202,7 @@ class ProductionPackaging(StepMixin, Base):
             "AND rejected_wings >= 0 AND rejected_thighs >= 0",
             name="nonnegative",
         ),
+        CheckConstraint("sachets_4_used >= 0 AND sachets_2_used >= 0", name="sachets_nonnegative"),
     )
 
     batch_id: Mapped[uuid.UUID] = _batch_pk()
@@ -205,6 +210,14 @@ class ProductionPackaging(StepMixin, Base):
     small_packages: Mapped[int | None] = mapped_column(Integer)
     rejected_wings: Mapped[int | None] = mapped_column(Integer)
     rejected_thighs: Mapped[int | None] = mapped_column(Integer)
+    sachets_4_used: Mapped[int | None] = mapped_column(Integer)
+    sachets_2_used: Mapped[int | None] = mapped_column(Integer)
+    sachets_4_manual: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false")
+    )
+    sachets_2_manual: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false")
+    )
     comment: Mapped[str | None] = mapped_column(Text)
     packaging_date: Mapped[date | None] = _step_date()
 

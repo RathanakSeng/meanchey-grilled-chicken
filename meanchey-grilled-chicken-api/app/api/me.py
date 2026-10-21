@@ -7,7 +7,7 @@ from app.core.errors import AppError, ErrorCode
 from app.deps import CurrentUser, SessionDep, require_permission, require_role
 from app.models import Role, User
 from app.schemas.auth import MeOut
-from app.schemas.notification import TelegramLinkOut
+from app.schemas.notification import TelegramBotOut, TelegramLinkOut
 from app.schemas.user import ProfileUpdate
 from app.services import auth_service, telegram_link_service, user_service
 
@@ -32,11 +32,7 @@ async def self_reset_password(
     await user_service.self_reset_password(session, user)
 
 
-@router.post("/telegram-link", response_model=TelegramLinkOut)
-async def create_telegram_link(
-    user: Superadmin, session: SessionDep, request: Request
-) -> TelegramLinkOut:
-    """A one-time deep link (10 minutes) that binds the Telegram account opening it."""
+async def _bot_username(request: Request) -> str:
     try:
         username = await bot_username(request.app.state.telegram)
     except Exception as e:
@@ -45,6 +41,21 @@ async def create_telegram_link(
         ) from e
     if not username:
         raise AppError(503, ErrorCode.TELEGRAM_NOT_CONFIGURED, "Telegram bot is not configured")
+    return username
+
+
+@router.get("/telegram-bot", response_model=TelegramBotOut)
+async def telegram_bot(user: CurrentUser, request: Request) -> TelegramBotOut:
+    """The bot's link: pressing Start there binds a Telegram account by its username."""
+    return TelegramBotOut(url=f"https://t.me/{await _bot_username(request)}")
+
+
+@router.post("/telegram-link", response_model=TelegramLinkOut)
+async def create_telegram_link(
+    user: Superadmin, session: SessionDep, request: Request
+) -> TelegramLinkOut:
+    """A one-time deep link (10 minutes) that binds the Telegram account opening it."""
+    username = await _bot_username(request)
     return await telegram_link_service.create_link(session, user, username)
 
 

@@ -267,6 +267,11 @@ function Items({ onDone }: { onDone(): void }) {
                     <span className={cx('block text-sm text-stone-800', !n.read_at && 'font-medium')}>{text}</span>
                     {comment && <span className="mt-0.5 block text-sm italic text-stone-600">“{comment}”</span>}
                     <span className="mt-0.5 block text-xs text-stone-500">{formatDate(n.created_at)}</span>
+                    {(n.telegram_status === 'not_linked' || n.telegram_status === 'failed') && (
+                      <span className="mt-0.5 block text-xs text-amber-700">
+                        {t(n.telegram_status === 'not_linked' ? 'telegramLink.notSentNotLinked' : 'telegramLink.notSent')}
+                      </span>
+                    )}
                   </span>
                   {!n.read_at && (
                     <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-600" aria-label={t('notifications.unread')} />

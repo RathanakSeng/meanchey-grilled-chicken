@@ -43,3 +43,6 @@ class MeOut(BaseModel):
     # Holds permissions.grant (GM, superadmin) or users.manage_access (supervisor: staff only,
     # capped by their own access): may set feature access levels (Access tab).
     can_manage_features: bool
+    # Holds an alert permission or is tracked for attendance: alerts / reminders go to Telegram,
+    # so the app asks an unlinked user to open the bot and press Start.
+    telegram_alerts: bool

@@ -36,17 +36,26 @@ Production rules (tracked batches only, `production_batches.inventory_tracked`):
 - Finish step 1/2/3 writes the movements of `step_deltas`; step 2 also takes its `marinade_g`
   out of the Marinade sauce material (converted when that material is in kg), in the same
   transaction: not enough → INVENTORY_INSUFFICIENT and the Finish is refused.
+- Step 3 also takes the satay sachets used (`sachets_4_used` / `sachets_2_used`) out of
+  `satay_sachet_4` / `satay_sachet_2`, split across the preparations that made them by their
+  current net contribution, **oldest preparation first**: one movement per (item, preparation),
+  with both `batch_id` and `preparation_id` set, so the item's preparation breakdown still adds
+  up to the balance. Not enough → INVENTORY_INSUFFICIENT.
 - Reopen reverses the un-reversed movements of the steps sent back to draft, latest step first;
   cancel reverses every un-reversed movement of the batch. A reversal is a new movement with
   `reversal_of` set (unique: a movement is reversed at most once) and `reason` "reopen" / "cancel".
   A material's reversal is written in the material's current unit (it may have switched kg <-> g
-  since), and materials are left out of the "stock already used in orders" guard.
+  since), and materials are left out of the "stock already used in orders" guard. A reversal
+  keeps the original's `preparation_id`: sachets go back to the preparations they came from.
 
 **Prepared items** (section `prepared`, origin `preparation`): the satay sachets (catalog) and
 the prepared twin of every packaging material (`<material item_code>_prepared`, resolved from the
 material: same names and unit, `prepared_def`). Only preparations move them
 (services/preparation_service.py: `source = preparation`, `preparation_id` set); their
-breakdown (`item_detail`) lists preparations instead of batches. A twin follows its material's
+breakdown (`item_detail`) lists preparations instead of batches: per preparation, the net of all
+its movements (production step 3 takes sachets from it, reversals give them back). Reopening or
+cancelling a preparation needs its own remaining contribution (`preparation_contributions`) to
+cover what it takes back, otherwise INVENTORY_INSUFFICIENT. A twin follows its material's
 kg <-> g switch (material_service). In the overview an archived material's twin stays only
 while it has stock.
 """
@@ -75,6 +84,7 @@ from app.inventory.catalog import (
     PACKS_BIG,
     PACKS_SMALL,
     PREPARED_SUFFIX,
+    SATAY_SACHETS,
     SECTIONS,
     THIGHS,
     WASTED_THIGHS,
@@ -504,6 +514,15 @@ def _marinade_delta(material: InventoryMaterial, grams: Decimal) -> Delta:
     return Delta(material.item_code, g=-units.quantize("g", grams), step=2)
 
 
+def sachets_used(batch: ProductionBatch) -> dict[str, int]:
+    """Step 3's satay sachets used, by item code (zero sizes left out)."""
+    packaging = batch.packaging
+    if packaging is None:
+        return {}
+    used = {4: packaging.sachets_4_used, 2: packaging.sachets_2_used}
+    return {SATAY_SACHETS[size]: n for size, n in used.items() if n}
+
+
 async def finish_step(
     session: AsyncSession, actor: User, batch: ProductionBatch, step: int
 ) -> None:
@@ -514,7 +533,68 @@ async def finish_step(
         material = await marinade_material(session, lock=True)
         if material is not None:
             deltas.append(_marinade_delta(material, batch.output.marinade_g))
+    if step == 3 and (sachets := sachets_used(batch)):
+        # Every balance of this Finish locked (item_code order) before the sources are read.
+        await lock_balances(session, [*(d.item_code for d in deltas), *sachets])
+        deltas += await _take_by_preparation(session, sachets, step=3)
     await apply_movements(session, actor, deltas, source="production", batch_id=batch.id)
+
+
+async def preparation_contributions(
+    session: AsyncSession, codes: list[str], *, preparation_id: uuid.UUID | None = None
+) -> dict[str, list[tuple[uuid.UUID, int]]]:
+    """Per counted prepared item, each preparation's current net count: the sum of all movements
+    carrying it (every source). Oldest first, as in the item breakdown; zero nets included."""
+    stmt = (
+        select(
+            InventoryMovement.item_code,
+            InventoryMovement.preparation_id,
+            func.coalesce(func.sum(InventoryMovement.count_delta), 0),
+        )
+        .join(Preparation, Preparation.id == InventoryMovement.preparation_id)
+        .where(InventoryMovement.item_code.in_(codes))
+        .group_by(InventoryMovement.item_code, InventoryMovement.preparation_id, Preparation.code)
+        .order_by(func.min(InventoryMovement.created_at), Preparation.code)
+    )
+    if preparation_id is not None:
+        stmt = stmt.where(InventoryMovement.preparation_id == preparation_id)
+    result: dict[str, list[tuple[uuid.UUID, int]]] = {c: [] for c in codes}
+    for code, p_id, count in await session.execute(stmt):
+        result[code].append((p_id, int(count)))
+    return result
+
+
+async def _take_by_preparation(
+    session: AsyncSession, needs: dict[str, int], **kwargs: Any
+) -> list[Delta]:
+    """Take `needs` (item code -> count) from the preparations, oldest first. A shortfall is left
+    unattributed; `apply_movements` then refuses it with INVENTORY_INSUFFICIENT."""
+    contributions = await preparation_contributions(session, sorted(needs))
+    deltas: list[Delta] = []
+    for code, need in sorted(needs.items()):
+        left = need
+        for p_id, net in contributions[code]:
+            if left <= 0:
+                break
+            if net <= 0:
+                continue
+            take = min(net, left)
+            deltas.append(Delta(code, count=-take, preparation_id=p_id, **kwargs))
+            left -= take
+        if left > 0:
+            deltas.append(Delta(code, count=-left, **kwargs))
+    return deltas
+
+
+async def counts_in_stock(session: AsyncSession, codes: list[str]) -> dict[str, int]:
+    """Current count balances of `codes` (not locked); 0 without a row."""
+    rows = {
+        b.item_code: b.count
+        for b in await session.scalars(
+            select(InventoryBalance).where(InventoryBalance.item_code.in_(codes))
+        )
+    }
+    return {code: int(rows.get(code) or 0) for code in codes}
 
 
 async def marinade_stock(session: AsyncSession) -> tuple[InventoryUnit, Decimal] | None:
@@ -572,6 +652,7 @@ async def reverse(
                 step=m.step,
                 reversal_of=m.id,
                 reason=cause,
+                preparation_id=m.preparation_id,
             ),
             materials.get(m.item_code),
         )
@@ -831,7 +912,8 @@ async def return_from_order(
 
 
 async def stock_changes(session: AsyncSession, batch: ProductionBatch) -> list[StockChangeOut]:
-    """Net effect of the batch's finished steps (reversed movements left out)."""
+    """Net effect of the batch's finished steps (reversed movements left out), one row per
+    (step, item): the satay sachets of step 3 are split across preparations, summed here."""
     if not batch.inventory_tracked:
         return []
     order = {i.code: i.order for i in ITEMS}
@@ -840,8 +922,22 @@ async def stock_changes(session: AsyncSession, batch: ProductionBatch) -> list[S
         key=lambda m: (m.step or 0, order.get(m.item_code, 15), m.id),
     )
     items = await resolve(session, {m.item_code for m in rows})
-    return [
-        StockChangeOut(
+
+    def add(a: Any, b: Any) -> Any:
+        return b if a is None else a if b is None else a + b
+
+    merged: dict[tuple[int, str], StockChangeOut] = {}
+    for m in rows:
+        key = (m.step or 0, m.item_code)
+        if key in merged:
+            row = merged[key]
+            row.count_delta = add(row.count_delta, m.count_delta)
+            row.kg_delta = add(row.kg_delta, m.kg_delta)
+            row.g_delta = add(row.g_delta, m.g_delta)
+            row.m2_delta = add(row.m2_delta, m.m2_delta)
+            row.kg_estimated = row.kg_estimated or m.kg_estimated
+            continue
+        merged[key] = StockChangeOut(
             step=m.step or 0,
             item_code=m.item_code,
             section=_section(items, m.item_code),
@@ -853,8 +949,7 @@ async def stock_changes(session: AsyncSession, batch: ProductionBatch) -> list[S
             m2_delta=m.m2_delta,
             kg_estimated=m.kg_estimated,
         )
-        for m in rows
-    ]
+    return list(merged.values())
 
 
 # --- Setting a value -----------------------------------------------------------------------------

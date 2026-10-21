@@ -558,6 +558,7 @@
     "PRODUCTION_PLAN_LOCKED": "ជំហានទី៣ បានបញ្ចប់ហើយ ដូច្នេះមិនអាចកែផែនការបានទេ។ សូមបើកជំហានទី៣ ឡើងវិញជាមុនសិន។",
     "PRODUCTION_PLAN_EXCEEDS_OUTPUT": "ផែនការប្រើស្លាប ឬភ្លៅលើសចំនួនដែលបានផលិត។",
     "PRODUCTION_PLAN_COMMENT_REQUIRED": "កញ្ចប់ខុសពីផែនការ — សូមបញ្ចូលមតិយោបល់។",
+    "PRODUCTION_SACHET_COMMENT_REQUIRED": "សាតេកញ្ចប់ខុសពីចំនួនកញ្ចប់ — សូមបញ្ចូលមតិយោបល់។",
     "NOTIFICATION_NOT_FOUND": "រកមិនឃើញការជូនដំណឹងទេ។",
     "ROLE_LIMIT_REACHED": "ចំនួន{{roleName}}បានដល់ចំនួនកំណត់ ({{limit}}) ហើយ។",
     "INVENTORY_INSUFFICIENT": "{{items}}",
@@ -695,6 +696,8 @@
       "smallPackages": "កញ្ចប់ ២ ដុំ",
       "rejectedWings": "ស្លាបខូច/មិនប្រើ",
       "rejectedThighs": "ភ្លៅខូច/មិនប្រើ",
+      "sachets4": "សាតេកញ្ចប់ (៤ ដុំ)",
+      "sachets2": "សាតេកញ្ចប់ (២ ដុំ)",
       "carryKg": "យកទៅបន្ត",
       "rejectedKg": "ខូច/មិនប្រើ",
       "comment": "មតិយោបល់"
@@ -746,6 +749,8 @@
       "thighs": "ចំនួនភ្លៅមាន់មិនទាន់ត្រូវគ្នា។",
       "byproduct": "{{name}}៖ យកទៅបន្ត + ខូច/មិនប្រើ ត្រូវតែស្មើនឹងទម្ងន់ដែលផលិតបាន។",
       "planComment": "ត្រូវការមតិយោបល់៖ កញ្ចប់ខុសពីផែនការ។",
+      "sachetComment": "ត្រូវការមតិយោបល់៖ សាតេកញ្ចប់ខុសពីចំនួនកញ្ចប់។",
+      "sachets": "សាតេកញ្ចប់ ({{size}} ដុំ) មិនគ្រប់៖ មានក្នុងស្តុក {{available}} ត្រូវការ {{needed}}",
       "marinade": "ទឹកប្រឡាក់ក្នុងស្តុកមិនគ្រប់គ្រាន់"
     },
     "supplierInactive": "បានបិទដំណើរការ",
@@ -799,7 +804,15 @@
     },
     "dateOnFinish": "{{date}} នឹងត្រូវកត់ត្រានៅពេលអ្នកបញ្ចប់ជំហាននេះ។",
     "started": "ចាប់ផ្តើម {{date}}",
-    "marinadeAvailable": "មានក្នុងស្តុក៖ {{amount}}"
+    "marinadeAvailable": "មានក្នុងស្តុក៖ {{amount}}",
+    "sachets": {
+      "auto": "ស្វ័យប្រវត្តិ",
+      "followsPacks": "មួយក្នុងមួយកញ្ចប់",
+      "reset": "ត្រឡប់ទៅស្វ័យប្រវត្តិ",
+      "inStock": "មានក្នុងស្តុក៖ {{count}}",
+      "differ": "សាតេកញ្ចប់ខុសពីចំនួនកញ្ចប់ — សូមពន្យល់ក្នុងមតិយោបល់",
+      "diff": "({{diff}} ធៀបនឹងកញ្ចប់)"
+    }
   },
   "plans": {
     "title": "ផែនការវេចខ្ចប់",
@@ -852,6 +865,8 @@
     "planned": "ផែនការ",
     "actual": "ជាក់ស្តែង",
     "differs": "ខុសពីផែនការ",
+    "sachetsNeeded": "ត្រូវការសាតេកញ្ចប់ {{big}} × ៤ ដុំ និង {{small}} × ២ ដុំ · មានក្នុងស្តុក {{stockBig}} / {{stockSmall}}",
+    "sachetsShort": "សូមរៀបចំសាតេកញ្ចប់បន្ថែមមុនពេលវេចខ្ចប់",
     "differsWarning": "ខុសពីផែនការ — សូមបញ្ចូលមតិយោបល់។"
   },
   "notifications": {
@@ -892,7 +907,11 @@
     "validFor": "បើកបូត ហើយតំណមានសុពលភាព 10 នាទី។ សូមចុច Start នៅទីនោះ។",
     "unlink": "ផ្តាច់",
     "unlinkTitle": "ផ្តាច់ Telegram?",
-    "unlinkBody": "ការជូនដំណឹងផលិតកម្មនឹងលែងផ្ញើទៅគណនី Telegram នេះទៀតហើយ។"
+    "unlinkBody": "ការជូនដំណឹងផលិតកម្មនឹងលែងផ្ញើទៅគណនី Telegram នេះទៀតហើយ។",
+    "connectBanner": "ភ្ជាប់ Telegram ដើម្បីទទួលការជូនដំណឹង — បើកបូត ហើយចុច Start។",
+    "notLinkedHint": "សូមប្រាប់គាត់ឲ្យបើកបូត ហើយចុច Start។",
+    "notSent": "មិនបានផ្ញើទៅ Telegram",
+    "notSentNotLinked": "មិនបានផ្ញើទៅ Telegram (មិនទាន់ភ្ជាប់)"
   },
   "userLimits": {
     "title": "ចំនួនអ្នកប្រើប្រាស់",

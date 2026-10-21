@@ -133,6 +133,7 @@ Home                      everyone
 ## 5. Home
 
 - A welcome banner with the user's name and role badge (plus position for staff).
+- **Connect Telegram:** a GM, supervisor or staff member who gets alerts or attendance reminders (`me.telegram_alerts`: an alert permission, or tracked for attendance) while their Telegram isn't linked sees a blue banner: *"Connect Telegram to get alerts — open the bot and press Start."* / *"ភ្ជាប់ Telegram ដើម្បីទទួលការជូនដំណឹង — បើកបូត ហើយចុច Start។"* with **Open the bot** (`https://t.me/<bot>`, from `GET /me/telegram-bot`; hidden when the bot isn't configured). Pressing Start links the account by username; the banner goes away when the window gets focus again. **✕** dismisses it on this device. Not shown to the superadmin (it links from its profile, §12).
 - **Tracked employees** (staff, supervisors): the **Attendance** card first, with the one action now (§7.2).
 - Large tiles, one per section the user sees, each with an icon, a title and a one-line description. They sit side by side on desktop and stack on mobile:
   - **Workstation (កន្លែងការងារ):** your daily work: suppliers, customers and more;
@@ -216,6 +217,8 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ក�
 
 **Step 3: Standardize.** While the plan isn't confirmed, step 3 shows *"Waiting for the packaging plan"* (with **Open plan** for plan holders) instead of the form; the API refuses saves too. Then: **4-Piece Packs** (កញ្ចប់ ៤ ដុំ, *1 × 4-piece = 2 wings + 2 thighs*) and **2-Piece Packs** (កញ្ចប់ ២ ដុំ, *1 × 2-piece = 1 wing + 1 thigh*) with a live breakdown, rejected wings and thighs, a **Plan vs actual** panel (planned and actual per pack size, ⚠ where they differ), and a **balance meter** per piece type (*"Wings: 3 left to assign"*, *"2 too many"*, *All assigned*). For each by-product: the produced kg, **carry forward** (យកទៅបន្ត) and **rejected** (ខូច/មិនប្រើ) inputs, and a per-row indicator. The comment is optional, **unless the packs differ from the plan**: then an amber notice says *"Different from the plan — add a comment."*, the comment becomes required (*Comment \**) and Finish stays disabled (*"Comment required: packs differ from the plan."*). The API enforces it too. The step 3 summary shows the plan vs actual panel.
 
+**Satay sachets (step 3).** Every pack gets one matching sachet: **4-Piece Pack → 4-piece satay sachet**, **2-Piece Pack → 2-piece satay sachet**. Under the packs, **Satay sachets (4-piece)** and **Satay sachets (2-piece)** (numeric keypad) are prefilled with the pack counts and follow them live while on auto (a small *auto* badge, *"One per pack"*). Typing a count keeps it (even when the packs change) and shows **Reset to auto**; the choice is saved on the server, so it's the same on every device. Next to each: *"In stock: 120"* (with Production Record, while step 3 of a counted batch is a draft), red when the count is higher. When a count differs from its pack count an amber notice says *"Sachets differ from packs — explain in the comment"* and the **same comment** becomes required (one comment for the plan and the sachets; the blocker list says *"Comment required: satay sachets differ from the packs."*). Finish is also blocked by *"Not enough satay sachets (4-piece): 40 in stock, 70 needed"*. Finishing step 3 takes the sachets out of inventory (oldest preparation first); reopening puts them back. The step 3 summary shows the sachets used per size, with the difference from the packs (*"(+2 vs packs)"*). Batches from before inventory record the counts but never touch the stock.
+
 **Finish step** is disabled until the step is complete; a list under the form says what's missing (*"Fill in: Weight, Supplier"*, *"Wings don't add up yet"*). It asks for confirmation: *"The step is locked after finishing. Only someone with Full access can reopen it."*
 
 - Wings and thighs must balance exactly: 2 × big + small + rejected = count. The API enforces this too.
@@ -247,6 +250,7 @@ A **batch** (code `PR-YYYYMMDD-NNN`) goes through three steps: **Intake** (ក�
 - **Header:** code, status, production date and supplier, and **Open batch**.
 - **Processed (step 2)**, read-only: wings and thighs (kg and pieces), each by-product (kg, catalog names), marinade (g), number of chickens.
 - **Packaging plan:** with *Full access* and while it can change: **4-Piece Packs** and **2-Piece Packs** (numeric keypad), an optional note, and a live meter *"Uses 296 of 300 wings · 296 of 300 thighs"* that turns red when the plan needs more pieces than were produced (Save and Confirm are then disabled; the API checks the same rule). **Save** keeps the values; **Confirm plan** asks *"Confirm the plan? … Step 3 can start once the plan is confirmed."*. A confirmed plan shows *Confirmed by … · time* and stays editable with **Save** (it stays confirmed) until step 3 is finished.
+- **Satay sachets** (information only), under the plan: *"Needs 70 × 4-piece and 30 × 2-piece satay sachets · in stock 40 / 50"*, following the typed counts while editing. When the stock won't cover the plan it turns red with *"Prepare more sachets before packing"*; confirming is still allowed (step 3 Finish is where stock is enforced). Hidden until both counts are saved, for batches from before inventory, and once step 3 is finished.
 - **Read-only** for *View only*, completed batches (with the actual packs and comment beside the plan) and cancelled batches. *"No plan: this batch was finished before packaging plans existed."* for older batches; *"The plan can be set once processing (step 2) is finished."* before that.
 - **Reopening:** reopening step 1 or 2 puts the plan back to *Waiting for plan* (values kept) and step 3 is locked again; reopening step 3 keeps it confirmed.
 - **Someone else changed the batch:** the plan reloads with a notice (*"Someone else changed this batch. The plan has been reloaded — check the values and try again."*).
@@ -262,6 +266,8 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
 | ⚠️ | Step 3 finished, different from the plan | *"PR-…: production completed, different from the plan. Planned 148 / 4, actual 147 / 6."* and the comment | the batch, step 3 |
 
 "again" is added when a step was finished again after a reopen. Tapping one marks it read and opens it; **Mark all as read** clears the count. Empty: *"No notifications yet."*
+
+**Telegram delivery note:** under the time, an item that didn't reach Telegram says so in small amber text: *"Not sent to Telegram (not linked)"* (`telegram_status = not_linked`) or *"Not sent to Telegram"* (`failed`).
 
 | 🧂 | A preparation finished (§6.7) | *"PP-…: preparation finished — 40 satay sachets (2-piece), 25 (4-piece) | Skewer 2.000 kg."* ("again" after a reopen) | the preparation |
 | 🚚 ✅ ↩️ 📦 | An order out for delivery, delivered, returned, return reviewed (§6.6) | e.g. *"OR-…: Dara Shop returned items — 2 × 4-Piece Packs. Review the return."* and the reason | the order |
@@ -322,7 +328,7 @@ Stock updates **automatically** as production steps are finished; reopening a st
 **On the production batch page**
 
 - With **Inventory history** only (the API sends the data only then): a **Stock changes** card under the step lists what each finished step added (+, green) or removed (−, red), step by step. Reopened steps drop out of it. Batches from before inventory existed show *"Not counted in inventory (before inventory started)."*
-- **Step 2 marinade:** under the marinade field, *"Available: 2,350.0 g"* (with Production Record, while step 2 is a draft). When the entered amount is higher it turns red and Finish is blocked with *"Not enough marinade sauce in stock"*. Finishing step 2 takes the marinade out of Marinade sauce; reopening or cancelling puts it back. The Stock changes card lists it under step 2.
+- **Step 2 marinade:** under the marinade field, *"Available: 2,350.0 g"* (with Production Record, while step 2 is a draft). When the entered amount is higher it turns red and Finish is blocked with *"Not enough marinade sauce in stock"*. Finishing step 2 takes the marinade out of Marinade sauce; reopening or cancelling puts it back. The Stock changes card lists it under step 2. Likewise step 3 lists the satay sachets it used (one row per size).
 - **Finish, Reopen and Cancel** can be refused when stock is short; the message names each item, e.g. *"Not enough Chicken in stock: 10 available, 100 needed."* (in the step's error area, the reopen dialog or the cancel sheet). Nothing changes.
 
 ### 6.6 Orders (ការបញ្ជាទិញ)
@@ -613,6 +619,7 @@ By permission: Workplaces **View only** sees everything read-only; **Record** (`
   - *Active* / *Deactivated*;
   - *Locked*;
   - *Password change pending*.
+- **Telegram not linked yet:** a grey badge next to `@telegram` (desktop) or with the badges (mobile) for an active user whose Telegram isn't linked, so managers see whose alerts and reminders can't reach Telegram yet. On the user page the Telegram line shows *Telegram linked* / *Telegram not linked yet*, and when not linked: *"Ask them to open the bot and press Start."*
 - Pagination, with 20 per page.
 - **New user** button, shown with `users.create`. Supervisors start without it (Staff management *View only*); a GM allows it per supervisor with *Record* or *Full access*. Without it the list is read-only, with no hint naming other roles.
 - **Capacity line** under the total, for the roles the viewer manages: *"Supervisors 2 / 3 · Staff 7 / 10"* (*no limit* when unlimited).
@@ -751,7 +758,7 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 
 **Telegram** (system account only)
 
-- Status *Telegram linked* / *Telegram not linked yet*. **Link Telegram** creates a one-time link and shows **Open the bot** (*"Opens the bot; valid for 10 minutes. Tap Start there."*); after tapping Start in Telegram, the card shows *Linked* when you come back to the window. **Unlink** (with confirmation) stops the alerts on Telegram. Other accounts link Telegram by signing in to the Mini App, as before.
+- Status *Telegram linked* / *Telegram not linked yet*. **Link Telegram** creates a one-time link and shows **Open the bot** (*"Opens the bot; valid for 10 minutes. Tap Start there."*); after tapping Start in Telegram, the card shows *Linked* when you come back to the window. **Unlink** (with confirmation) stops the alerts on Telegram. Other accounts link Telegram by signing in to the Mini App or by pressing Start in the bot (Home asks them to, §5).
 
 **Change password**
 

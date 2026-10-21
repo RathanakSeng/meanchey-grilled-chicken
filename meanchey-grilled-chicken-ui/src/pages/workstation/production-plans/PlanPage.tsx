@@ -9,7 +9,7 @@ import { api } from '@/lib/api'
 import { getError, useErrorMessage } from '@/lib/errors'
 import { useFormatDate, useFormatDay, useLocalized } from '@/lib/format'
 import { paths } from '@/lib/paths'
-import { PLAN_NOTE_MAX_LENGTH, type PlanDetail, type UserRef } from '@/lib/types'
+import { PLAN_NOTE_MAX_LENGTH, type PlanDetail, type SachetCounts, type UserRef } from '@/lib/types'
 import { productionKeys } from '@/pages/workstation/production/api'
 import { toInput } from '@/pages/workstation/production/numbers'
 import { NumberField } from '@/pages/workstation/production/StepShell'
@@ -79,6 +79,24 @@ function UsageMeter({ planned, wings, thighs }: { planned: number; wings: number
  * With `production_plan.manage` and while editable: Save and Confirm plan (which step 3 waits for).
  * Writes send the batch `version`; on PRODUCTION_CONFLICT the plan is reloaded with a notice.
  */
+/** "Needs 70 × 4-piece and 30 × 2-piece satay sachets · in stock 40 / 50"; red when short.
+ * Information only: confirming stays allowed (step 3 Finish is where stock is enforced). */
+function SachetNeeds({ needed, stock }: { needed: SachetCounts; stock: SachetCounts }) {
+  const { t } = useTranslation()
+  const short = needed['4'] > stock['4'] || needed['2'] > stock['2']
+  return (
+    <p className={cx('mt-3 text-sm', short ? 'font-medium text-red-700' : 'text-stone-600')}>
+      {t('plans.sachetsNeeded', {
+        big: needed['4'],
+        small: needed['2'],
+        stockBig: stock['4'],
+        stockSmall: stock['2'],
+      })}
+      {short && <span className="block">{t('plans.sachetsShort')}</span>}
+    </p>
+  )
+}
+
 export function PlanPage() {
   const { t } = useTranslation()
   const { batchId = '' } = useParams()
@@ -327,6 +345,20 @@ export function PlanPage() {
             </dl>
           ) : (
             <p className="text-sm text-stone-500">{t(detail.plan_legacy ? 'plans.legacy' : 'plans.notYet')}</p>
+          )}
+          {detail.sachets && (
+            <SachetNeeds
+              // While editing: what the typed counts would need (the saved ones otherwise).
+              needed={
+                plan && editable && produced
+                  ? {
+                      '4': Number.isNaN(big) || big === null ? detail.sachets.needed['4'] : big,
+                      '2': Number.isNaN(small) || small === null ? detail.sachets.needed['2'] : small,
+                    }
+                  : detail.sachets.needed
+              }
+              stock={detail.sachets.in_stock}
+            />
           )}
           {plan && (
             <p className="mt-3 text-xs text-stone-500">

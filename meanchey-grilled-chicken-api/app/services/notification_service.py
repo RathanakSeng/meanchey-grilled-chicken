@@ -38,6 +38,16 @@ REQUEST_SUBMITTED = "attendance.request_submitted"
 REQUEST_APPROVED = "attendance.request_approved"
 REQUEST_REJECTED = "attendance.request_rejected"
 REQUEST_REMINDER = "attendance.request_reminder"
+REQUEST_REVIEW_PERMISSION = "attendance.requests_review"
+# Holding any of these brings alerts (bell + Telegram): the app asks unlinked holders to link.
+TELEGRAM_ALERT_PERMISSIONS = frozenset(
+    {
+        ALERT_PERMISSION,
+        ORDER_ALERT_PERMISSION,
+        PREPARATION_ALERT_PERMISSION,
+        REQUEST_REVIEW_PERMISSION,
+    }
+)
 _QUEUE_KEY = "queued_notifications"
 
 

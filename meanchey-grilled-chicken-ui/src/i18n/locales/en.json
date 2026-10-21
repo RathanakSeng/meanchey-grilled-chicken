@@ -558,6 +558,7 @@
     "PRODUCTION_PLAN_LOCKED": "Step 3 is finished, so the plan can't change. Reopen step 3 first.",
     "PRODUCTION_PLAN_EXCEEDS_OUTPUT": "The plan uses more wings or thighs than were produced.",
     "PRODUCTION_PLAN_COMMENT_REQUIRED": "The packs differ from the plan — add a comment.",
+    "PRODUCTION_SACHET_COMMENT_REQUIRED": "The satay sachets differ from the packs — add a comment.",
     "NOTIFICATION_NOT_FOUND": "Notification not found.",
     "ROLE_LIMIT_REACHED": "The {{roleName}} limit ({{limit}}) is reached.",
     "INVENTORY_INSUFFICIENT": "{{items}}",
@@ -695,6 +696,8 @@
       "smallPackages": "2-Piece Packs",
       "rejectedWings": "Rejected wings",
       "rejectedThighs": "Rejected thighs",
+      "sachets4": "Satay sachets (4-piece)",
+      "sachets2": "Satay sachets (2-piece)",
       "carryKg": "Carry forward",
       "rejectedKg": "Rejected",
       "comment": "Comment"
@@ -746,6 +749,8 @@
       "thighs": "Thighs don't add up yet.",
       "byproduct": "{{name}}: carry forward + rejected must equal the produced weight.",
       "planComment": "Comment required: packs differ from the plan.",
+      "sachetComment": "Comment required: satay sachets differ from the packs.",
+      "sachets": "Not enough satay sachets ({{size}}-piece): {{available}} in stock, {{needed}} needed",
       "marinade": "Not enough marinade sauce in stock"
     },
     "supplierInactive": "Deactivated",
@@ -799,7 +804,15 @@
     },
     "dateOnFinish": "{{date}} will be recorded when you finish this step.",
     "started": "Started {{date}}",
-    "marinadeAvailable": "Available: {{amount}}"
+    "marinadeAvailable": "Available: {{amount}}",
+    "sachets": {
+      "auto": "auto",
+      "followsPacks": "One per pack",
+      "reset": "Reset to auto",
+      "inStock": "In stock: {{count}}",
+      "differ": "Sachets differ from packs — explain in the comment",
+      "diff": "({{diff}} vs packs)"
+    }
   },
   "plans": {
     "title": "Production plan",
@@ -852,6 +865,8 @@
     "planned": "Planned",
     "actual": "Actual",
     "differs": "Different from the plan",
+    "sachetsNeeded": "Needs {{big}} × 4-piece and {{small}} × 2-piece satay sachets · in stock {{stockBig}} / {{stockSmall}}",
+    "sachetsShort": "Prepare more sachets before packing",
     "differsWarning": "Different from the plan — add a comment."
   },
   "notifications": {
@@ -892,7 +907,11 @@
     "validFor": "Opens the bot; valid for 10 minutes. Tap Start there.",
     "unlink": "Unlink",
     "unlinkTitle": "Unlink Telegram?",
-    "unlinkBody": "Production alerts will no longer reach this Telegram account."
+    "unlinkBody": "Production alerts will no longer reach this Telegram account.",
+    "connectBanner": "Connect Telegram to get alerts — open the bot and press Start.",
+    "notLinkedHint": "Ask them to open the bot and press Start.",
+    "notSent": "Not sent to Telegram",
+    "notSentNotLinked": "Not sent to Telegram (not linked)"
   },
   "userLimits": {
     "title": "User limits",
@@ -945,7 +964,7 @@
     },
     "groups": {
       "raw": "Raw",
-      "processed": "Processed",
+      "processed": "Processing",
       "packed": "Packed",
       "wasted": "Wasted",
       "prepared": "Prepared"

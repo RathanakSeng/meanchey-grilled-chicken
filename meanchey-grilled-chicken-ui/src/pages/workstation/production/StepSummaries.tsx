@@ -100,6 +100,21 @@ export function StepSummary({ batch, step }: { batch: ProductionBatch; step: Ste
         <Row label={t('production.fields.smallPackages')}>{num(s.small_packages)}</Row>
         <Row label={t('production.fields.rejectedWings')}>{num(s.rejected_wings)}</Row>
         <Row label={t('production.fields.rejectedThighs')}>{num(s.rejected_thighs)}</Row>
+        {([4, 2] as const).map((size) => {
+          const used = size === 4 ? s.sachets_4_used : s.sachets_2_used
+          const packs = size === 4 ? s.big_packages : s.small_packages
+          const diff = used !== null && packs !== null ? used - packs : 0
+          return (
+            <Row key={size} label={t(`production.fields.sachets${size}`)}>
+              {num(used)}
+              {diff !== 0 && (
+                <span className="ml-2 font-normal text-amber-700">
+                  {t('production.sachets.diff', { diff: diff > 0 ? `+${diff}` : String(diff) })}
+                </span>
+              )}
+            </Row>
+          )
+        })}
         {byproducts.map((b) => (
           <Row key={b.item_code} label={byproductName(b.item_code)}>
             {t('production.carryRejected', {

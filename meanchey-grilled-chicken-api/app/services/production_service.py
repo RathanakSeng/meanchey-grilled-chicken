@@ -19,6 +19,11 @@ Rules enforced here:
   Step 3 can be saved or finished only while the plan is `confirmed` (PRODUCTION_PLAN_REQUIRED),
   and finishing it with packs that differ from the plan needs a comment
   (PRODUCTION_PLAN_COMMENT_REQUIRED).
+- Satay sachets (step 3, one per pack: 4-piece sachet per big pack, 2-piece per small): while
+  `sachets_*_manual` is false every save stores the pack count (a client value is ignored); a
+  manual value is kept. At Finish a null count defaults to the pack count, and a count that
+  differs from its pack count needs the same comment (PRODUCTION_SACHET_COMMENT_REQUIRED; the
+  plan error comes first, `details.reasons` lists both when both apply).
 - Finishing step 2 or 3 creates the production alerts (services/notification_service.py) in the
   same transaction; the router sends them to Telegram after the commit.
 - Inventory (services/inventory_service.py, tracked batches only): Finish writes the step's stock
@@ -40,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.core.phones import format_phone
+from app.inventory.catalog import SATAY_SACHETS
 from app.models import (
     ProductionBatch,
     ProductionBatchCounter,
@@ -99,6 +105,9 @@ _NON_DIGITS = re.compile(r"\D+")
 StepRow = ProductionRawMaterial | ProductionOutput | ProductionPackaging
 # The column holding each step's date (recorded at Finish).
 STEP_DATE_ATTRS: dict[int, str] = {1: "import_date", 2: "production_date", 3: "packaging_date"}
+# Satay sachet size -> the pack count it follows (one sachet per pack).
+SACHET_PACKS: dict[int, str] = {4: "big_packages", 2: "small_packages"}
+SACHET_SIZES = tuple(SACHET_PACKS)
 
 
 # --- Calendar and codes --------------------------------------------------------------------------
@@ -425,6 +434,13 @@ async def save_standardize(
     if "comment" in fields:
         comment = (data.comment or "").strip()
         packaging.comment = comment or None
+    for size in SACHET_SIZES:
+        manual, used = f"sachets_{size}_manual", f"sachets_{size}_used"
+        if manual in fields:
+            setattr(packaging, manual, bool(getattr(data, manual)))
+        if used in fields and getattr(packaging, manual):
+            setattr(packaging, used, getattr(data, used))
+    _sync_sachets(packaging)
     if data.byproducts:
         rows = _ensure_byproducts(batch)
         for code, disposition in data.byproducts.items():
@@ -433,6 +449,25 @@ async def save_standardize(
     _touch(batch, packaging, actor)
     await session.commit()
     return await get_batch(session, batch_id)
+
+
+def _sync_sachets(packaging: ProductionPackaging) -> None:
+    """Sachet counts on auto follow their pack counts."""
+    for size, packs in SACHET_PACKS.items():
+        if not getattr(packaging, f"sachets_{size}_manual"):
+            setattr(packaging, f"sachets_{size}_used", getattr(packaging, packs))
+
+
+def sachet_differences(packaging: ProductionPackaging) -> dict[str, dict[str, int | None]]:
+    """Per size ("4", "2"): expected (the pack count) and used, when any size differs."""
+    sizes = {
+        str(size): {
+            "expected": getattr(packaging, packs),
+            "used": getattr(packaging, f"sachets_{size}_used"),
+        }
+        for size, packs in SACHET_PACKS.items()
+    }
+    return sizes if any(v["expected"] != v["used"] for v in sizes.values()) else {}
 
 
 # --- Finish --------------------------------------------------------------------------------------
@@ -530,7 +565,14 @@ async def finish_step(
         _validate_produced(batch)
     else:
         _validate_standardize(batch)
-        _check_plan_comment(batch)
+        packaging = batch.packaging
+        assert packaging is not None
+        _sync_sachets(packaging)
+        for size, packs in SACHET_PACKS.items():
+            # A manual count cleared in the draft: one sachet per pack.
+            if getattr(packaging, f"sachets_{size}_used") is None:
+                setattr(packaging, f"sachets_{size}_used", getattr(packaging, packs))
+        _check_comment(batch)
     # Stock movements of this step (before any change, from the validated values).
     await inventory_service.finish_step(session, actor, batch, step)
 
@@ -557,26 +599,48 @@ async def finish_step(
         batch.status = "completed"
         batch.completed_at = now
     _touch(batch, row, actor)
-    _audit(session, "production.step_finish", actor, batch, step=step)
+    details: dict[str, Any] = {}
+    if step == 3:
+        assert batch.packaging is not None
+        details = {
+            "sachets_4_used": batch.packaging.sachets_4_used,
+            "sachets_2_used": batch.packaging.sachets_2_used,
+        }
+    _audit(session, "production.step_finish", actor, batch, step=step, **details)
     if step in (2, 3):
         await _alert(session, actor, batch, step)
     await session.commit()
     return await get_batch(session, batch_id)
 
 
-def _check_plan_comment(batch: ProductionBatch) -> None:
-    """Packs that differ from the plan need a comment explaining why."""
+def _check_comment(batch: ProductionBatch) -> None:
+    """Packs that differ from the plan, or sachets that differ from the packs, need a comment
+    explaining why (one comment for both). The plan error comes first; when both apply its
+    details gain `sachets` and `reasons` (both)."""
     plan, packaging = batch.plan, batch.packaging
     assert plan is not None and packaging is not None
-    if plan_matches(batch) is False and not (packaging.comment or "").strip():
+    if (packaging.comment or "").strip():
+        return
+    sachets = sachet_differences(packaging)
+    if plan_matches(batch) is False:
+        details: dict[str, Any] = {
+            "planned": {"big": plan.expected_big, "small": plan.expected_small},
+            "actual": {"big": packaging.big_packages, "small": packaging.small_packages},
+        }
+        if sachets:
+            details |= {"sachets": sachets, "reasons": ["plan", "sachets"]}
         raise AppError(
             422,
             ErrorCode.PRODUCTION_PLAN_COMMENT_REQUIRED,
             "The packs differ from the plan; add a comment",
-            {
-                "planned": {"big": plan.expected_big, "small": plan.expected_small},
-                "actual": {"big": packaging.big_packages, "small": packaging.small_packages},
-            },
+            details,
+        )
+    if sachets:
+        raise AppError(
+            422,
+            ErrorCode.PRODUCTION_SACHET_COMMENT_REQUIRED,
+            "The satay sachets differ from the packs; add a comment",
+            sachets,
         )
 
 
@@ -1003,9 +1067,16 @@ async def batch_out(session: AsyncSession, batch: ProductionBatch, viewer: User)
             small_packages=packaging.small_packages,
             rejected_wings=packaging.rejected_wings,
             rejected_thighs=packaging.rejected_thighs,
+            sachets_4_used=packaging.sachets_4_used,
+            sachets_2_used=packaging.sachets_2_used,
+            sachets_4_manual=packaging.sachets_4_manual,
+            sachets_2_manual=packaging.sachets_2_manual,
             comment=packaging.comment,
             packaging_date=packaging.packaging_date,
             plan_matches=plan_matches(batch),
+            sachet_stock=await _sachet_stock(session, batch)
+            if "production.create" in perms
+            else None,
         ),
         plan=plan_out(batch.plan, users),
         plan_legacy=plan_legacy(batch),
@@ -1048,6 +1119,25 @@ async def _marinade_stock(session: AsyncSession, batch: ProductionBatch) -> Mari
         kg=amount if unit == "kg" else None,
         g=amount if unit == "g" else None,
     )
+
+
+async def sachet_stock(session: AsyncSession) -> dict[str, int]:
+    """Satay sachets in stock by size ("4", "2")."""
+    stock = await inventory_service.counts_in_stock(session, list(SATAY_SACHETS.values()))
+    return {str(size): stock[SATAY_SACHETS[size]] for size in SACHET_SIZES}
+
+
+async def _sachet_stock(session: AsyncSession, batch: ProductionBatch) -> dict[str, int] | None:
+    """While step 3 of a tracked, active batch is a draft: what its Finish will take from."""
+    packaging = batch.packaging
+    if (
+        not batch.inventory_tracked
+        or batch.status != "in_progress"
+        or packaging is None
+        or packaging.finished
+    ):
+        return None
+    return await sachet_stock(session)
 
 
 async def list_items(session: AsyncSession, batches: list[ProductionBatch]) -> list[BatchListItem]:

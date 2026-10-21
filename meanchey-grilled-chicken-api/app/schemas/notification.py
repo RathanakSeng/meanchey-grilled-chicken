@@ -52,6 +52,11 @@ class ReadAllOut(BaseModel):
     unread_count: int
 
 
+class TelegramBotOut(BaseModel):
+    # https://t.me/<bot>: where a user presses Start to link their Telegram account.
+    url: str
+
+
 class TelegramLinkOut(BaseModel):
     # https://t.me/<bot>?start=link_<token>; valid once, until expires_at.
     url: str

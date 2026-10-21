@@ -72,6 +72,8 @@ class ErrorCode(StrEnum):
     PRODUCTION_PLAN_LOCKED = "PRODUCTION_PLAN_LOCKED"
     PRODUCTION_PLAN_EXCEEDS_OUTPUT = "PRODUCTION_PLAN_EXCEEDS_OUTPUT"
     PRODUCTION_PLAN_COMMENT_REQUIRED = "PRODUCTION_PLAN_COMMENT_REQUIRED"
+    # Step 3: satay sachets used differ from the pack counts and there's no comment.
+    PRODUCTION_SACHET_COMMENT_REQUIRED = "PRODUCTION_SACHET_COMMENT_REQUIRED"
     # A reopen / cancel would take back stock that already left in orders.
     PRODUCTION_STOCK_ALREADY_USED = "PRODUCTION_STOCK_ALREADY_USED"
     # Orders

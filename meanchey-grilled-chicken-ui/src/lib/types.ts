@@ -53,6 +53,8 @@ export interface Me {
   /** May set feature access levels (the Access tab on user details). */
   /** permissions.grant (GM, superadmin) or users.manage_access (supervisor, staff only). */
   can_manage_features: boolean
+  /** Holds an alert permission or is tracked for attendance: alerts / reminders go to Telegram. */
+  telegram_alerts: boolean
 }
 
 export interface TokenPair {
@@ -231,11 +233,26 @@ export interface StandardizeStep extends StepBase {
   small_packages: number | null
   rejected_wings: number | null
   rejected_thighs: number | null
+  /** Satay sachets used: one per pack by default (4-piece per big pack, 2-piece per small). */
+  sachets_4_used: number | null
+  sachets_2_used: number | null
+  /** False: the count follows its pack count (auto); true: typed by hand. */
+  sachets_4_manual: boolean
+  sachets_2_manual: boolean
   comment: string | null
   /** ថ្ងៃវេចខ្ចប់: recorded when step 3 is finished; null while a draft. */
   packaging_date: string | null
   /** Both pack counts equal the plan's; null until both actual counts (and a plan) exist. */
   plan_matches: boolean | null
+  /** Satay sachets in stock by size (Finish takes the counts out of them). Only with
+   * production.create while step 3 of a tracked, active batch is a draft. */
+  sachet_stock?: SachetCounts | null
+}
+
+/** A count per satay sachet size: "4" (4-piece packs) and "2" (2-piece packs). */
+export interface SachetCounts {
+  '4': number
+  '2': number
 }
 
 export type PlanStatus = 'pending' | 'confirmed'
@@ -380,6 +397,9 @@ export interface PlanDetail {
   } | null
   plan: ProductionPlan | null
   plan_legacy: boolean
+  /** Satay sachets the plan needs (one per pack) vs the stock; information only. Null until both
+   * expected counts are set, for batches that don't move stock, and once step 3 is finished. */
+  sachets: { needed: SachetCounts; in_stock: SachetCounts; short: SachetCounts } | null
   /** Step 2 finished, step 3 not finished, not cancelled (still needs production_plan.manage). */
   editable: boolean
 }

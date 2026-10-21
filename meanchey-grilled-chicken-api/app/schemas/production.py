@@ -101,6 +101,12 @@ class StandardizeDraft(_Body):
     small_packages: CountIn | None = None
     rejected_wings: CountIn | None = None
     rejected_thighs: CountIn | None = None
+    # Satay sachets used. `*_manual` false (auto): the server stores the current pack count and
+    # ignores `*_used`; true: the `*_used` value (or the stored one) is kept.
+    sachets_4_used: CountIn | None = None
+    sachets_2_used: CountIn | None = None
+    sachets_4_manual: bool | None = None
+    sachets_2_manual: bool | None = None
     comment: Annotated[str, Field(max_length=COMMENT_MAX_LENGTH)] | None = None
     # item_code -> carried forward / rejected kg.
     byproducts: dict[str, ByproductDispositionIn] | None = None
@@ -179,11 +185,20 @@ class StandardizeOut(_StepOut):
     small_packages: int | None
     rejected_wings: int | None
     rejected_thighs: int | None
+    # Satay sachets used (one per pack by default: 4-piece per big, 2-piece per small pack).
+    sachets_4_used: int | None
+    sachets_2_used: int | None
+    # False: the value follows the pack count (auto); true: typed by hand.
+    sachets_4_manual: bool
+    sachets_2_manual: bool
     comment: str | None
     # ថ្ងៃវេចខ្ចប់: recorded when step 3 is finished; null while a draft.
     packaging_date: date | None
     # Both pack counts equal the plan's; null until both actual counts (and a plan) exist.
     plan_matches: bool | None
+    # Satay sachets in stock by size ("4", "2"): what Finish takes from. Only for viewers with
+    # production.create, while step 3 of a tracked, active batch is a draft; null otherwise.
+    sachet_stock: dict[str, int] | None = None
 
 
 class PlanOut(BaseModel):
@@ -383,6 +398,15 @@ class ActualPacks(BaseModel):
     packaging_date: date | None
 
 
+class PlanSachetsOut(BaseModel):
+    """Satay sachets the plan needs (one per pack) against the stock, by size ("4", "2")."""
+
+    needed: dict[str, int]
+    in_stock: dict[str, int]
+    # needed - in stock when positive, else 0.
+    short: dict[str, int]
+
+
 class PlanDetail(BaseModel):
     batch_id: uuid.UUID
     code: str
@@ -396,6 +420,9 @@ class PlanDetail(BaseModel):
     standardize: ActualPacks | None
     plan: PlanOut | None
     plan_legacy: bool
+    # Information only (confirming is still allowed when short). Null until both expected counts
+    # are set, for batches that don't move stock, and once step 3 is finished or cancelled.
+    sachets: PlanSachetsOut | None
     # The plan can be changed now (step 2 finished, step 3 not finished, batch not cancelled);
     # the caller still needs production_plan.manage.
     editable: bool

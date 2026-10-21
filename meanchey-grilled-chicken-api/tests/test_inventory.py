@@ -18,7 +18,7 @@ from app.models import (
     UserPermission,
 )
 from app.permissions import registry
-from tests.conftest import assert_error, auth
+from tests.conftest import SACHET_TEST_STOCK, assert_error, auth
 from tests.test_production import PRODUCED, Api, ok, standardize_body
 
 BYPRODUCTS = ["gizzard", "liver", "heart", "head"]
@@ -212,6 +212,9 @@ async def test_reopen_step_1_reverses_every_step_latest_first(client, api, suppl
     batch = ok(await api.reopen(batch, "raw-material"))
 
     items = await stock(client, gm)
+    # The satay sachets step 3 took are back at the test stock; everything else is back to zero.
+    sachets = {code: items.pop(code)["count"] for code in ("satay_sachet_4", "satay_sachet_2")}
+    assert sachets == {"satay_sachet_4": SACHET_TEST_STOCK, "satay_sachet_2": SACHET_TEST_STOCK}
     assert all((i["count"] or 0) == 0 and Decimal(i["kg"] or 0) == 0 for i in items.values()), items
     rows = await history(client, gm, batch_id=batch["id"])
     reversals = [m for m in rows if m["reversal_of"] is not None]

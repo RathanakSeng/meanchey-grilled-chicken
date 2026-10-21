@@ -171,6 +171,11 @@ TEXTS: dict[str, dict[Language, str]] = {
         Language.KM: "🧾 ប័ណ្ណដឹកជញ្ជូន <b>{code}</b> · {customer}",
         Language.EN: "🧾 Delivery note <b>{code}</b> · {customer}",
     },
+    # --- /start bound this Telegram account by username (app/services/telegram_link_service.py)
+    "start_linked": {
+        Language.KM: "✅ គណនី Telegram របស់អ្នកត្រូវបានភ្ជាប់។ ការជូនដំណឹងនឹងផ្ញើមកទីនេះ។",
+        Language.EN: "✅ Your Telegram account is now linked. Alerts will be sent here.",
+    },
     # --- Superadmin Telegram linking (/start link_<token>) ---
     "link_done": {
         Language.KM: "✅ បានភ្ជាប់ Telegram រួចរាល់។",

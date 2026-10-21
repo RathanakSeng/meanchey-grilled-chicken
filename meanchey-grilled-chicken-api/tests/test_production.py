@@ -578,7 +578,11 @@ async def test_finish_step_3_completes_the_batch(api, session, supplier) -> None
             .order_by(AuditLog.id)
         )
     )
-    assert [log.details for log in logs] == [{"code": batch["code"], "step": s} for s in (1, 2, 3)]
+    assert [log.details for log in logs] == [
+        {"code": batch["code"], "step": 1},
+        {"code": batch["code"], "step": 2},
+        {"code": batch["code"], "step": 3, "sachets_4_used": 7, "sachets_2_used": 5},
+    ]
 
 
 @pytest.mark.parametrize(

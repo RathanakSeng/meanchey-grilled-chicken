@@ -4,6 +4,8 @@ from datetime import timedelta
 from sqlalchemy import ColumnElement, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.attendance.tracking import status_on
+from app.attendance.workplaces import today
 from app.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.core.security import (
@@ -26,6 +28,7 @@ from app.permissions.service import (
 from app.schemas.auth import MeOut, TokenOut
 from app.schemas.user import UserOut
 from app.services.audit_service import record
+from app.services.notification_service import TELEGRAM_ALERT_PERMISSIONS
 
 MIN_PASSWORD_LENGTH = 8
 SELF_RESET_ROLES = frozenset({Role.SUPERADMIN, Role.GENERAL_MANAGER})
@@ -330,4 +333,6 @@ async def build_me(session: AsyncSession, user: User) -> MeOut:
         manageable_roles=manageable_roles(user.role),
         can_self_reset_password=user.role in SELF_RESET_ROLES and "users.reset_password" in perms,
         can_manage_features=bool({GRANT_PERMISSION, MANAGE_ACCESS_PERMISSION} & perms),
+        telegram_alerts=bool(TELEGRAM_ALERT_PERMISSIONS & perms)
+        or status_on(user, today(), user.attendance_periods) in ("tracked", "not_started"),
     )

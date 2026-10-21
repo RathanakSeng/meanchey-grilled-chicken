@@ -165,6 +165,11 @@ export interface StandardizeValues {
   small_packages: string
   rejected_wings: string
   rejected_thighs: string
+  /** Satay sachets used: only meaningful while `*_manual` (on auto they follow the packs). */
+  sachets_4: string
+  sachets_2: string
+  sachets_4_manual: boolean
+  sachets_2_manual: boolean
   comment: string
   byproducts: Record<string, { carry_kg: string; rejected_kg: string }>
 }
@@ -179,6 +184,10 @@ export function standardizeFromBatch(batch: ProductionBatch): StandardizeValues 
     small_packages: countToInput(s?.small_packages),
     rejected_wings: countToInput(s?.rejected_wings),
     rejected_thighs: countToInput(s?.rejected_thighs),
+    sachets_4: countToInput(s?.sachets_4_used),
+    sachets_2: countToInput(s?.sachets_2_used),
+    sachets_4_manual: s?.sachets_4_manual ?? false,
+    sachets_2_manual: s?.sachets_2_manual ?? false,
     comment: s?.comment ?? '',
     byproducts: Object.fromEntries(
       byproductCodes(batch).map((code) => {
@@ -195,6 +204,11 @@ export function standardizePayload(v: StandardizeValues): Record<string, unknown
     small_packages: countPayload(v.small_packages),
     rejected_wings: countPayload(v.rejected_wings),
     rejected_thighs: countPayload(v.rejected_thighs),
+    // On auto the server stores the pack count: only a typed count is sent.
+    sachets_4_manual: !!v.sachets_4_manual,
+    sachets_2_manual: !!v.sachets_2_manual,
+    sachets_4_used: v.sachets_4_manual ? countPayload(v.sachets_4 ?? '') : undefined,
+    sachets_2_used: v.sachets_2_manual ? countPayload(v.sachets_2 ?? '') : undefined,
     comment: v.comment.trim() || null,
     byproducts: Object.fromEntries(
       Object.entries(v.byproducts).map(([code, row]) => [
@@ -214,6 +228,8 @@ export function standardizeInputErrors(v: StandardizeValues): Errors {
     ['small_packages', countError(v.small_packages)],
     ['rejected_wings', countError(v.rejected_wings)],
     ['rejected_thighs', countError(v.rejected_thighs)],
+    ['sachets_4', v.sachets_4_manual ? countError(v.sachets_4 ?? '') : null],
+    ['sachets_2', v.sachets_2_manual ? countError(v.sachets_2 ?? '') : null],
     ...Object.entries(v.byproducts).flatMap(([code, row]) => [
       [`byproducts.${code}.carry_kg`, kgError(row.carry_kg)] as [string, FieldError | null],
       [`byproducts.${code}.rejected_kg`, kgError(row.rejected_kg)] as [string, FieldError | null],
@@ -236,6 +252,42 @@ export function standardizeFinishErrors(v: StandardizeValues): Errors {
       ],
     ]),
   ])
+}
+
+export type SachetSize = 4 | 2
+
+/** The pack count each sachet size follows (one sachet per pack). */
+export const SACHET_PACKS = { 4: 'big_packages', 2: 'small_packages' } as const
+
+export interface SachetUse {
+  size: SachetSize
+  manual: boolean
+  /** What the input shows: the typed count when manual, else the pack count. */
+  input: string
+  /** The count Finish will use (an empty manual count falls back to the packs); null if unknown. */
+  used: number | null
+  packs: number | null
+  /** A known count that differs from its pack count (needs the comment). */
+  differs: boolean
+}
+
+/** Per sachet size: auto follows the pack count live, manual keeps the typed count. */
+export function sachetUses(v: StandardizeValues): SachetUse[] {
+  return ([4, 2] as const).map((size) => {
+    const packsInput = v[SACHET_PACKS[size]]
+    const packs = valueOf(parseCount(packsInput))
+    const manual = !!v[`sachets_${size}_manual`]
+    const typed = manual ? valueOf(parseCount(v[`sachets_${size}`] ?? '')) : null
+    const used = manual && typed !== null ? typed : packs
+    return {
+      size,
+      manual,
+      input: manual ? (v[`sachets_${size}`] ?? '') : packsInput,
+      used,
+      packs,
+      differs: used !== null && packs !== null && used !== packs,
+    }
+  })
 }
 
 export interface PieceBalance {
