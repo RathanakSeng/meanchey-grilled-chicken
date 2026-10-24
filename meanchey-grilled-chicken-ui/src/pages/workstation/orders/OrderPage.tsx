@@ -16,7 +16,7 @@ import { amountOf, invalidateOrders, orderKeys, useAmountFormat, useQuantityForm
 import { BoxColorLabel, DirectOrderBadge, OrderCustomerName, OrderStatusBadge, customerText, telHref } from './badges'
 import { DeliveredSheet, ReviewSheet, type DeliveredBody, type ReviewBody } from './OrderSheets'
 import { OrderSummaryView, fromApi } from './OrderSummaryView'
-import { useExportDeliveryNote } from './useExportDeliveryNote'
+import { useExportDeliveryNote, useExportDeliveryNotePdf } from './useExportDeliveryNote'
 
 function useByName() {
   const { t } = useTranslation()
@@ -233,11 +233,13 @@ export function OrderPage() {
     setNotice(null)
     action.mutate({ path, body })
   }
-  // Delivery note: exported as Excel (built in the browser, not counted) or sent as a PDF to the
-  // requester's Telegram chat. The PDF is counted by the API (the next one says COPY), so the
-  // order is refetched.
+  // Delivery note: exported as a PDF (the API's, counted) or Excel (built in the browser, not
+  // counted), or the PDF sent to the requester's Telegram chat (counted). After a counted one the
+  // order is refetched for its print count.
   const refreshCount = () => void queryClient.invalidateQueries({ queryKey: orderKeys.order(orderId) })
   const exportExcel = useExportDeliveryNote(order, setDocResult)
+  const exportPdf = useExportDeliveryNotePdf(order, setDocResult, refreshCount)
+  const exporting = exportExcel.isPending || exportPdf.isPending
   const sendToTelegram = useMutation({
     mutationFn: async () => (await api.post<DocumentSent>(`/orders/${orderId}/document/send-telegram`)).data,
     onMutate: () => setDocResult(null),
@@ -331,15 +333,31 @@ export function OrderPage() {
           <>
             {primary && <span className="hidden sm:inline-flex">{primary}</span>}
             {canExport && (
-              <Button
-                variant="secondary"
-                loading={exportExcel.isPending}
-                onClick={() => exportExcel.mutate()}
-                title={t('orders.document.exportHint')}
-              >
-                {!exportExcel.isPending && <Icon name="download" width={18} height={18} />}
-                <span className="hidden min-[400px]:inline">{t('orders.document.exportExcel')}</span>
-              </Button>
+              <ActionMenu
+                label={t('orders.document.exportHint')}
+                loading={exporting}
+                trigger={
+                  <>
+                    {!exporting && <Icon name="download" width={18} height={18} />}
+                    <span className="hidden min-[400px]:inline">{t('orders.document.exportExcel')}</span>
+                    <Icon name="chevronDown" width={16} height={16} />
+                  </>
+                }
+                items={[
+                  {
+                    key: 'pdf',
+                    label: t('orders.document.exportPdf'),
+                    icon: 'fileText',
+                    onSelect: () => exportPdf.mutate(),
+                  },
+                  {
+                    key: 'xlsx',
+                    label: t('orders.document.exportXlsx'),
+                    icon: 'sheet',
+                    onSelect: () => exportExcel.mutate(),
+                  },
+                ]}
+              />
             )}
             <ActionMenu items={menu} label={t('orders.actions')} />
           </>

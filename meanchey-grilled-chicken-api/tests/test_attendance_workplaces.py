@@ -48,7 +48,7 @@ async def test_list_shows_rules_shifts_and_counts(client, session, make_user, wo
         2,
     )
     schedule = default["schedule"]
-    assert schedule["open_before_min"] == 30 and schedule["max_accuracy_m"] == 100
+    assert schedule["open_before_min"] == 30 and "max_accuracy_m" not in schedule
     assert schedule["weekdays"] == [1, 2, 3, 4, 5, 6, 7]
     assert default["employees"] is None and default["timezone"] == "Asia/Phnom_Penh"
     morning = schedule["shifts"][0]
@@ -250,7 +250,7 @@ async def test_check_in_uses_the_employees_workplace(
     # 07:40: the default's check-in is open, the branch's opens at 07:45.
     clock(at("07:40"))
     today = (await client.get("/attendance/me/today", headers=auth(there))).json()
-    assert today["workplace"]["name"] == "Branch 2" and today["max_accuracy_m"] == 50
+    assert today["workplace"]["name"] == "Branch 2"
     assert today["next_action"]["action"] == "none"
     assert today["next_action"]["next_opens_at"] == at("07:45").isoformat()
     r = await client.post("/attendance/check-in", json=branch_position(), headers=auth(there))
@@ -262,13 +262,10 @@ async def test_check_in_uses_the_employees_workplace(
     clock(at("07:50"))
     r = await client.post("/attendance/check-in", json=position(), headers=auth(there))
     assert_error(r, 422, "ATTENDANCE_TOO_FAR")
-    # The branch's own accuracy limit (50 m).
+    # Inside the branch's radius: a rough GPS reading still checks in.
     r = await client.post(
-        "/attendance/check-in", json=branch_position(accuracy_m=60), headers=auth(there)
+        "/attendance/check-in", json=branch_position(accuracy_m=120), headers=auth(there)
     )
-    assert_error(r, 422, "ATTENDANCE_LOCATION_INACCURATE")
-    assert r.json()["error"]["details"]["max"] == 50
-    r = await client.post("/attendance/check-in", json=branch_position(), headers=auth(there))
     assert r.status_code == 200, r.text
     rec = r.json()["record"]
     assert (rec["status"], rec["scheduled_start"]) == ("present", at("08:00").isoformat())

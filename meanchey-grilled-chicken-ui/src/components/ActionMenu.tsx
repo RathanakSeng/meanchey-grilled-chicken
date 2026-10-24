@@ -18,17 +18,20 @@ const MENU_WIDTH = 192
  * A "⋮" button with a small menu, or a secondary button with `trigger` as its content (e.g.
  * "+ Add box ▾"). The menu uses fixed positioning, so it isn't clipped by scrolling/overflow
  * containers such as tables. Opening focuses the first item; ↑ / ↓ / Home / End move, Esc closes
- * and gives focus back to the button. Renders nothing when there are no items.
+ * and gives focus back to the button. `loading` (with `trigger`) shows a spinner and disables it.
+ * Renders nothing when there are no items.
  */
 export function ActionMenu({
   items,
   label,
   trigger,
+  loading = false,
 }: {
   items: ActionMenuItem[]
-  /** The ⋮ button's accessible name (ignored with `trigger`, whose text names it). */
+  /** The button's accessible name and tooltip (also with `trigger`, whose text may be hidden on phones). */
   label: string
   trigger?: ReactNode
+  loading?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number; up: boolean } | null>(null)
@@ -101,7 +104,16 @@ export function ActionMenu({
   return (
     <>
       {trigger ? (
-        <Button ref={buttonRef} variant="secondary" onClick={toggle} aria-haspopup="menu" aria-expanded={open}>
+        <Button
+          ref={buttonRef}
+          variant="secondary"
+          loading={loading}
+          onClick={toggle}
+          aria-label={label}
+          title={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+        >
           {trigger}
         </Button>
       ) : (

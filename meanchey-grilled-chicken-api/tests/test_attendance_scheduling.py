@@ -52,7 +52,6 @@ SHIFTS = {
     "open_before_min": 30,
     "absent_after_min": 45,
     "checkout_window_min": 59,
-    "max_accuracy_m": 100,
     "reminders_enabled": True,
     "count_early_checkin": True,
     "count_overtime": True,
@@ -284,8 +283,8 @@ async def test_shifts_put(client, session, clock, superadmin, make_user, workpla
         shifts_body(open_before_min=0),
         shifts_body(open_before_min=121),
         shifts_body(checkout_window_min=181),
-        shifts_body(max_accuracy_m=9),
-        shifts_body(max_accuracy_m=501),
+        # The accuracy rule is gone: sending it is an unknown field.
+        {**shifts_body(), "max_accuracy_m": 100},
         shifts_body(targets=[]),
         {**shifts_body(), "shifts": SHIFTS["shifts"][:1]},
     ):

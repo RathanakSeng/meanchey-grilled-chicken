@@ -47,11 +47,8 @@
 {% if order.cancelled %}
 <div class="banner"><span class="km">{{ labels["cancelled"][0] }}</span><span class="en">{{ labels["cancelled"][1] }}</span></div>
 {% endif %}
-{% if copy %}
-<div class="copy">{{ labels["copy"][0] }} / {{ labels["copy"][1] }} #{{ copy }}</div>
-{% endif %}
 {% if sample %}
-<div class="copy">{{ labels["sample"][0] }} / {{ labels["sample"][1] }}</div>
+<div class="stamp">{{ labels["sample"][0] }} / {{ labels["sample"][1] }}</div>
 {% endif %}
 
 <table class="facts">
@@ -68,7 +65,6 @@
   {% if order.customer_phone %}<tr><th>{{ label("phone") }}</th><td>{{ order.customer_phone }}</td></tr>{% endif %}
   {% if order.customer_location %}<tr><th>{{ label("location") }}</th><td>{{ order.customer_location }}</td></tr>{% endif %}
   <tr><th>{{ label("delivery_date") }}</th><td>{{ order.delivery_date }}</td></tr>
-  <tr><th>{{ label("driver") }}</th><td>{{ order.driver or "—" }}</td></tr>
 </table>
 
 {% for section in colors %}
@@ -84,25 +80,16 @@
     </table>
   </div>
   {% endfor %}
-  <table class="items subtotal">
-    <tr class="sum-title"><th colspan="{{ 4 if kind.show_prices else 2 }}">{{ label("subtotal") }} <span class="en-inline">— {{ section.label_en }}</span></th></tr>
-    <tr><td>{{ label("boxes") }}</td>{% if kind.show_prices %}<td></td>{% endif %}<td class="num">{{ section.box_count }}</td>{% if kind.show_prices %}<td></td>{% endif %}</tr>
-    {% for line in section.totals %}{{ item_row(line, kind.show_prices) }}{% endfor %}
-  </table>
 </section>
 {% endfor %}
 
+{#- No subtotals or grand total on the delivery note; an invoice (prices on) adds its total amount. -#}
+{% if kind.show_prices %}
 <div class="rule double"></div>
-<section class="grand">
-  <h2>{{ label("grand_total") }}</h2>
-  <table class="items total">
-    <tr><td>{{ label("boxes") }}</td>{% if kind.show_prices %}<td></td>{% endif %}<td class="num">{{ total.boxes }}</td>{% if kind.show_prices %}<td></td>{% endif %}</tr>
-    {% for line in total.lines %}{{ item_row(line, kind.show_prices) }}{% endfor %}
-    {% if kind.show_prices %}
-    <tr class="money"><td colspan="3">{{ label("money_total") }}</td><td class="num">{{ total.amount if total.amount is not none else "" }}</td></tr>
-    {% endif %}
-  </table>
-</section>
+<table class="items total">
+  <tr class="money"><td colspan="3">{{ label("money_total") }}</td><td class="num">{{ total_amount if total_amount is not none else "" }}</td></tr>
+</table>
+{% endif %}
 
 {% if returns %}
 <div class="rule double"></div>
@@ -144,22 +131,19 @@
 
 <div class="rule double"></div>
 <section class="signatures">
-  {% for key, name in [("prepared_by", order.prepared_by), ("driver", order.driver), ("received_by", "")] %}
-  <div class="signature">
-    <div class="signature-head">{{ label(key) }}{% if name %}<span class="signature-name">{{ name }}</span>{% endif %}</div>
-    <div class="sign-line"><span>{{ labels["signature"][0] }} / {{ labels["signature"][1] }}</span></div>
-    <div class="sign-line short"><span>{{ labels["date"][0] }} / {{ labels["date"][1] }}</span></div>
+  <div class="signature prepared">
+    <div class="signature-head">{{ label("prepared_by") }}{% if order.prepared_by %}<span class="signature-name">{{ order.prepared_by }}</span>{% endif %}</div>
   </div>
-  {% endfor %}
+  <div class="signature">
+    <div class="signature-head">{{ label("received_by") }}</div>
+    <div class="sign-line"><span>{{ labels["signature"][0] }} / {{ labels["signature"][1] }}</span></div>
+    <div class="sign-date">{{ labels["date"][0] }} / {{ labels["date"][1] }}: {{ order.delivery_date }}</div>
+  </div>
 </section>
 
-{% if qr or business.footer_note_km or business.footer_note_en %}
+{% if business.footer_note_km or business.footer_note_en %}
 <div class="rule"></div>
 <footer>
-  {% if qr %}
-  <img class="qr" src="{{ qr }}" alt="">
-  <div class="small">{{ labels["scan"][0] }}<br>{{ labels["scan"][1] }}</div>
-  {% endif %}
   {% if business.footer_note_km %}<div class="footer-note lines-kept">{{ business.footer_note_km }}</div>{% endif %}
   {% if business.footer_note_en %}<div class="footer-note-en lines-kept">{{ business.footer_note_en }}</div>{% endif %}
 </footer>

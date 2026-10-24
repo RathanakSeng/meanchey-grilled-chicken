@@ -80,7 +80,6 @@ BODIES: dict[tuple[str, str], dict] = {
         "open_before_min": 30,
         "absent_after_min": 45,
         "checkout_window_min": 59,
-        "max_accuracy_m": 100,
         "reminders_enabled": True,
         "count_early_checkin": True,
         "count_overtime": True,

@@ -12,7 +12,6 @@ const RULE_LABELS: Record<keyof AttendanceRules, string> = {
   open_before_min: 'attendance.shiftsPage.openBefore',
   absent_after_min: 'attendance.shiftsPage.absentAfter',
   checkout_window_min: 'attendance.shiftsPage.checkoutWindow',
-  max_accuracy_m: 'attendance.shiftsPage.maxAccuracy',
   reminders_enabled: 'attendance.shiftsPage.reminders',
   count_early_checkin: 'attendance.shiftsPage.countEarly',
   count_overtime: 'attendance.shiftsPage.countOvertime',

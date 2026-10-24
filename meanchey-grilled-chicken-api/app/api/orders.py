@@ -235,8 +235,8 @@ def pdf_response(pdf: bytes, filename: str) -> Response:
     responses={200: {"content": {"application/pdf": {}}}},
 )
 async def order_document(order_id: uuid.UUID, actor: CanView, session: SessionDep) -> Response:
-    """The delivery note (80 mm receipt PDF), any status. The first one is the original, later
-    ones are marked COPY; each is counted and audited (`order.document_printed`)."""
+    """The delivery note (80 mm receipt PDF), any status. Each one is counted and audited
+    (`order.document_printed`); the document itself carries no original / COPY mark."""
     order, pdf, _ = await document_service.print_order(session, actor, order_id, "download")
     await session.commit()
     return pdf_response(pdf, f"{order.code}.pdf")

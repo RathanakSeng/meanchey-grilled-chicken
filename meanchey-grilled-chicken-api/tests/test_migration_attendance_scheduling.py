@@ -58,7 +58,7 @@ def test_schedule_versions_and_permission() -> None:
     ((effective, weekdays, shifts, *rules),) = asyncio.run(
         _run(
             "SELECT v.effective_from::text, v.weekdays, v.shifts, v.open_before_min, "
-            "v.absent_after_min, v.checkout_window_min, v.max_accuracy_m, v.reminders_enabled, "
+            "v.absent_after_min, v.checkout_window_min, v.reminders_enabled, "
             "v.count_early_checkin, v.count_overtime FROM attendance_schedule_versions v "
             "JOIN attendance_workplaces w ON w.id = v.workplace_id WHERE w.name = 'Branch'"
         )
@@ -68,7 +68,8 @@ def test_schedule_versions_and_permission() -> None:
         ("morning", "Early", "08:00", "12:00"),
         ("afternoon", "Late", "13:30", "17:00"),
     ]
-    assert rules == [15, 20, 30, 50, False, True, False]
+    # (max_accuracy_m was dropped later, by 0027.)
+    assert rules == [15, 20, 30, False, True, False]
     perms = asyncio.run(
         _run(
             "SELECT p.permission_code FROM user_permissions p JOIN users u ON u.id = p.user_id "
@@ -90,8 +91,8 @@ def test_schedule_versions_and_permission() -> None:
                 _run(
                     "INSERT INTO attendance_schedule_versions (id, workplace_id, effective_from, "
                     "weekdays, shifts, open_before_min, absent_after_min, checkout_window_min, "
-                    "max_accuracy_m, reminders_enabled, count_early_checkin, count_overtime) "
-                    f"SELECT gen_random_uuid(), id, '2030-01-01', {bad}, '[]', 30, 45, 59, 100, "
+                    "reminders_enabled, count_early_checkin, count_overtime) "
+                    f"SELECT gen_random_uuid(), id, '2030-01-01', {bad}, '[]', 30, 45, 59, "
                     "true, true, true FROM attendance_workplaces WHERE name = 'Branch'"
                 )
             )
@@ -111,9 +112,9 @@ def test_downgrade_restores_the_latest_version() -> None:
         _run(
             "INSERT INTO attendance_schedule_versions (id, workplace_id, effective_from, "
             "weekdays, shifts, open_before_min, absent_after_min, checkout_window_min, "
-            "max_accuracy_m, reminders_enabled, count_early_checkin, count_overtime) "
+            "reminders_enabled, count_early_checkin, count_overtime) "
             "SELECT gen_random_uuid(), workplace_id, '2099-01-01', ARRAY[1, 2]::smallint[], "
-            "shifts, 25, 45, 59, 80, true, true, true FROM attendance_schedule_versions"
+            "shifts, 25, 45, 59, true, true, true FROM attendance_schedule_versions"
         )
     )
     _alembic(command.downgrade, "0019")
@@ -121,7 +122,8 @@ def test_downgrade_restores_the_latest_version() -> None:
         rules = asyncio.run(
             _run("SELECT open_before_min, max_accuracy_m FROM attendance_workplaces")
         )
-        assert set(rules) == {(25, 80)}
+        # 0027's downgrade puts max_accuracy_m back at 100 m.
+        assert set(rules) == {(25, 100)}
         shifts = asyncio.run(_run("SELECT count(*) FROM attendance_shifts"))
         assert shifts[0][0] == 2 * len(rules)
     finally:

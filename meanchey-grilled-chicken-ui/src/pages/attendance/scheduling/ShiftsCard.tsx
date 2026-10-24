@@ -32,7 +32,6 @@ function toForm(v: ScheduleVersion): Form {
     open_before_min: v.open_before_min,
     absent_after_min: v.absent_after_min,
     checkout_window_min: v.checkout_window_min,
-    max_accuracy_m: v.max_accuracy_m,
     reminders_enabled: v.reminders_enabled,
     count_early_checkin: v.count_early_checkin,
     count_overtime: v.count_overtime,
@@ -317,13 +316,6 @@ export function ShiftsCard({ scheduling, canEdit, onDone }: ShiftsCardProps) {
                 t("attendance.shiftsPage.checkoutWindowHint"),
                 0,
                 180,
-              )}
-              {number(
-                "max_accuracy_m",
-                t("attendance.shiftsPage.maxAccuracy"),
-                t("attendance.shiftsPage.maxAccuracyHint"),
-                10,
-                500,
               )}
             </div>
             {toggle(

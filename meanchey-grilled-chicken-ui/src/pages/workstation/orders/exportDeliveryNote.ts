@@ -258,9 +258,14 @@ export function fileName({ customer, orderCode, dateIso }: DeliveryNoteInput): s
   return `DeliveryNote_${name}_${clean(orderCode)}_${dateIso}.xlsx`.replace(/ /g, '_')
 }
 
-async function saveFile(blob: Blob, name: string, preferShare: boolean): Promise<void> {
+/**
+ * Hands a built file to the user: in a Telegram WebView (`preferShare`) through the share sheet when
+ * it can share files, otherwise (or when that's blocked) through a download link. Also used for the
+ * delivery note PDF.
+ */
+export async function saveFile(blob: Blob, name: string, preferShare: boolean): Promise<void> {
   if (preferShare) {
-    const file = new File([blob], name, { type: XLSX_MIME })
+    const file = new File([blob], name, { type: blob.type })
     if (navigator.canShare?.({ files: [file] })) {
       try {
         await navigator.share({ files: [file] })

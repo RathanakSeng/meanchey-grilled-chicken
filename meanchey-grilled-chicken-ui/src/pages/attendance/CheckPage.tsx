@@ -17,7 +17,8 @@ import { MapView } from './MapView'
  * The check screen (`/attendance/check`, opened by reminders, /checkin, /checkout, the Home card
  * and My attendance). It shows the ONE action the API decides (`next_action`; an `?action=` from
  * older links is ignored), starts reading the GPS position at once, shows it on the map against
- * the workplace radius, and enables Confirm only inside the radius with acceptable accuracy.
+ * the workplace radius, and enables Confirm as soon as the position is inside the radius (the GPS
+ * accuracy never blocks; the phone keeps improving the reading for a few seconds).
  * After a check (or with nothing to do) it goes to the Attendance page, which shows the result.
  */
 export function CheckPage() {
@@ -88,8 +89,7 @@ function CheckForm({ today, onDone }: { today: AttendanceToday; onDone(result: C
       ? Math.round(distanceM(mapWorkplace.latitude, mapWorkplace.longitude, position.latitude, position.longitude))
       : null
   const inside = distance !== null && mapWorkplace !== null && distance <= mapWorkplace.radius
-  const accurate = position !== undefined && position.accuracy <= today.max_accuracy_m
-  const canConfirm = action !== null && state.status === 'ok' && inside && accurate && !submit.isPending
+  const canConfirm = action !== null && state.status === 'ok' && inside && !submit.isPending
 
   if (!action) return <Navigate to={paths.attendance} replace />
 
@@ -117,11 +117,10 @@ function CheckForm({ today, onDone }: { today: AttendanceToday; onDone(result: C
 
       <LocationStatus
         status={state.status}
+        improving={state.status === 'ok' && state.improving}
         distance={distance}
         inside={inside}
-        accurate={accurate}
         accuracy={position?.accuracy}
-        maxAccuracy={today.max_accuracy_m}
         radius={mapWorkplace?.radius}
         workplaceName={workplace?.name ?? ''}
         onOpenSettings={state.status === 'denied' ? openSettings : undefined}
@@ -159,21 +158,19 @@ function CheckForm({ today, onDone }: { today: AttendanceToday; onDone(result: C
 
 function LocationStatus({
   status,
+  improving,
   distance,
   inside,
-  accurate,
   accuracy,
-  maxAccuracy,
   radius,
   workplaceName,
   onOpenSettings,
 }: {
   status: string
+  improving: boolean
   distance: number | null
   inside: boolean
-  accurate: boolean
   accuracy?: number
-  maxAccuracy: number
   radius?: number
   workplaceName: string
   onOpenSettings?: () => void
@@ -208,9 +205,15 @@ function LocationStatus({
           ? t('attendance.check.inside', { distance, name: workplaceName })
           : t('attendance.check.outside', { distance, radius })}
       </p>
-      {accuracy !== undefined && !accurate && (
-        <p className="text-red-700">
-          {t('attendance.check.inaccurate', { accuracy: Math.round(accuracy), max: maxAccuracy })}
+      {accuracy !== undefined && improving && (
+        <p className="flex items-center gap-2 text-xs font-normal text-stone-500">
+          <Spinner className="h-3.5 w-3.5" />
+          {t('attendance.check.improving', { accuracy: Math.round(accuracy) })}
+        </p>
+      )}
+      {accuracy !== undefined && !inside && status === 'ok' && !improving && (
+        <p className="text-xs font-normal text-stone-600">
+          {t('attendance.check.outsideHint', { accuracy: Math.round(accuracy) })}
         </p>
       )}
       {status === 'locating' && <p className="text-xs font-normal text-stone-500">{t('attendance.check.locating')}</p>}

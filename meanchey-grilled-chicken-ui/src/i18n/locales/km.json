@@ -384,8 +384,7 @@
     "inventoryAdjust": "{{item}}៖ {{from}} → {{to}}",
     "orderAccepted": "អតិថិជនទទួលយកទាំងអស់",
     "orderReturned": "មានទំនិញប្រគល់មកវិញ",
-    "documentOriginal": "ច្បាប់ដើម",
-    "documentCopy": "ច្បាប់ចម្លងទី {{copy}}",
+    "documentNumber": "PDF លើកទី {{number}}",
     "documentViaDownload": "ទាញយក / ព្រីន",
     "documentViaTelegram": "ផ្ញើទៅ Telegram",
     "logoChanged": "បានប្តូរឡូហ្គោ",
@@ -597,7 +596,6 @@
     "ATTENDANCE_ALREADY_CHECKED_IN": "អ្នកបានចុះវត្តមាន{{shift}}រួចហើយ។",
     "ATTENDANCE_NOT_CHECKED_IN": "អ្នកមិនទាន់បានចុះវត្តមាន{{shift}}ទេ ដូច្នេះមិនអាចចុះចេញបានទេ។",
     "ATTENDANCE_ALREADY_CHECKED_OUT": "អ្នកបានចុះចេញពី{{shift}}រួចហើយ។",
-    "ATTENDANCE_LOCATION_INACCURATE": "ទីតាំង GPS របស់អ្នកមិនច្បាស់គ្រប់គ្រាន់ទេ ({{accuracy_m}} ម៉ែត្រ ត្រូវតែ {{max}} ម៉ែត្រ ឬល្អជាងនេះ)។ សូមចេញទៅខាងក្រៅ ឬរង់ចាំបន្តិច រួចធ្វើឱ្យទីតាំងថ្មី។",
     "ATTENDANCE_TOO_FAR": "មិនអាចចុះវត្តមានបានទេ ដោយសារអ្នកនៅឆ្ងាយពីកន្លែងធ្វើការ {{distance_m}} ម៉ែត្រ (ត្រូវនៅក្នុងរង្វង់ {{radius_m}} ម៉ែត្រ)។",
     "ATTENDANCE_RECORD_NOT_FOUND": "រកមិនឃើញកំណត់ត្រាវត្តមាននេះទេ។",
     "ATTENDANCE_RECORD_EXISTS": "វេននេះមានកំណត់ត្រារួចហើយ៖ សូមកែកំណត់ត្រានោះជំនួសវិញ។",
@@ -1204,8 +1202,11 @@
     "document": {
       "title": "ប័ណ្ណដឹកជញ្ជូន",
       "exportExcel": "ទាញយកប័ណ្ណដឹកជញ្ជូន",
-      "exportHint": "ទាញយកប័ណ្ណដឹកជញ្ជូនជាឯកសារ Excel",
-      "exported": "បាននាំចេញប័ណ្ណដឹកជញ្ជូន។",
+      "exportHint": "ទាញយកប័ណ្ណដឹកជញ្ជូនជាឯកសារ PDF ឬ Excel",
+      "exportPdf": "ឯកសារ PDF",
+      "exportXlsx": "Excel",
+      "exportedPdf": "បាននាំចេញប័ណ្ណដឹកជញ្ជូនជា PDF។",
+      "exportedXlsx": "បាននាំចេញប័ណ្ណដឹកជញ្ជូនជា Excel។",
       "exportErrors": {
         "noSupplier": "សូមបំពេញឈ្មោះអាជីវកម្មក្នុង ការកំណត់ → ព័ត៌មានអាជីវកម្ម ជាមុនសិន។",
         "noCustomer": "ការបញ្ជាទិញនេះគ្មានព័ត៌មានអតិថិជនសម្រាប់បោះពុម្ពទេ។",
@@ -1216,7 +1217,7 @@
       "sendTelegram": "ផ្ញើទៅ Telegram របស់ខ្ញុំ",
       "sendTelegramShort": "ផ្ញើទៅ Telegram",
       "sent": "បានផ្ញើទៅកាន់ Telegram របស់អ្នកហើយ។",
-      "printedCount": "បានព្រីន {{count}} ដង (លើកក្រោយនឹងសរសេរថា ច្បាប់ចម្លង)"
+      "printedCount": "បាននាំចេញ PDF {{count}} ដង (ទាញយក និង Telegram)"
     },
     "customerTypes": {
       "saved": "អតិថិជនក្នុងប្រព័ន្ធ",
@@ -1571,7 +1572,8 @@
       "unavailable": "មិនអាចទទួលបានទីតាំងរបស់អ្នកទេ។ សូមបើក GPS (ទីតាំង) ហើយព្យាយាមម្តងទៀត។",
       "inside": "{{distance}} ម៉ែត្រពី {{name}} ✅",
       "outside": "ឆ្ងាយ {{distance}} ម៉ែត្រ — ត្រូវនៅក្នុងរង្វង់ {{radius}} ម៉ែត្រ ❌",
-      "inaccurate": "ភាពត្រឹមត្រូវ GPS {{accuracy}} ម៉ែត្រ — ត្រូវតែ {{max}} ម៉ែត្រ ឬល្អជាងនេះ។ សូមរង់ចាំបន្តិច រួចធ្វើឱ្យទីតាំងថ្មី។"
+      "improving": "កំពុងធ្វើឱ្យ GPS ច្បាស់ជាងមុន… ±{{accuracy}} ម៉ែត្រ",
+      "outsideHint": "ភាពត្រឹមត្រូវ GPS ±{{accuracy}} ម៉ែត្រ។ បើអ្នកនៅកន្លែងធ្វើការ សូមទៅជិតទ្វារ ឬបង្អួច រួចចុច «ធ្វើឱ្យទីតាំងថ្មី»។"
     },
     "fix": {
       "fix": "កែ",
@@ -1623,8 +1625,6 @@
       "absentAfterHint": "ការចុះវត្តមានបិទនៅពេលនោះ៖ 1–240 នាទី មុនចប់វេន។",
       "checkoutWindow": "រយៈពេលចុះចេញ (នាទីក្រោយចប់)",
       "checkoutWindowHint": "0–180 នាទី។",
-      "maxAccuracy": "ភាពត្រឹមត្រូវ GPS អតិបរមា (ម៉ែត្រ)",
-      "maxAccuracyHint": "ទីតាំងដែលមិនច្បាស់ជាងនេះត្រូវបានបដិសេធ (10–500 ម៉ែត្រ)។",
       "reminders": "ការរំលឹកតាម Telegram",
       "remindersHint": "ផ្ញើសារទៅអ្នករាល់គ្នា ពេលចុះវត្តមាន ឬចុះចេញបើក។",
       "appliesNext": "កំណត់ត្រាដែលមានរួចរក្សាម៉ោងដើមរបស់វា។ ចាប់ពីថ្ងៃនេះ ម៉ោងថ្មីអនុវត្តចំពោះពេលចុះវត្តមានដែលមិនទាន់បើក។",

@@ -310,10 +310,10 @@ function Details({ log }: { log: AuditLog }) {
     )
   }
   if (log.action === 'order.document_printed') {
-    const copy = Number(d.copy)
+    // `copy` is the print number (1, 2, …); the PDF itself has no original / COPY mark.
     return (
       <span className="block text-sm text-stone-700">
-        {copy > 1 ? t('audit.documentCopy', { copy }) : t('audit.documentOriginal')}
+        {t('audit.documentNumber', { number: Number(d.copy) })}
         <span className="block text-xs text-stone-500">
           {t(d.via === 'telegram' ? 'audit.documentViaTelegram' : 'audit.documentViaDownload')}
         </span>

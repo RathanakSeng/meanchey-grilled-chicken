@@ -384,8 +384,7 @@
     "inventoryAdjust": "{{item}}: {{from}} → {{to}}",
     "orderAccepted": "Everything accepted",
     "orderReturned": "Items returned",
-    "documentOriginal": "Original",
-    "documentCopy": "Copy #{{copy}}",
+    "documentNumber": "PDF #{{number}}",
     "documentViaDownload": "Downloaded / printed",
     "documentViaTelegram": "Sent to Telegram",
     "logoChanged": "Logo changed",
@@ -597,7 +596,6 @@
     "ATTENDANCE_ALREADY_CHECKED_IN": "You've already checked in to the {{shift}}.",
     "ATTENDANCE_NOT_CHECKED_IN": "You haven't checked in to the {{shift}}, so you can't check out.",
     "ATTENDANCE_ALREADY_CHECKED_OUT": "You've already checked out of the {{shift}}.",
-    "ATTENDANCE_LOCATION_INACCURATE": "Your GPS position isn't accurate enough ({{accuracy_m}} m; it must be {{max}} m or better). Go outside or wait a moment, then refresh.",
     "ATTENDANCE_TOO_FAR": "Can't check in: you're {{distance_m}} m from the workplace. You must be within {{radius_m}} m.",
     "ATTENDANCE_RECORD_NOT_FOUND": "This attendance record doesn't exist.",
     "ATTENDANCE_RECORD_EXISTS": "This shift already has a record: fix it instead.",
@@ -1204,8 +1202,11 @@
     "document": {
       "title": "Delivery note",
       "exportExcel": "Export Delivery Note",
-      "exportHint": "Download the delivery note as an Excel file",
-      "exported": "Delivery note exported.",
+      "exportHint": "Download the delivery note as a PDF or an Excel file",
+      "exportPdf": "PDF",
+      "exportXlsx": "Excel",
+      "exportedPdf": "Delivery note exported as PDF.",
+      "exportedXlsx": "Delivery note exported as Excel.",
       "exportErrors": {
         "noSupplier": "Fill in the business name in Settings → Business info first.",
         "noCustomer": "This order has no customer details to print.",
@@ -1216,7 +1217,7 @@
       "sendTelegram": "Send to my Telegram",
       "sendTelegramShort": "Send to Telegram",
       "sent": "Sent to your Telegram chat.",
-      "printedCount": "Printed {{count}}× (the next one says COPY)"
+      "printedCount": "PDF exported {{count}}× (downloads and Telegram)"
     },
     "customerTypes": {
       "saved": "Saved customer",
@@ -1571,7 +1572,8 @@
       "unavailable": "Your location isn't available. Turn on GPS (location) and try again.",
       "inside": "{{distance}} m from {{name}} ✅",
       "outside": "{{distance}} m away — you must be within {{radius}} m ❌",
-      "inaccurate": "GPS accuracy {{accuracy}} m — it must be {{max}} m or better. Wait a moment, then refresh."
+      "improving": "Improving GPS accuracy… ±{{accuracy}} m",
+      "outsideHint": "GPS accuracy ±{{accuracy}} m. If you're at the workplace, move near a door or window, then tap Refresh location."
     },
     "fix": {
       "fix": "Fix",
@@ -1623,8 +1625,6 @@
       "absentAfterHint": "Check-in closes then; 1–240 minutes, by the end of the shift.",
       "checkoutWindow": "Check-out window (minutes after end)",
       "checkoutWindowHint": "0–180 minutes.",
-      "maxAccuracy": "Maximum GPS accuracy (m)",
-      "maxAccuracyHint": "Positions less accurate than this are refused (10–500 m).",
       "reminders": "Telegram reminders",
       "remindersHint": "Message everyone when check-in or check-out opens.",
       "appliesNext": "Records already made keep their times; from today, new times apply to windows that haven't opened yet.",

@@ -14,8 +14,6 @@ from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Fie
 
 from app.models.attendance import (
     ABSENT_AFTER_MAX,
-    ACCURACY_MAX_M,
-    ACCURACY_MIN_M,
     CHECKOUT_WINDOW_MAX,
     HOLIDAY_NAME_MAX_LENGTH,
     HOLIDAY_NOTE_MAX_LENGTH,
@@ -150,7 +148,6 @@ class RulesOut(BaseModel):
     open_before_min: int
     absent_after_min: int
     checkout_window_min: int
-    max_accuracy_m: int
     reminders_enabled: bool
     count_early_checkin: bool
     count_overtime: bool
@@ -298,7 +295,6 @@ class ShiftsIn(BaseModel):
     open_before_min: Annotated[int, Field(gt=0, le=OPEN_BEFORE_MAX)]
     absent_after_min: Annotated[int, Field(gt=0, le=ABSENT_AFTER_MAX)]
     checkout_window_min: Annotated[int, Field(ge=0, le=CHECKOUT_WINDOW_MAX)]
-    max_accuracy_m: Annotated[int, Field(ge=ACCURACY_MIN_M, le=ACCURACY_MAX_M)]
     reminders_enabled: bool
     # Whether early check-ins / overtime count as extra time (records created from then on).
     count_early_checkin: bool
@@ -502,7 +498,6 @@ class MeTodayOut(BaseModel):
     timezone: str
     work_date: date
     workplace: WorkplaceBrief | None
-    max_accuracy_m: int
     day_off: DayOffOut | None
     shifts: list[ShiftDayOut]
     next_action: NextActionOut

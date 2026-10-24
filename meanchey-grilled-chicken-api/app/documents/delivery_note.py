@@ -42,7 +42,6 @@ LABELS: dict[str, tuple[str, str]] = {
     "phone": ("ទូរស័ព្ទ", "Phone"),
     "location": ("ទីតាំង", "Location"),
     "delivery_date": ("ថ្ងៃដឹកជញ្ជូន", "Delivery date"),
-    "driver": ("អ្នកដឹកជញ្ជូន", "Driver"),
     "order": ("លេខបញ្ជាទិញ", "Order no."),
     "printed": ("បោះពុម្ព", "Printed"),
     "status": ("ស្ថានភាព", "Status"),
@@ -50,10 +49,7 @@ LABELS: dict[str, tuple[str, str]] = {
     "quantity": ("ចំនួន", "Qty"),
     "unit_price": ("តម្លៃ", "Price"),
     "amount": ("សរុប", "Amount"),
-    "subtotal": ("សរុបរង", "Subtotal"),
     "box": ("ប្រអប់ទី", "Box"),
-    "boxes": ("ប្រអប់", "Boxes"),
-    "grand_total": ("សរុបទាំងអស់", "Grand total"),
     "money_total": ("ទឹកប្រាក់សរុប", "Total amount"),
     "returned": ("ទំនិញប្រគល់មកវិញ", "Returned"),
     "returned_qty": ("ប្រគល់វិញ", "Returned"),
@@ -65,10 +61,8 @@ LABELS: dict[str, tuple[str, str]] = {
     "received_by": ("អ្នកទទួល", "Received by"),
     "signature": ("ហត្ថលេខា", "Signature"),
     "date": ("កាលបរិច្ឆេទ", "Date"),
-    "copy": ("ច្បាប់ចម្លង", "COPY"),
     "cancelled": ("បានលុបចោល", "CANCELLED"),
     "cancel_reason": ("មូលហេតុលុបចោល", "Cancel reason"),
-    "scan": ("ស្កេនដើម្បីបើកក្នុងកម្មវិធី", "Scan to open in the app"),
     "sample": ("គំរូ", "SAMPLE"),
 }
 
@@ -127,10 +121,6 @@ def _line(item: dict[str, Any], count: int | None, kg: Any) -> dict[str, Any]:
     }
 
 
-def _items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [_line(i, i.get("count"), i.get("kg")) for i in items]
-
-
 def _day(value: str | date | None) -> str:
     if value is None:
         return ""
@@ -147,14 +137,12 @@ def build_context(
     business: dict[str, Any],
     *,
     printed_at: datetime,
-    copy: int | None,
-    app_url: str | None,
     logo: tuple[bytes, str] | None,
     sample: bool = False,
 ) -> dict[str, Any]:
     """`order` is `OrderOut.model_dump(mode="json")` (user names already redacted for the
-    viewer); `business` is `BusinessOut` as a dict. `copy` is the copy number (2, 3, …) for
-    reprints, None for the original or a preview."""
+    viewer); `business` is `BusinessOut` as a dict. Every print looks the same (no original /
+    COPY mark): the app counts them (`orders.print_count`)."""
     kind = kind_for(order)
     colors = []
     for color_summary in order["summary"]["colors"]:
@@ -175,8 +163,6 @@ def build_context(
                 "box_km": COLORS[color][0],
                 "box_en": COLORS[color][1],
                 "boxes": boxes,
-                "box_count": color_summary["boxes"],
-                "totals": _items(color_summary["items"]),
             }
         )
     returns = []
@@ -222,34 +208,21 @@ def build_context(
             "customer_phone": customer.get("phone_display"),
             "customer_location": customer.get("location"),
             "delivery_date": _day(order["delivery_date"]),
-            "driver": _name(order.get("driver")),
             "prepared_by": _name(order.get("created_by")),
             "note": order.get("note"),
             "return_reason": order.get("return_reason"),
         },
         "printed_at": printed_at.strftime("%d/%m/%Y %H:%M"),
-        "copy": copy,
         "colors": colors,
-        "total": {
-            "boxes": order["summary"]["total"]["boxes"],
-            "lines": _items(order["summary"]["total"]["items"]),
-            # Prices later.
-            "amount": order.get("total_amount"),
-        },
+        # Prices later: only an invoice prints it (the delivery note has no totals).
+        "total_amount": order.get("total_amount"),
         "returns": returns,
         "returns_reviewed": any(r["to_stock"] is not None for r in returns),
-        "qr": _qr(app_url) if app_url else None,
     }
 
 
 def _data_uri(data: bytes, mime: str) -> str:
     return f"data:{mime};base64,{base64.b64encode(data).decode()}"
-
-
-def _qr(url: str) -> str:
-    import segno
-
-    return segno.make(url, error="m").svg_data_uri(border=0, dark="#000", light=None)
 
 
 def sample_order() -> dict[str, Any]:

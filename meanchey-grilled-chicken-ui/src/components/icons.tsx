@@ -17,6 +17,8 @@ const paths = {
   chevronLeft: 'M15 18l-6-6 6-6',
   chevronRight: 'M9 18l6-6-6-6',
   chevronDown: 'M6 9l6 6 6-6',
+  fileText: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h6',
+  sheet: 'M4 4h16v16H4zM4 10h16M4 15h16M10 4v16',
   check: 'M20 6 9 17l-5-5',
   lock: 'M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1zM8 11V7a4 4 0 0 1 8 0v4',
   key: 'M15 7a3 3 0 1 1-2.83 4H3v3h3v3h3v-3h3.17A3 3 0 0 1 15 7z',

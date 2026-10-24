@@ -61,8 +61,6 @@ export function ScheduleSummaryCard({ workplace: w }: { workplace: Workplace }) 
           ))}
         </div>
         <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:grid-cols-4">
-          <dt className="text-stone-500">{t('attendance.shiftsPage.maxAccuracy')}</dt>
-          <dd className="font-medium">{t('attendance.distance', { distance: s.max_accuracy_m })}</dd>
           <dt className="text-stone-500">{t('attendance.shiftsPage.reminders')}</dt>
           <dd className="font-medium">{yesNo(s.reminders_enabled)}</dd>
           <dt className="text-stone-500">{t('attendance.shiftsPage.countEarly')}</dt>

@@ -1,4 +1,4 @@
-"""Delivery notes: content per status, original / COPY counting and audit, access, the Telegram
+"""Delivery notes: content per status, print counting (no COPY mark) and audit, access, the Telegram
 send (linked, not linked, bot off, Telegram failing), the renderer being unavailable, redaction,
 and the real PDF (80 mm wide, height fits the content, Khmer and English text).
 
@@ -80,8 +80,17 @@ async def html(client, user, order: dict) -> str:
 # --- Content per status --------------------------------------------------------------------------
 
 
-async def test_created_note_shows_everything(client, gm, orders, customer, html_documents) -> None:
-    order = await orders.create(customer, BOXES, note="Leave at the back door")
+async def test_created_note_shows_everything(
+    client, gm, make_user, orders, customer, html_documents
+) -> None:
+    driver = await make_user(Role.STAFF)
+    order = await orders.create(
+        customer,
+        BOXES,
+        note="Leave at the back door",
+        driver_id=str(driver.id),
+        delivery_date="2026-10-26",
+    )
     text = await html(client, gm, order)
     for expected in (
         "ប័ណ្ណដឹកជញ្ជូន",
@@ -96,7 +105,6 @@ async def test_created_note_shows_everything(client, gm, orders, customer, html_
         "Black boxes",
         "Box 1",
         "Box 3",
-        "Grand total",
         "4-Piece Packs",
         "2-Piece Packs",
         "Liver",
@@ -111,9 +119,18 @@ async def test_created_note_shows_everything(client, gm, orders, customer, html_
     assert 'class="banner"' not in text and 'class="returns"' not in text
     assert "COPY" not in text
     assert "INVOICE" not in text and "Price" not in text  # prices later
-    # Grand total: 3 boxes, 6 × 4-Piece Packs.
-    grand = text[text.index('class="grand"') :]
-    assert '<td class="num">3</td>' in grand and '<td class="num">6</td>' in grand
+    # No subtotals or grand total, no driver, no QR code.
+    for gone in ("Subtotal", "Grand total", "Total amount", "Driver", driver.full_name, "Scan"):
+        assert gone not in text, gone
+    assert 'class="qr"' not in text and "<img" not in text  # no logo set either
+    # Prepared by: the name, without a signature or date line.
+    signatures = text[text.index('class="signatures"') :]
+    prepared, received = signatures.split('<div class="signature">', 1)
+    assert gm.full_name in prepared
+    assert "sign-line" not in prepared and "Signature" not in prepared and "Date" not in prepared
+    # Received by: a signature line and the delivery date filled in.
+    assert "Received by" in received and "sign-line" in received
+    assert "Date: 26/10/2026" in received
 
 
 async def test_note_per_status(client, gm, api, supplier, orders, customer, html_documents) -> None:
@@ -156,16 +173,16 @@ async def test_note_per_status(client, gm, api, supplier, orders, customer, html
     assert "Success" in text and 'class="returns"' not in text
 
 
-async def test_copy_on_reprint_and_audit(
+async def test_reprints_counted_not_marked_and_audit(
     client, session, gm, orders, customer, html_documents
 ) -> None:
     order = await orders.create(customer, BOXES)
     first = await html(client, gm, order)
-    assert "COPY" not in first
     second = await html(client, gm, order)
-    assert "COPY #2" in second and "ច្បាប់ចម្លង" in second
     third = await html(client, gm, order)
-    assert "COPY #3" in third
+    # Every print looks the same: no COPY mark (the app shows the count).
+    for text in (first, second, third):
+        assert "COPY" not in text and "ច្បាប់ចម្លង" not in text
     after = await orders.get(order)
     assert after["print_count"] == 3
     assert after["version"] == order["version"]  # printing doesn't change the order
@@ -246,11 +263,10 @@ async def test_send_to_linked_telegram(
     assert sent.chat_id == 1001
     assert sent.document.filename == f"{order['code']}.pdf"
     assert b"DELIVERY NOTE" in sent.document.data
-    # The QR code points at the order in the Mini App.
-    assert b'class="qr"' in sent.document.data
+    assert b'class="qr"' not in sent.document.data  # no QR code any more
     assert order["code"] in sent.caption and "Dara &lt;Shop&gt; &amp; Co" in sent.caption
     assert ok(await send(client, gm, order)) == {"copy_number": 2}
-    assert b"COPY #2" in webhook_bot.calls("SendDocument")[-1].document.data
+    assert b"COPY" not in webhook_bot.calls("SendDocument")[-1].document.data
     log = await session.scalar(
         select(AuditLog).where(AuditLog.action == "order.document_printed").limit(1)
     )
@@ -305,8 +321,6 @@ def _context(**overrides) -> dict:
     business = {"name_km": "ហាង", "name_en": "Shop", "phone_display": "012 345 678"}
     args = {
         "printed_at": datetime(2026, 10, 3, 21, 5, tzinfo=UTC),
-        "copy": None,
-        "app_url": None,
         "logo": None,
     }
     return build_context(sample_order(), business, **{**args, **overrides})
@@ -322,11 +336,11 @@ def test_prices_later_switch_to_an_invoice() -> None:
     assert "វិក្កយបត្រ" in text and "INVOICE" in text and "Price" in text and "Total amount" in text
 
 
-def test_logo_qr_and_sample_marker() -> None:
-    context = _context(app_url=f"{MINI_APP}/workstation/orders/1", logo=(b"\x89PNG", "image/png"))
+def test_logo_and_sample_marker() -> None:
+    context = _context(logo=(b"\x89PNG", "image/png"))
     text = render.render_html(context)
     assert 'class="logo" src="data:image/png;base64,' in text
-    assert 'class="qr" src="data:image/svg+xml' in text
+    assert 'class="qr"' not in text  # no QR code
     assert "SAMPLE" not in text
     assert "SAMPLE" in render.render_html(_context(sample=True))
     # Black and white only: no colour in the stylesheet except black and white.
@@ -367,11 +381,13 @@ async def test_pdf_is_80mm_with_khmer_and_english(
         "Customer",
         "White boxes",
         "Black boxes",
-        "Grand total",
         "0.250 kg",
         "Prepared by",
+        "Received by",
     ):
         assert expected in text, (expected, text)
+    for gone in ("Subtotal", "Grand total", "Driver", "Scan to open"):
+        assert gone not in text, gone
     # Khmer text is embedded as Khmer (the font maps glyphs back to Unicode).
     assert any("ក" <= ch <= "៿" for ch in text)
 
@@ -380,9 +396,9 @@ async def test_pdf_is_80mm_with_khmer_and_english(
     ok(await orders.cancel(cancelled))
     (page,) = _pdf_pages((await document(client, gm, cancelled)).content)
     assert "CANCELLED" in page.extract_text()
-    # The second print of the first order says COPY.
+    # A reprint of the first order has no COPY mark.
     (page,) = _pdf_pages((await document(client, gm, order)).content)
-    assert "COPY #2" in page.extract_text()
+    assert "COPY" not in page.extract_text()
 
 
 @needs_weasyprint
@@ -395,6 +411,18 @@ async def test_pdf_height_fits_the_content(client, gm, orders, customer) -> None
     long_mm = float(long_page.mediabox.height) * 25.4 / 72
     assert render.MIN_HEIGHT_MM <= short_mm < 400
     assert long_mm > short_mm + 100  # 11 more boxes
+
+
+# `_context()`'s note before the subtotals, the grand total, the driver and the signature / date
+# lines were removed (measured with the old template in the API image; now about 222 mm).
+OLD_SAMPLE_HEIGHT_MM = 377.5
+
+
+@needs_weasyprint
+async def test_simpler_note_is_shorter() -> None:
+    (page,) = _pdf_pages(await render.render_pdf(_context()))
+    height_mm = float(page.mediabox.height) * 25.4 / 72
+    assert height_mm < OLD_SAMPLE_HEIGHT_MM - 100, height_mm
 
 
 @needs_weasyprint

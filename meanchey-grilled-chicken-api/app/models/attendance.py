@@ -59,8 +59,6 @@ DEFAULT_RADIUS_M = 100
 OPEN_BEFORE_MAX = 120
 ABSENT_AFTER_MAX = 240
 CHECKOUT_WINDOW_MAX = 180
-ACCURACY_MIN_M = 10
-ACCURACY_MAX_M = 500
 REASON_MAX_LENGTH = 500
 HOLIDAY_SCOPES = ("all", "selected")
 HOLIDAY_NAME_MAX_LENGTH = 100
@@ -150,9 +148,6 @@ class AttendanceScheduleVersion(Base):
             f"checkout_window_min >= 0 AND checkout_window_min <= {CHECKOUT_WINDOW_MAX}",
             name="checkout_window",
         ),
-        CheckConstraint(
-            f"max_accuracy_m BETWEEN {ACCURACY_MIN_M} AND {ACCURACY_MAX_M}", name="max_accuracy"
-        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -170,7 +165,6 @@ class AttendanceScheduleVersion(Base):
     open_before_min: Mapped[int] = mapped_column(Integer)
     absent_after_min: Mapped[int] = mapped_column(Integer)
     checkout_window_min: Mapped[int] = mapped_column(Integer)
-    max_accuracy_m: Mapped[int] = mapped_column(Integer)
     # Whether early check-ins / overtime check-outs count as extra time (new records only).
     count_early_checkin: Mapped[bool] = mapped_column(Boolean)
     count_overtime: Mapped[bool] = mapped_column(Boolean)

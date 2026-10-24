@@ -288,7 +288,6 @@ async def me_today(session: AsyncSession, user: User, now: datetime | None = Non
             timezone=get_settings().business_timezone,
             work_date=day,
             workplace=workplace_brief(await user_workplace(session, user)),
-            max_accuracy_m=0,
             day_off=None,
             shifts=[],
             next_action=NextActionOut(action="none"),
@@ -323,9 +322,6 @@ async def me_today(session: AsyncSession, user: User, now: datetime | None = Non
         timezone=get_settings().business_timezone,
         work_date=day,
         workplace=workplace_brief(workplace),
-        max_accuracy_m=days.schedule(workplace.id, day).rules.max_accuracy_m
-        if days and workplace
-        else 0,
         day_off=day_off_out(off),
         shifts=shifts,
         next_action=_next_action_out(win.next_action(today, upcoming, records, now)),
@@ -378,7 +374,7 @@ async def check(
     session: AsyncSession, user: User, action: str, location: LocationIn
 ) -> AttendanceRecord:
     """Record a check-in or check-out now. Checks, in order: tracked, workplace set, time window,
-    duplicates / order, GPS accuracy, distance. Commits."""
+    duplicates / order, distance (the GPS accuracy is only stored). Commits."""
     attempt = _Attempt(action, location)
     user_id = user.id
     if not is_tracked(user):
@@ -564,17 +560,7 @@ async def check(
                 {"shift_code": w.code},
             )
 
-    max_accuracy = schedule.rules.max_accuracy_m
-    if location.accuracy_m > max_accuracy:
-        raise await _refuse(
-            session,
-            user_id,
-            attempt,
-            422,
-            ErrorCode.ATTENDANCE_LOCATION_INACCURATE,
-            "The GPS position isn't accurate enough",
-            {"accuracy_m": round(location.accuracy_m), "max": max_accuracy},
-        )
+    # Only the distance counts: the GPS accuracy is stored with the record but never refuses.
     if attempt.distance_m > workplace.radius_m:
         raise await _refuse(
             session,

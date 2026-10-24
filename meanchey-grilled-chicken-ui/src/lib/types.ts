@@ -1021,7 +1021,6 @@ export interface AttendanceToday {
   timezone: string
   work_date: string
   workplace: WorkplaceBrief | null
-  max_accuracy_m: number
   /** On a day off: why; `shifts` is then empty and `next_action` points at the next tracked day. */
   day_off: DayOff | null
   shifts: ShiftDay[]
@@ -1135,7 +1134,6 @@ export interface AttendanceRules {
   open_before_min: number
   absent_after_min: number
   checkout_window_min: number
-  max_accuracy_m: number
   reminders_enabled: boolean
   /** Count early check-ins / overtime as extra time (applies to new records). */
   count_early_checkin: boolean

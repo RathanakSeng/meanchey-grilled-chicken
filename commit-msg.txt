@@ -1,12 +1,13 @@
-<ADD, UPDATE><BOTH><ORDER-BOX-TYPES>: Plastic bag and delivery bag as box types; "+ Add box" opens a menu to pick the type
+<UPDATE, ADD><BOTH><ATTENDANCE-GPS, DELIVERY-NOTE>: GPS accuracy never blocks a check-in (inside the circle = OK, the phone keeps improving the reading); delivery note PDF simplified (no COPY, totals, driver or QR) and Export Delivery Note offers PDF or Excel
 
-- API: migration 0026: order_boxes color CHECK also accepts plastic_bag and delivery_bag (downgrade restores the old CHECK and fails while an order has a bag)
-- API: BOX_COLORS (white, black, plastic_bag, delivery_bag) drives the summary order, list counts (plastic_bag_boxes / delivery_bag_boxes added to GET /orders items), audit counts and the alert payload
-- API: Out for delivery alert lists only the containers with boxes ("2 white boxes, 1 plastic bag"); old alerts with only white / black still render
-- API: delivery note PDF: Plastic bags / Delivery bags sections and markers, black and white only (dashed outline, half filled)
-- API: tests: bags on create / summary / list / audit / edit, alert texts, markers and labels, migration 0026 round trip
-- UI: order form: one "+ Add box ▾" button replacing "+ White box" / "+ Black box"; it opens a menu of the 4 types with their swatches, adds the picked one and scrolls to the new card; "Box N" no longer wraps on narrow phones
-- UI: ActionMenu: optional trigger (a secondary Button with custom content) and a leading node per item; the first item is focused on open, ↑ / ↓ / Home / End move, Esc gives focus back; Button forwards its ref; chevronDown icon
-- UI: BoxSwatch for the 4 containers; BoxCounts shows the bags only when > 0; boxCountsText for the list's aria-label and the bell's Out for delivery text
-- UI: i18n (en / km): the 2 new types, colorCount plurals, addBox "Add box" / "បន្ថែមប្រអប់"
-- Docs: API FEATURES (audit, alert payload and text, order_boxes color, list fields, delivery note markers and sections) and ARCHITECTURE (ER color, migration 0026, markers, tests, receipt decision); UI FEATURES (Add box menu, list counts, summary, delivery note, bell text) and ARCHITECTURE (ActionMenu trigger / leading / keyboard, badges, BOX_COLORS design decision)
+- API: migration 0027 drops attendance_schedule_versions.max_accuracy_m and its CHECK (downgrade restores 100 m); check-in / check-out only refuse on distance, the accuracy is still stored
+- API: max_accuracy_m removed from the rules (RULE_FIELDS, Rules, schedule schemas, PUT /attendance/scheduling/shifts, GET /attendance/me/today) and ATTENDANCE_LOCATION_INACCURATE removed
+- API: delivery note PDF: no original / COPY mark (print_count and order.document_printed unchanged); no per-colour subtotals or grand total; no driver row or block; Prepared by shows the name only; Received by has a signature line and the delivery date filled in; no QR code (segno dropped, no Mini App link); the invoice keeps one Total amount line behind show_prices; SAMPLE stamp class renamed .stamp; unused labels and CSS removed
+- API: tests: rough accuracy accepted and stored, the scheduling body without the rule, migration 0027 round trip, older migration tests at head; no COPY on reprints, no subtotal / grand total / driver / QR, Prepared by and Received by blocks, the sample note at least 100 mm shorter than before (377.5 mm)
+- UI: useDeviceLocation listens up to 20 s (browser watchPosition / Telegram LocationManager every 1.5 s), keeps the most accurate reading, stops at ±20 m; AbortController per read
+- UI: check screen: Confirm enabled when inside the radius (also while improving); "Improving GPS accuracy… ±N m"; outside hint with the accuracy; Maximum GPS accuracy removed from Scheduling, Upcoming and the workplace summary
+- UI: order page: Export Delivery Note ▾ menu with PDF (GET /orders/{id}/document.pdf as a blob, saved as <code>.pdf, share sheet in Telegram, count refreshed, API errors read back from the blob) and Excel (unchanged); Send to my Telegram unchanged
+- UI: saveFile exported and shared by Excel and PDF; ActionMenu loading and accessible label for trigger buttons; fileText / sheet icons
+- UI: "PDF exported N× (downloads and Telegram)" on the order; audit "PDF #n" instead of Original / Copy
+- UI: i18n (en / km): improving / outsideHint, exportPdf / exportXlsx, exportedPdf / exportedXlsx, printedCount, documentNumber; removed inaccurate, maxAccuracy, ATTENDANCE_LOCATION_INACCURATE, documentOriginal / documentCopy
+- Docs: API FEATURES / ARCHITECTURE (no accuracy rule, migration 0027, check order; delivery note content without COPY, totals, driver or QR, Received by date, invoice total, no segno, tests) and UI FEATURES / ARCHITECTURE (location listening, check screen, export menu, PDF count, delivery note content, ActionMenu, saveFile)

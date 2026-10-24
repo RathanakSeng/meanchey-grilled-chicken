@@ -16,9 +16,7 @@ SHIFTS = [
     win.ShiftDef("morning", "វេនព្រឹក", "Morning shift", time(7), time(12), 1),
     win.ShiftDef("afternoon", "វេនរសៀល", "Afternoon shift", time(13), time(15), 2),
 ]
-RULES = win.Rules(
-    open_before_min=30, absent_after_min=45, checkout_window_min=59, max_accuracy_m=100
-)
+RULES = win.Rules(open_before_min=30, absent_after_min=45, checkout_window_min=59)
 
 
 def _days(rules: win.Rules = RULES, shifts=SHIFTS):

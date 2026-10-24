@@ -62,7 +62,7 @@ def test_attendance_migration_round_trip() -> None:
     ((workplace_id, shifts, weekdays, *rules),) = asyncio.run(
         _run(
             "SELECT workplace_id, shifts, weekdays, open_before_min, absent_after_min, "
-            "checkout_window_min, max_accuracy_m, reminders_enabled "
+            "checkout_window_min, reminders_enabled "
             "FROM attendance_schedule_versions"
         )
     )
@@ -71,16 +71,16 @@ def test_attendance_migration_round_trip() -> None:
         ("morning", "07:00", "12:00"),
         ("afternoon", "13:00", "15:00"),
     ]
-    assert rules == [30, 45, 59, 100, True]
+    assert rules == [30, 45, 59, True]
     # One version per workplace and date.
     with pytest.raises(IntegrityError):
         asyncio.run(
             _run(
                 "INSERT INTO attendance_schedule_versions (id, workplace_id, effective_from, "
                 "weekdays, shifts, open_before_min, absent_after_min, checkout_window_min, "
-                "max_accuracy_m, reminders_enabled, count_early_checkin, count_overtime) "
+                "reminders_enabled, count_early_checkin, count_overtime) "
                 "SELECT gen_random_uuid(), workplace_id, effective_from, weekdays, shifts, 30, "
-                "45, 59, 100, true, true, true FROM attendance_schedule_versions"
+                "45, 59, true, true, true FROM attendance_schedule_versions"
             )
         )
     # Names are unique among active workplaces (case-insensitive).

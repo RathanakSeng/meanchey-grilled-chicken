@@ -135,12 +135,10 @@ async def test_location_rules(client, session, clock, workplace, staff) -> None:
     r = await _check(client, staff, metres_north=320)
     assert_error(r, 422, "ATTENDANCE_TOO_FAR")
     assert r.json()["error"]["details"] == {"distance_m": 320, "radius_m": 100}
-    r = await _check(client, staff, accuracy_m=150)
-    assert_error(r, 422, "ATTENDANCE_LOCATION_INACCURATE")
-    assert r.json()["error"]["details"] == {"accuracy_m": 150, "max": 100}
-    # Just inside the radius, at the accuracy limit.
-    r = await _check(client, staff, metres_north=99, accuracy_m=100)
+    # Just inside the radius: a rough GPS reading (±250 m) doesn't refuse it, it's only stored.
+    r = await _check(client, staff, metres_north=99, accuracy_m=250)
     assert r.status_code == 200, r.text
+    assert r.json()["record"]["check_in_accuracy_m"] == 250
     entries = list(
         await session.scalars(
             select(AuditLog)
@@ -148,12 +146,8 @@ async def test_location_rules(client, session, clock, workplace, staff) -> None:
             .order_by(AuditLog.id)
         )
     )
-    assert [e.details["code"] for e in entries] == [
-        "ATTENDANCE_TOO_FAR",
-        "ATTENDANCE_LOCATION_INACCURATE",
-    ]
+    assert [e.details["code"] for e in entries] == ["ATTENDANCE_TOO_FAR"]
     assert entries[0].details["distance_m"] == 320
-    assert entries[1].details["accuracy_m"] == 150
 
 
 async def test_window_checked_before_location(client, clock, workplace, staff) -> None:
@@ -202,7 +196,7 @@ async def test_me_today(client, clock, workplace, staff) -> None:
     assert me["server_time"].startswith("2026-10-13T06:40:00+07:00")
     assert me["workplace"]["has_coordinates"] is True
     assert me["workplace"]["radius_m"] == 100
-    assert me["max_accuracy_m"] == 100
+    assert "max_accuracy_m" not in me
     assert [s["code"] for s in me["shifts"]] == ["morning", "afternoon"]
     assert [s["phase"] for s in me["shifts"]] == ["check_in_open", "upcoming"]
     assert me["shifts"][0]["check_in_until"].startswith("2026-10-13T07:44:00+07:00")

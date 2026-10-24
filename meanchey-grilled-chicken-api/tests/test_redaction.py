@@ -39,7 +39,6 @@ SCHEDULE = {
     "open_before_min": 30,
     "absent_after_min": 45,
     "checkout_window_min": 59,
-    "max_accuracy_m": 80,
     "reminders_enabled": True,
     "count_early_checkin": True,
     "count_overtime": True,
@@ -188,7 +187,7 @@ async def world(client, session, superadmin, make_user) -> dict:
     )
     assert r.status_code == 200, r.text
     branch = await post("/attendance/workplaces", {"name": "Branch 2", "radius_m": 200})
-    for body in (SCHEDULE, {**SCHEDULE, "effective_from": "2099-01-01", "max_accuracy_m": 90}):
+    for body in (SCHEDULE, {**SCHEDULE, "effective_from": "2099-01-01", "checkout_window_min": 40}):
         r = await client.put("/attendance/scheduling/shifts", json=body, headers=auth(superadmin))
         assert r.status_code == 200, r.text
     holiday = (await post("/attendance/holidays", HOLIDAY))["holiday"]

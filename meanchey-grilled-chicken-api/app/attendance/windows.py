@@ -37,7 +37,6 @@ class Rules:
     open_before_min: int
     absent_after_min: int
     checkout_window_min: int
-    max_accuracy_m: int
     reminders_enabled: bool = True
     count_early_checkin: bool = True
     count_overtime: bool = True
