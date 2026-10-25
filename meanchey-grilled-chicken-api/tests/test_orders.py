@@ -56,6 +56,10 @@ def box(color: str = "white", **items) -> dict:
     return {"color": color, "lines": lines}
 
 
+def all_returned(order: dict) -> list[dict]:
+    return [{"box_id": b["id"], "returned": True} for b in order["boxes"] if b["returnable"]]
+
+
 class Orders:
     def __init__(self, client, actor) -> None:
         self.client, self.headers = client, auth(actor)
@@ -85,6 +89,8 @@ class Orders:
         )
 
     def delivered(self, order: dict, outcome: str = "accepted", **extra):
+        """Every returnable box is recorded as returned unless `containers` is given."""
+        extra.setdefault("containers", all_returned(order))
         body = {"version": order["version"], "outcome": outcome, **extra}
         return self.client.post(f"/orders/{order['id']}/delivered", json=body, headers=self.headers)
 
@@ -449,6 +455,7 @@ async def test_edit_replaces_boxes_and_records_a_diff(
         "black": 1,
         "plastic_bag": 0,
         "delivery_bag": 0,
+        "returnable": [1],
         "items": {"byproduct_packed.heart": "0.300"},
     }
 

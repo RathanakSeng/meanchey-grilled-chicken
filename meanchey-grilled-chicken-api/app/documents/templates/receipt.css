@@ -203,6 +203,37 @@ h3 {
   overflow-wrap: anywhere;
 }
 
+/* Containers to return: an empty box to tick by hand and a line for the reason. */
+.container {
+  margin-bottom: 1.5mm;
+  page-break-inside: avoid;
+}
+.container-title {
+  font-weight: 700;
+}
+.tick {
+  display: inline-block;
+  width: 2.8mm;
+  height: 2.8mm;
+  border: 0.3mm solid #000;
+  background: #fff;
+  vertical-align: -0.4mm;
+}
+.container-line {
+  margin-left: 4mm;
+  font-size: 7.5pt;
+}
+.reason-line {
+  display: flex;
+  align-items: flex-end;
+  margin-top: 1.5mm;
+}
+.blank {
+  flex: 1;
+  margin-left: 1mm;
+  border-bottom: 0.25mm solid #000;
+}
+
 /* Signatures */
 .signature {
   margin-bottom: 3mm;

@@ -95,6 +95,7 @@ def test_menus() -> None:
         "order_management": "workstation",
         "order_returns": "workstation",
         "order_export": "workstation",
+        "order_containers": "workstation",
         "preparation": "workstation",
         "preparation_management": "workstation",
     }
@@ -177,6 +178,7 @@ async def test_gm_sees_staff_features_off_by_default(client, make_user) -> None:
         "inventory",
         "orders",
         "order_export",
+        "order_containers",
         "preparation",
     ]
     assert all(f["current_level"] == "off" and f["can_edit"] for f in features)
@@ -206,6 +208,7 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
                 "order_management",
                 "order_returns",
                 "order_export",
+                "order_containers",
                 "preparation",
                 "preparation_management",
             ],
@@ -232,6 +235,7 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
     assert levels.pop("order_management") == "off"
     assert levels.pop("order_returns") == "off"
     assert levels.pop("order_export") == "off"
+    assert levels.pop("order_containers") == "off"
     assert set(levels.values()) == {"full"}
 
 

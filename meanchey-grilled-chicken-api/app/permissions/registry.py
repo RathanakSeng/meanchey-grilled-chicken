@@ -377,6 +377,15 @@ PERMISSIONS += [
         description_km="ទាញយកប័ណ្ណដឹកជញ្ជូនរបស់ការបញ្ជាទិញជាឯកសារ Excel។",
         assignable_to=_EVERYONE,
     ),
+    PermissionDef(
+        code="orders.containers",
+        module="orders",
+        name_en="Order containers",
+        name_km="ប្រអប់ការបញ្ជាទិញ",
+        description_en=("Mark a box the customer didn't give back at delivery as returned later."),
+        description_km="កំណត់ប្រអប់ដែលអតិថិជនមិនបានប្រគល់វិញពេលដឹកជញ្ជូន ថាបានយកមកវិញនៅពេលក្រោយ។",
+        assignable_to=_EVERYONE,
+    ),
 ]
 
 _ORDER_CODES = frozenset(p.code for p in PERMISSIONS if p.module == "orders")
@@ -757,6 +766,16 @@ FEATURES: list[FeatureDef] = [
         levels=(("off", ()), ("full", ("orders.export_delivery_note",))),
     ),
     FeatureDef(
+        code="order_containers",
+        menu="workstation",
+        name_en="Order containers",
+        name_km="ប្រអប់ការបញ្ជាទិញ",
+        description_en=("Mark boxes that weren't given back at delivery as returned later."),
+        description_km="កំណត់ប្រអប់ដែលមិនបានប្រគល់វិញពេលដឹកជញ្ជូន ថាបានយកមកវិញនៅពេលក្រោយ។",
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR, Role.STAFF),
+        levels=(("off", ()), ("full", ("orders.containers",))),
+    ),
+    FeatureDef(
         code="preparation",
         menu="workstation",
         name_en="Preparation",
@@ -950,7 +969,7 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
     # Inventory Record and Inventory materials Full; Inventory history is Off until the
     # superadmin allows it.
     | {"inventory.view", "inventory.materials_stock", "inventory.materials_manage"}
-    # Orders Record, management Full, returns Full.
+    # Orders Record, management, returns, export and containers Full.
     | _ORDER_CODES
     # Preparation Record, preparation management Full.
     | {"preparation.view", "preparation.create", "preparation.update", "preparation.cancel"}
@@ -981,6 +1000,7 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
             "order_management": "off",
             "order_returns": "off",
             "order_export": "off",
+            "order_containers": "off",
             # Preparation Record; reopening and cancelling are the GM's to allow.
             "preparation": "record",
             "preparation_management": "off",

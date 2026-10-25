@@ -174,6 +174,7 @@ async def world(client, session, superadmin, make_user) -> dict:
         "gm": gm,
         "superadmin": superadmin,
         "order_id": order["id"],
+        "box_id": order["boxes"][0]["id"],
         "user_id": str(target.id),
         "suppliers": supplier["id"],
         "customers": customer["id"],
@@ -196,6 +197,7 @@ def _fill(path: str, world: dict) -> str:
     url = url.replace("{code}", "suppliers.view").replace("{feature}", "suppliers")
     url = url.replace("{role}", "staff").replace("{item_code}", "packs_big")
     url = url.replace("{order_id}", world["order_id"])
+    url = url.replace("{box_id}", world["box_id"])
     url = url.replace("{material_id}", world["material_id"])
     url = url.replace("{preparation_id}", world["preparation_id"])
     url = url.replace("{record_id}", world["record_id"])
@@ -258,6 +260,7 @@ async def test_superadmin_is_never_forbidden_where_the_gm_is_allowed(
         "GET /notifications",
         "GET /orders/{order_id}",
         "POST /orders/{order_id}/returns/review",
+        "POST /orders/{order_id}/boxes/{box_id}/container-returned",
         "GET /orders/{order_id}/document.pdf",
         "POST /orders/{order_id}/document/send-telegram",
         "GET /settings/business",

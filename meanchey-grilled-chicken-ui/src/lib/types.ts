@@ -655,12 +655,23 @@ export type OrderStatus =
 export type BoxColor = 'white' | 'black' | 'plastic_bag' | 'delivery_bag'
 /** In the API's order (summaries, list counts, the Add box choice). */
 export const BOX_COLORS: BoxColor[] = ['white', 'black', 'plastic_bag', 'delivery_bag']
+/** Whether a container of this type must come back, unless the box says otherwise (the API's
+ * BOX_RETURNABLE). */
+export const BOX_RETURNABLE: Record<BoxColor, boolean> = {
+  white: true,
+  black: true,
+  plastic_bag: false,
+  delivery_bag: false,
+}
+/** A returnable box's container: pending until Delivered, then returned / not returned. */
+export type ContainerStatus = 'pending' | 'returned' | 'not_returned'
 /** Packs are counted (whole numbers), packed by-products weighed (kg, 3 decimals). */
 export type OrderUnit = 'count' | 'kg'
 
 /** Same limits as the API. */
 export const ORDER_NOTE_MAX_LENGTH = 1000
 export const ORDER_REASON_MAX_LENGTH = 500
+export const CONTAINER_REASON_MAX_LENGTH = 300
 
 export interface OrderItemRef extends Localized {
   item_code: string
@@ -677,7 +688,23 @@ export interface OrderBox {
   id: string
   color: BoxColor
   position: number
+  /** The container must come back. */
+  returnable: boolean
+  /** null when not returnable or the order was cancelled. */
+  container_status: ContainerStatus | null
+  container_reason: string | null
+  container_recorded_by: UserRef | null
+  container_recorded_at: string | null
+  container_returned_later_by: UserRef | null
+  container_returned_later_at: string | null
   lines: OrderQuantity[]
+}
+
+export interface ContainersSummary {
+  total_returnable: number
+  returned: number
+  not_returned: number
+  pending: number
 }
 
 export interface OrderSummary {
@@ -752,6 +779,8 @@ export interface Order {
   cancelled_at: string | null
   boxes: OrderBox[]
   summary: OrderSummary
+  /** null for cancelled orders (containers don't apply). */
+  containers: ContainersSummary | null
   returns: OrderReturnItem[]
   /** Only while Created: items whose stock is below the order's totals right now. */
   stock_warnings: StockWarning[]
@@ -768,6 +797,8 @@ export interface OrderListItem {
   black_boxes: number
   plastic_bag_boxes: number
   delivery_bag_boxes: number
+  /** Boxes recorded as not returned (and not returned later). */
+  containers_outstanding: number
   created_at: string
   updated_at: string
 }

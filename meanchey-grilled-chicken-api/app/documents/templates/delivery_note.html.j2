@@ -129,6 +129,20 @@
 </section>
 {% endif %}
 
+{% if containers %}
+<div class="rule"></div>
+<section class="containers">
+  <h2>{{ label("containers") }}</h2>
+  {% for c in containers %}
+  <div class="container">
+    <div class="container-title"><span class="tick"></span> {{ labels["box"][0] }} {{ c.position }} · {{ c.box_km }} / {{ labels["box"][1] }} {{ c.position }} · {{ c.box_en }}</div>
+    <div class="container-line">{{ labels["container_returned"][0] }} / {{ labels["container_returned"][1] }}</div>
+    <div class="container-line reason-line">{{ labels["reason"][0] }} / {{ labels["reason"][1] }}:<span class="blank"></span></div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
 <div class="rule double"></div>
 <section class="signatures">
   <div class="signature prepared">

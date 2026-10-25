@@ -64,6 +64,9 @@ LABELS: dict[str, tuple[str, str]] = {
     "cancelled": ("បានលុបចោល", "CANCELLED"),
     "cancel_reason": ("មូលហេតុលុបចោល", "Cancel reason"),
     "sample": ("គំរូ", "SAMPLE"),
+    # Returnable boxes: ticked by hand at delivery, with a reason when one doesn't come back.
+    "containers": ("ប្រអប់ត្រូវយកមកវិញ", "Containers to return"),
+    "container_returned": ("បានយកមកវិញ", "Returned"),
 }
 
 COLORS: dict[str, tuple[str, str]] = {
@@ -182,6 +185,17 @@ def build_context(
                 else None,
             }
         )
+    # Returnable boxes only; none for cancelled orders (`containers` is null: nothing to return).
+    containers = [
+        {
+            "color": box["color"],
+            "position": box["position"],
+            "box_km": COLORS[box["color"]][0],
+            "box_en": COLORS[box["color"]][1],
+        }
+        for box in order["boxes"]
+        if box.get("returnable") and order.get("containers") is not None
+    ]
     customer = order["customer"]
     return {
         "kind": kind,
@@ -217,6 +231,7 @@ def build_context(
         # Prices later: only an invoice prints it (the delivery note has no totals).
         "total_amount": order.get("total_amount"),
         "returns": returns,
+        "containers": containers,
         "returns_reviewed": any(r["to_stock"] is not None for r in returns),
     }
 
@@ -250,8 +265,8 @@ def sample_order() -> dict[str, Any]:
         "return_reason": None,
         "cancel_reason": None,
         "boxes": [
-            {"color": "white", "position": 1, "lines": white},
-            {"color": "black", "position": 2, "lines": black},
+            {"color": "white", "position": 1, "returnable": True, "lines": white},
+            {"color": "black", "position": 2, "returnable": True, "lines": black},
         ],
         "summary": {
             "colors": [
@@ -263,5 +278,6 @@ def sample_order() -> dict[str, Any]:
                 "items": [item(PACKS_BIG, 14), item(PACKS_SMALL, 6), item(liver, kg="1.250")],
             },
         },
+        "containers": {"total_returnable": 2, "returned": 0, "not_returned": 0, "pending": 2},
         "returns": [],
     }

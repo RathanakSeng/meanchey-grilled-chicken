@@ -11,7 +11,11 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-from app.models.order import ORDER_NOTE_MAX_LENGTH, ORDER_REASON_MAX_LENGTH
+from app.models.order import (
+    CONTAINER_REASON_MAX_LENGTH,
+    ORDER_NOTE_MAX_LENGTH,
+    ORDER_REASON_MAX_LENGTH,
+)
 from app.models.partner import PARTNER_LOCATION_MAX_LENGTH
 from app.schemas.common import UserRef
 from app.schemas.inventory import KgOut
@@ -42,6 +46,9 @@ OrderListStatus = Literal[
     "cancelled",
 ]
 BoxColor = Literal["white", "black", "plastic_bag", "delivery_bag"]
+ContainerStatus = Literal["pending", "returned", "not_returned"]
+# List filter: delivered orders with at least one box not returned.
+ContainersFilter = Literal["outstanding"]
 CustomerType = Literal["saved", "direct"]
 # Raw input: normalized (phone) / trimmed (location) by the service.
 Phone = Annotated[str, Field(max_length=40)]
@@ -81,6 +88,9 @@ class OrderLineIn(_Body):
 
 class OrderBoxIn(_Body):
     color: BoxColor
+    # The container must come back; omitted → the type's default (white / black boxes yes, bags
+    # no; models/order.py BOX_RETURNABLE).
+    returnable: bool | None = None
     lines: Annotated[list[OrderLineIn], Field(max_length=MAX_LINES_PER_BOX)]
 
 
@@ -135,12 +145,22 @@ class ReturnLineIn(_Body):
     kg: KgIn | None = None
 
 
+class ContainerResultIn(_Body):
+    """One returnable box at Delivered: given back or not (then with a reason)."""
+
+    box_id: uuid.UUID
+    returned: bool
+    reason: Annotated[str, Field(max_length=CONTAINER_REASON_MAX_LENGTH)] | None = None
+
+
 class DeliveredIn(_Body):
     version: Version
     # accepted: everything accepted (→ success); returned: some items came back (→ return pending).
     outcome: Literal["accepted", "returned"]
     reason: Annotated[str, Field(max_length=ORDER_REASON_MAX_LENGTH)] | None = None
     items: Annotated[list[ReturnLineIn], Field(max_length=100)] = []
+    # Every returnable box of the order, exactly once (ORDER_CONTAINERS_REQUIRED otherwise).
+    containers: Annotated[list[ContainerResultIn], Field(max_length=MAX_BOXES)] = []
 
 
 class ReviewLineIn(_Body):
@@ -190,6 +210,15 @@ class OrderBoxOut(BaseModel):
     id: uuid.UUID
     color: BoxColor
     position: int
+    # The container must come back. `container_status`: pending until Delivered, then returned /
+    # not returned (with `container_reason`); null when not returnable or the order was cancelled.
+    returnable: bool
+    container_status: ContainerStatus | None
+    container_reason: str | None
+    container_recorded_by: UserRef | None
+    container_recorded_at: datetime | None
+    container_returned_later_by: UserRef | None
+    container_returned_later_at: datetime | None
     lines: list[OrderLineOut]
 
 
@@ -216,6 +245,15 @@ class OrderSummary(BaseModel):
 
     colors: list[ColorSummary]
     total: TotalSummary
+
+
+class ContainersSummary(BaseModel):
+    """The returnable boxes of an order by container status."""
+
+    total_returnable: int
+    returned: int
+    not_returned: int
+    pending: int
 
 
 class ReturnItemOut(_ItemRef):
@@ -268,6 +306,8 @@ class OrderOut(BaseModel):
     cancelled_at: datetime | None
     boxes: list[OrderBoxOut]
     summary: OrderSummary
+    # Null for cancelled orders (containers don't apply).
+    containers: ContainersSummary | None
     returns: list[ReturnItemOut]
     # Only while Created: items whose stock is below the order's totals right now.
     stock_warnings: list[StockWarning]
@@ -284,6 +324,8 @@ class OrderListItem(BaseModel):
     black_boxes: int
     plastic_bag_boxes: int
     delivery_bag_boxes: int
+    # Boxes recorded as not returned (and not returned later).
+    containers_outstanding: int
     created_at: datetime
     updated_at: datetime
 

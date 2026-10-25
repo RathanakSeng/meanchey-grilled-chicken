@@ -13,6 +13,7 @@ import { useLocalized } from '@/lib/format'
 import { paths } from '@/lib/paths'
 import {
   BOX_COLORS,
+  BOX_RETURNABLE,
   ORDER_NOTE_MAX_LENGTH,
   PARTNER_LOCATION_MAX_LENGTH,
   PHONE_MAX_DIGITS,
@@ -38,6 +39,9 @@ interface LineState {
 interface BoxState {
   key: string
   color: BoxColor
+  /** The container must come back: preset from the type (a box's type is chosen when it's added
+   * and doesn't change), then up to the user. */
+  returnable: boolean
   lines: LineState[]
 }
 
@@ -67,7 +71,12 @@ const PHONE_RE = new RegExp(`^\\+?\\d{${PHONE_MIN_DIGITS},${PHONE_MAX_DIGITS}}$`
 const CUSTOMER_TYPES: OrderCustomerType[] = ['saved', 'direct']
 
 const emptyLine = (): LineState => ({ key: newKey(), item_code: '', qty: '' })
-const emptyBox = (color: BoxColor): BoxState => ({ key: newKey(), color, lines: [emptyLine()] })
+const emptyBox = (color: BoxColor): BoxState => ({
+  key: newKey(),
+  color,
+  returnable: BOX_RETURNABLE[color],
+  lines: [emptyLine()],
+})
 
 function fromOrder(order: Order): FormState {
   const c = order.customer
@@ -91,6 +100,7 @@ function fromOrder(order: Order): FormState {
     boxes: order.boxes.map((box) => ({
       key: newKey(),
       color: box.color,
+      returnable: box.returnable,
       lines: box.lines.map((line) => ({
         key: newKey(),
         item_code: line.item_code,
@@ -174,6 +184,7 @@ function body(form: FormState, items: Map<string, AvailableItem>) {
     note: form.note.trim() || null,
     boxes: form.boxes.map((box) => ({
       color: box.color,
+      returnable: box.returnable,
       lines: box.lines.map((line) => {
         const item = items.get(line.item_code)!
         return { item_code: line.item_code, ...toApi(item.unit, parseAmount(item.unit, line.qty) ?? 0) }
@@ -217,11 +228,23 @@ function BoxCard({
       aria-label={t('orders.boxTitle', { n: index + 1 })}
       data-box-key={box.key}
     >
-      <header className="flex items-center justify-between gap-2 border-b border-stone-100 px-4 py-2.5">
-        <span className="flex items-center gap-2 text-sm font-semibold text-stone-900">
+      <header className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-stone-100 px-4 py-2.5">
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-stone-900">
           <BoxSwatch color={box.color} className="h-4 w-4" />
           <span className="whitespace-nowrap">{t('orders.boxTitle', { n: index + 1 })}</span>
-          <span className="font-normal text-stone-500">· {t(`orders.colors.${box.color}`)}</span>
+          <span className="whitespace-nowrap font-normal text-stone-500">· {t(`orders.colors.${box.color}`)}</span>
+          <label
+            className="flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap rounded-md px-1 py-0.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+            title={t('orders.containers.returnHint')}
+          >
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-stone-300 accent-brand-600"
+              checked={box.returnable}
+              onChange={(e) => onChange({ ...box, returnable: e.target.checked })}
+            />
+            {t('orders.containers.return')}
+          </label>
         </span>
         <span className="flex items-center gap-1">
           <Button variant="ghost" className="px-2 py-1 text-xs" onClick={onDuplicate}>

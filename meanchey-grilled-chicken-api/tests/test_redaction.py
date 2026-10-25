@@ -12,7 +12,7 @@ from httpx import Response
 from sqlalchemy import select, update
 
 from app.main import app
-from app.models import AttendanceRequest, AuditLog, Role, User, utcnow
+from app.models import AttendanceRequest, AuditLog, Order, OrderBox, Role, User, utcnow
 from tests.conftest import auth
 from tests.test_business_info import image
 
@@ -238,6 +238,24 @@ async def world(client, session, superadmin, make_user) -> dict:
     session.add(request)
     await session.flush()
     request_id = str(request.id)
+    # An order whose white box the superadmin recorded as not returned at delivery (written
+    # directly: the world has no stock to deliver from).
+    kept = await post("/orders", order_body)
+    await session.execute(
+        update(OrderBox)
+        .where(OrderBox.order_id == uuid.UUID(kept["id"]))
+        .values(
+            container_status="not_returned",
+            container_reason="Kept by the shop",
+            container_recorded_by=superadmin.id,
+            container_recorded_at=utcnow(),
+        )
+    )
+    await session.execute(
+        update(Order)
+        .where(Order.id == uuid.UUID(kept["id"]))
+        .values(status="success", delivered_by=superadmin.id, delivered_at=utcnow())
+    )
     # Users the sweep acts as: skip the forced first-login password change.
     await session.execute(
         update(User).where(User.role != Role.SUPERADMIN).values(must_change_password=False)
@@ -256,7 +274,8 @@ async def world(client, session, superadmin, make_user) -> dict:
         "batch_version": batch["version"],
         "planned": planned["id"],
         "planned_version": plan["version"],
-        "orders": [order["id"], cancelled["id"]],
+        "orders": [order["id"], cancelled["id"], kept["id"]],
+        "kept_box": kept["boxes"][0]["id"],
         "string": string,
         "preparations": [prepared["id"], dropped["id"]],
         "workplace": workplace["id"],
@@ -413,6 +432,10 @@ async def test_no_response_reveals_the_superadmin(
             headers=auth(viewer),
         ),
         client.post(f"/orders/{world['orders'][0]}/document/send-telegram", headers=auth(viewer)),
+        client.post(
+            f"/orders/{world['orders'][2]}/boxes/{world['kept_box']}/container-returned",
+            headers=auth(viewer),
+        ),
         client.patch(
             f"/attendance/records/{world['attendance_record']}",
             json={"status": "present", "check_in_time": "07:00", "reason": "Fixed the time"},
@@ -489,6 +512,17 @@ async def test_references_become_system(client, world) -> None:
     supplier = (await client.get(f"/suppliers/{world['supplier']}", headers=auth(gm))).json()
     assert supplier["created_by"]["is_system"] is True
     assert supplier["updated_by"]["is_system"] is True
+
+    order = (await client.get(f"/orders/{world['orders'][2]}", headers=auth(gm))).json()
+    assert order["boxes"][0]["container_recorded_by"]["is_system"] is True
+    order = (
+        await client.post(
+            f"/orders/{world['orders'][2]}/boxes/{world['kept_box']}/container-returned",
+            headers=auth(gm),
+        )
+    ).json()
+    assert order["boxes"][0]["container_status"] == "returned"
+    assert order["boxes"][0]["container_recorded_by"]["is_system"] is True
 
     # The superadmin sees itself.
     sa = world["superadmin"]

@@ -8,7 +8,8 @@ created ──► delivering ──► return_pending ──► partly_returned 
 
 - `orders`: one row per order, code OR-YYYYMMDD-NNN (per creation day, `order_counters`).
 - `order_boxes`: the boxes of an order, in order (`position`): a white box, a black box, a plastic
-  bag or a delivery bag (`color`).
+  bag or a delivery bag (`color`). A box is `returnable` when the container must come back
+  (default per type, `BOX_RETURNABLE`); its `container_status` is recorded at Delivered.
 - `order_box_items`: one line per item per box. Packs carry a whole `count`, packed by-products a
   `kg`. Lines are rows so prices (`unit_price`, `amount`) can be added later.
 - `order_return_items`: what came back, per item (recorded at Delivered), then how it was split
@@ -23,6 +24,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -57,6 +59,20 @@ ORDER_STATUSES = (
 )
 # The container of a box (named `color` since the first two were white / black boxes).
 BOX_COLORS = ("white", "black", "plastic_bag", "delivery_bag")
+# Whether a container of this type must come back from the customer, unless the box says otherwise.
+# Every type declares its default here.
+BOX_RETURNABLE: dict[str, bool] = {
+    "white": True,
+    "black": True,
+    "plastic_bag": False,
+    "delivery_bag": False,
+}
+assert set(BOX_RETURNABLE) == set(BOX_COLORS), "every container type needs a returnable default"
+# A returnable box's container: pending until Delivered, then returned or not returned (with a
+# reason; it can still be marked returned later). Null when not returnable or the order was
+# cancelled.
+CONTAINER_STATUSES = ("pending", "returned", "not_returned")
+CONTAINER_REASON_MAX_LENGTH = 300
 # saved: a customer from Customers; direct: no saved customer, a phone (+ location) for this order.
 CUSTOMER_TYPES = ("saved", "direct")
 ORDER_NOTE_MAX_LENGTH = 1000
@@ -156,6 +172,16 @@ class OrderBox(Base):
         CheckConstraint(_in("color", BOX_COLORS), name="color"),
         CheckConstraint("position >= 1", name="position"),
         UniqueConstraint("order_id", "position", name="uq_order_boxes_order_position"),
+        CheckConstraint(_in("container_status", CONTAINER_STATUSES), name="container_status"),
+        CheckConstraint("returnable OR container_status IS NULL", name="container_returnable"),
+        CheckConstraint(
+            "container_status IS DISTINCT FROM 'not_returned' OR container_reason IS NOT NULL",
+            name="container_reason",
+        ),
+        CheckConstraint(
+            f"char_length(container_reason) <= {CONTAINER_REASON_MAX_LENGTH}",
+            name="container_reason_length",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -164,6 +190,15 @@ class OrderBox(Base):
     color: Mapped[str] = mapped_column(String(16))
     # 1, 2, 3 … in the order the boxes were entered ("Box 3").
     position: Mapped[int] = mapped_column(SmallInteger)
+    # The container must come back (default by type, BOX_RETURNABLE; can be changed per box).
+    returnable: Mapped[bool] = mapped_column(Boolean)
+    container_status: Mapped[str | None] = mapped_column(String(16))
+    # Why it didn't come back (required for not_returned; kept when it's returned later).
+    container_reason: Mapped[str | None] = mapped_column(String(CONTAINER_REASON_MAX_LENGTH))
+    container_recorded_by: Mapped[uuid.UUID | None] = _user_fk()
+    container_recorded_at: Mapped[datetime | None] = _at()
+    container_returned_later_by: Mapped[uuid.UUID | None] = _user_fk()
+    container_returned_later_at: Mapped[datetime | None] = _at()
 
     lines: Mapped[list["OrderBoxItem"]] = relationship(
         lazy="selectin", cascade="all, delete-orphan", order_by="OrderBoxItem.position"

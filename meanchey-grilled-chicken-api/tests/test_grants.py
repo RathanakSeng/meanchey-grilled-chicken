@@ -180,6 +180,7 @@ async def test_permission_catalog(client, superadmin) -> None:
         "orders.cancel",
         "orders.review_returns",
         "orders.export_delivery_note",
+        "orders.containers",
     ]
     assert users["module"] == "users"
     assert users["name_km"]

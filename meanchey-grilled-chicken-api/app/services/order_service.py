@@ -21,6 +21,11 @@ Rules enforced here:
   of stock, oldest batch first (inventory_service.take_for_order); not enough →
   INVENTORY_INSUFFICIENT and the order stays Created.
 - Delivered with returns: a reason, and per item a quantity > 0 and ≤ what was delivered.
+- Containers: a box is returnable by its type's default (BOX_RETURNABLE) unless the form says
+  otherwise. Delivered (either outcome) records every returnable box exactly once as returned or
+  not returned (with a reason; ORDER_CONTAINERS_REQUIRED when boxes are missing or extra). A box
+  not returned can be marked returned later (`orders.containers`); that doesn't change `version`,
+  like printing. Cancelling clears the container statuses (they don't apply).
 - Return review: per returned item, back to stock + wasted = returned, exactly. Stock goes back to
   the batches the order took from, newest first (inventory_service.return_from_order). Fully
   returned when everything delivered came back, otherwise partly returned.
@@ -31,7 +36,7 @@ Rules enforced here:
 import uuid
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -54,11 +59,14 @@ from app.models import (
     User,
     utcnow,
 )
-from app.models.order import BOX_COLORS
+from app.models.order import BOX_COLORS, BOX_RETURNABLE
 from app.schemas.common import UserRef
 from app.schemas.order import (
     AvailableItem,
     ColorSummary,
+    ContainerResultIn,
+    ContainersFilter,
+    ContainersSummary,
     CustomerBrief,
     CustomerOption,
     DeliveredIn,
@@ -350,11 +358,19 @@ def _quantity_errors(
     return []
 
 
+def _returnable(box: OrderBoxIn) -> bool:
+    return BOX_RETURNABLE[box.color] if box.returnable is None else box.returnable
+
+
 def _build_boxes(boxes: list[OrderBoxIn]) -> list[OrderBox]:
+    """Edits replace every box, so a box whose type changed without `returnable` gets the new
+    type's default."""
     return [
         OrderBox(
             color=box.color,
             position=b,
+            returnable=_returnable(box),
+            container_status="pending" if _returnable(box) else None,
             lines=[
                 OrderBoxItem(
                     item_code=line.item_code,
@@ -388,6 +404,10 @@ def _box_counts(order: Order) -> dict[str, int]:
     return {color: counts.get(color, 0) for color in BOX_COLORS}
 
 
+def _returnable_count(order: Order) -> int:
+    return sum(1 for box in order.boxes if box.returnable)
+
+
 def _items_payload(quantities: Quantities) -> list[dict[str, Any]]:
     """Items for alerts and audit entries: names kept with them, in the item's unit."""
     out = []
@@ -417,6 +437,8 @@ def _snapshot(order: Order, driver: User | None) -> dict[str, Any]:
         "note": order.note,
         "boxes": {
             **_box_counts(order),
+            # The boxes to bring back ("Box 1", "Box 3" → [1, 3]).
+            "returnable": [box.position for box in order.boxes if box.returnable],
             "items": {i["item_code"]: i["count"] or i["kg"] for i in _items_payload(totals(order))},
         },
     }
@@ -467,6 +489,7 @@ async def create_order(session: AsyncSession, actor: User, data: OrderCreate) ->
         **_customer_details(order),
         delivery_date=order.delivery_date.isoformat(),
         **{f"{c}_boxes": n for c, n in _box_counts(order).items()},
+        returnable_boxes=_returnable_count(order),
         items=_items_payload(totals(order)),
     )
     await session.commit()
@@ -552,6 +575,9 @@ async def cancel_order(
     order.cancel_reason = reason
     order.cancelled_by = actor.id
     order.cancelled_at = now
+    # Nothing leaves, so no container has to come back.
+    for box in order.boxes:
+        box.container_status = None
     _touch(order, actor)
     _audit(session, "order.cancel", actor, order, reason=reason)
     await session.commit()
@@ -606,9 +632,11 @@ async def mark_delivered(
 ) -> Order:
     order = await _for_write(session, order_id, data.version, ("delivering",))
     now = utcnow()
+    containers = _container_results(order, data.containers)
     if data.outcome == "accepted":
         if data.items:
             raise _invalid([_field(["body", "items"], "No items when everything was accepted")])
+        _record_containers(session, actor, order, containers, now)
         order.status = "success"
         order.delivered_by = actor.id
         order.delivered_at = now
@@ -648,6 +676,7 @@ async def mark_delivered(
     if errors:
         raise _invalid(errors)
 
+    _record_containers(session, actor, order, containers, now)
     returned = dict(sorted(returned.items(), key=lambda kv: _ORDER.get(kv[0], 999)))
     for code, qty in returned.items():
         count, kg = _split(ITEMS_BY_CODE[code], qty)
@@ -668,6 +697,95 @@ async def mark_delivered(
         notification_service.ORDER_RETURN_PENDING,
         returned=items,
         reason=reason,
+    )
+    await session.commit()
+    return await get_order(session, order_id)
+
+
+ContainerCheck = tuple[OrderBox, ContainerResultIn, str | None]
+
+
+def _container_results(order: Order, results: list[ContainerResultIn]) -> list[ContainerCheck]:
+    """Check the containers sent with Delivered: every returnable box exactly once, a reason when
+    not returned. → (box, result, trimmed reason) in box order."""
+    returnable = {box.id: box for box in order.boxes if box.returnable}
+    given = Counter(r.box_id for r in results)
+    missing = [str(i) for i in returnable if i not in given]
+    extra = sorted(str(i) for i, n in given.items() if i not in returnable or n > 1)
+    if missing or extra:
+        raise AppError(
+            422,
+            ErrorCode.ORDER_CONTAINERS_REQUIRED,
+            "Record whether each returnable box came back, once each",
+            {"box_ids": missing, "extra_box_ids": extra},
+        )
+    errors: list[dict[str, Any]] = []
+    checked: list[ContainerCheck] = []
+    for n, result in enumerate(results):
+        reason = None if result.returned else (result.reason or "").strip() or None
+        if not result.returned and reason is None:
+            errors.append(
+                _field(
+                    ["body", "containers", n, "reason"],
+                    "Say why the container wasn't returned",
+                    "missing",
+                )
+            )
+        checked.append((returnable[result.box_id], result, reason))
+    if errors:
+        raise _invalid(errors)
+    return sorted(checked, key=lambda c: c[0].position)
+
+
+def _record_containers(
+    session: AsyncSession, actor: User, order: Order, checked: list[ContainerCheck], now: datetime
+) -> None:
+    if not checked:
+        return
+    for box, result, reason in checked:
+        box.container_status = "returned" if result.returned else "not_returned"
+        box.container_reason = reason
+        box.container_recorded_by = actor.id
+        box.container_recorded_at = now
+    _audit(
+        session,
+        "order.containers_recorded",
+        actor,
+        order,
+        boxes=[
+            {"box": box.position, "color": box.color, "returned": result.returned, "reason": reason}
+            for box, result, reason in checked
+        ],
+    )
+
+
+async def mark_container_returned(
+    session: AsyncSession, actor: User, order_id: uuid.UUID, box_id: uuid.UUID
+) -> Order:
+    """A box recorded as not returned at Delivered came back afterwards. The reason is kept; the
+    order's `version` doesn't change (nobody gets ORDER_CONFLICT because a box came back)."""
+    order = await get_order(session, order_id, lock=True)
+    box = next((b for b in order.boxes if b.id == box_id), None)
+    if box is None:
+        raise AppError(404, ErrorCode.ORDER_NOT_FOUND, "Box not found in this order")
+    if box.container_status != "not_returned":
+        raise AppError(
+            409,
+            ErrorCode.ORDER_CONTAINER_STATE,
+            "Only a box recorded as not returned can be marked returned",
+            {"container_status": box.container_status, "status": order.status},
+        )
+    box.container_status = "returned"
+    box.container_returned_later_by = actor.id
+    box.container_returned_later_at = utcnow()
+    _audit(
+        session,
+        "order.container_returned",
+        actor,
+        order,
+        box=box.position,
+        color=box.color,
+        reason=box.container_reason,
     )
     await session.commit()
     return await get_order(session, order_id)
@@ -767,6 +885,16 @@ def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _outstanding_count():
+    """Boxes of the order recorded as not returned (and not returned later)."""
+    return (
+        select(func.count(OrderBox.id))
+        .where(OrderBox.order_id == Order.id, OrderBox.container_status == "not_returned")
+        .correlate(Order)
+        .scalar_subquery()
+    )
+
+
 def _box_count(color: str):
     return (
         select(func.count(OrderBox.id))
@@ -788,6 +916,7 @@ async def list_orders(
     q: str | None,
     page: int,
     page_size: int,
+    containers: ContainersFilter | None = None,
 ) -> tuple[list[OrderListItem], int]:
     conditions: list[Any] = []
     if status == "completed":
@@ -804,6 +933,8 @@ async def list_orders(
         conditions.append(Order.delivery_date >= date_from)
     if date_to:
         conditions.append(Order.delivery_date <= date_to)
+    if containers == "outstanding":
+        conditions.append(_outstanding_count() > 0)
     if q and q.strip():
         term = q.strip()
         pattern = f"%{_escape_like(term)}%"
@@ -821,7 +952,7 @@ async def list_orders(
     total = await session.scalar(select(func.count()).select_from(base.subquery())) or 0
     rows = (
         await session.execute(
-            base.add_columns(*(_box_count(c) for c in BOX_COLORS))
+            base.add_columns(_outstanding_count(), *(_box_count(c) for c in BOX_COLORS))
             .order_by(Order.delivery_date.desc(), Order.code.desc(), Order.id)
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -839,10 +970,11 @@ async def list_orders(
             delivery_date=o.delivery_date,
             driver=_ref(users, o.driver_id),
             **{f"{c}_boxes": n or 0 for c, n in zip(BOX_COLORS, counts, strict=True)},
+            containers_outstanding=outstanding or 0,
             created_at=o.created_at,
             updated_at=o.updated_at,
         )
-        for o, *counts in rows
+        for o, outstanding, *counts in rows
     ]
     return items, total
 
@@ -980,6 +1112,19 @@ def _summary_items(quantities: Quantities) -> list[SummaryItem]:
     return out
 
 
+def containers_summary(order: Order) -> ContainersSummary | None:
+    """The returnable boxes by container status; null for cancelled orders."""
+    if order.status == "cancelled":
+        return None
+    statuses = Counter(box.container_status for box in order.boxes if box.returnable)
+    return ContainersSummary(
+        total_returnable=statuses.total(),
+        returned=statuses["returned"],
+        not_returned=statuses["not_returned"],
+        pending=statuses["pending"],
+    )
+
+
 def summary(order: Order) -> OrderSummary:
     colors = []
     for color in BOX_COLORS:
@@ -1034,6 +1179,8 @@ def _user_ids(order: Order) -> set[uuid.UUID]:
         order.returns_reviewed_by,
         order.cancelled_by,
         *(r.reviewed_by for r in order.returns),
+        *(b.container_recorded_by for b in order.boxes),
+        *(b.container_returned_later_by for b in order.boxes),
     }
     return {i for i in ids if i is not None}
 
@@ -1095,6 +1242,13 @@ async def order_out(session: AsyncSession, order: Order) -> OrderOut:
                 id=box.id,
                 color=box.color,  # type: ignore[arg-type]
                 position=box.position,
+                returnable=box.returnable,
+                container_status=box.container_status,  # type: ignore[arg-type]
+                container_reason=box.container_reason,
+                container_recorded_by=_ref(users, box.container_recorded_by),
+                container_recorded_at=box.container_recorded_at,
+                container_returned_later_by=_ref(users, box.container_returned_later_by),
+                container_returned_later_at=box.container_returned_later_at,
                 lines=[
                     OrderLineOut(
                         item_code=line.item_code,
@@ -1110,6 +1264,7 @@ async def order_out(session: AsyncSession, order: Order) -> OrderOut:
             for box in order.boxes
         ],
         summary=summary(order),
+        containers=containers_summary(order),
         returns=returns,
         stock_warnings=await stock_warnings(session, order) if order.status == "created" else [],
     )

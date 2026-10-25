@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { Sheet } from '@/components/Sheet'
 import { Alert, Button, Field, Input, cx } from '@/components/ui'
 import { useLocalized } from '@/lib/format'
-import { ORDER_REASON_MAX_LENGTH, type Order, type OrderUnit } from '@/lib/types'
+import { CONTAINER_REASON_MAX_LENGTH, ORDER_REASON_MAX_LENGTH, type Order, type OrderUnit } from '@/lib/types'
 import { amountOf, parseAmount, toApi, useAmountFormat } from './api'
+import { BoxSwatch } from './badges'
 
 const textareaClass =
   'block w-full rounded-lg border-0 bg-white px-3 py-2 text-base text-stone-900 shadow-sm ring-1 ring-inset ring-stone-300 placeholder:text-stone-400 focus:ring-2 focus:ring-inset focus:ring-brand-500 sm:text-sm'
@@ -73,11 +74,22 @@ export interface DeliveredBody {
   outcome: 'accepted' | 'returned'
   reason?: string
   items?: { item_code: string; count?: number; kg?: string }[]
+  /** Every returnable box, once. */
+  containers: { box_id: string; returned: boolean; reason?: string }[]
 }
+
+interface ContainerAnswer {
+  returned: boolean | null
+  reason: string
+}
+
+const NO_ANSWER: ContainerAnswer = { returned: null, reason: '' }
 
 /**
  * Mark delivered: **Everything accepted**, or **Some items returned** with a quantity per item
- * (at most what was delivered, shown next to it) and a required reason.
+ * (at most what was delivered, shown next to it) and a required reason. Then, when the order has
+ * returnable boxes, the **Containers** step: Returned / Not returned per box (a reason when not);
+ * Confirm waits until every box has an answer.
  */
 export function DeliveredSheet({
   order,
@@ -100,6 +112,12 @@ export function DeliveredSheet({
   const [outcome, setOutcome] = useState<'accepted' | 'returned'>('accepted')
   const [reason, setReason] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
+  const [containers, setContainers] = useState<Record<string, ContainerAnswer>>({})
+
+  const answers = order.boxes.filter((b) => b.returnable).map((box) => ({ box, ...(containers[box.id] ?? NO_ANSWER) }))
+  const containersDone = answers.every((a) => a.returned === true || (a.returned === false && a.reason.trim() !== ''))
+  const answer = (boxId: string, changes: Partial<ContainerAnswer>) =>
+    setContainers({ ...containers, [boxId]: { ...(containers[boxId] ?? NO_ANSWER), ...changes } })
 
   const items = order.summary.total.items
   const rows = items.map((item) => {
@@ -110,19 +128,25 @@ export function DeliveredSheet({
     return { item, raw, amount: amount ?? 0, max, invalid }
   })
   const returned = rows.filter((r) => !r.invalid && r.amount > 0)
-  const valid =
+  const itemsValid =
     outcome === 'accepted' || (reason.trim() !== '' && returned.length > 0 && rows.every((r) => !r.invalid))
+  const valid = itemsValid && containersDone
 
-  const submit = () =>
+  const submit = () => {
+    const recorded = answers.map((a) =>
+      a.returned ? { box_id: a.box.id, returned: true } : { box_id: a.box.id, returned: false, reason: a.reason.trim() },
+    )
     onSubmit(
       outcome === 'accepted'
-        ? { outcome }
+        ? { outcome, containers: recorded }
         : {
             outcome,
             reason: reason.trim(),
             items: returned.map((r) => ({ item_code: r.item.item_code, ...toApi(r.item.unit, r.amount) })),
+            containers: recorded,
           },
     )
+  }
 
   return (
     <Sheet
@@ -200,6 +224,68 @@ export function DeliveredSheet({
             )}
           </Field>
         </div>
+      )}
+
+      {answers.length > 0 && (
+        <section className="mt-5 space-y-3" aria-labelledby="delivered-containers">
+          <div>
+            <h3 id="delivered-containers" className="text-sm font-semibold text-stone-900">
+              {t('orders.containers.title')}
+            </h3>
+            <p className="text-sm text-stone-500">{t('orders.containers.stepHint')}</p>
+          </div>
+          <ul className="space-y-2">
+            {answers.map(({ box, returned: back, reason: why }) => (
+              <li key={box.id} className="rounded-xl p-3 ring-1 ring-stone-200">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 text-sm font-medium text-stone-900">
+                    <BoxSwatch color={box.color} />
+                    <span className="whitespace-nowrap">{t('orders.boxTitle', { n: box.position })}</span>
+                    <span className="whitespace-nowrap font-normal text-stone-500">· {t(`orders.colors.${box.color}`)}</span>
+                  </span>
+                  <span
+                    role="radiogroup"
+                    aria-label={t('orders.containers.boxQuestion', { n: box.position })}
+                    className="grid grid-cols-2 gap-1.5"
+                  >
+                    {([true, false] as const).map((value) => (
+                      <button
+                        key={String(value)}
+                        type="button"
+                        role="radio"
+                        aria-checked={back === value}
+                        onClick={() => answer(box.id, { returned: value })}
+                        className={cx(
+                          'rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-inset',
+                          back !== value && 'bg-white text-stone-700 ring-stone-300 hover:bg-stone-50',
+                          back === value && value && 'bg-green-50 text-green-800 ring-2 ring-green-600',
+                          back === value && !value && 'bg-amber-50 text-amber-900 ring-2 ring-amber-500',
+                        )}
+                      >
+                        {t(value ? 'orders.containers.returned' : 'orders.containers.notReturned')}
+                      </button>
+                    ))}
+                  </span>
+                </div>
+                {back === false && (
+                  <Field label={t('orders.containers.reason')} className="mt-2">
+                    {(id) => (
+                      <Input
+                        id={id}
+                        className={cx('h-11 sm:h-10', !why.trim() && 'ring-amber-400')}
+                        maxLength={CONTAINER_REASON_MAX_LENGTH}
+                        placeholder={t('orders.containers.reasonPlaceholder')}
+                        value={why}
+                        onChange={(e) => answer(box.id, { reason: e.target.value })}
+                      />
+                    )}
+                  </Field>
+                )}
+              </li>
+            ))}
+          </ul>
+          {!containersDone && <p className="text-sm font-medium text-amber-800">{t('orders.containers.blocker')}</p>}
+        </section>
       )}
       {error && (
         <Alert tone="error" className="mt-3">

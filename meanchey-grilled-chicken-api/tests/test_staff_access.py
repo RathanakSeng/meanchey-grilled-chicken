@@ -120,10 +120,16 @@ async def test_supervisor_sets_staff_levels_within_its_own(client, session, make
         "production",
         "inventory",
         "orders",
+        "order_export",
+        "order_containers",
         "preparation",
     }
     assert all(f["can_edit"] for f in features.values())
-    assert all(all(_allowed(f).values()) for f in features.values())
+    # Export and containers are Off for supervisors by default: only Off is within its own access.
+    held = {k: f for k, f in features.items() if k not in ("order_export", "order_containers")}
+    assert all(all(_allowed(f).values()) for f in held.values())
+    for code in ("order_export", "order_containers"):
+        assert _allowed(features[code]) == {"off": True, "full": False}
 
     for feature, level in (("suppliers", "full"), ("customers", "view"), ("production", "record")):
         r = await _set(client, sup, staff, feature, level)

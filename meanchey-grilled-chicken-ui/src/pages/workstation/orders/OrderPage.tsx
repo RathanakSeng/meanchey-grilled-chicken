@@ -2,18 +2,26 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router-dom'
+import { Can } from '@/auth/Can'
 import { usePermission } from '@/auth/usePermission'
 import { ActionMenu, type ActionMenuItem } from '@/components/ActionMenu'
 import { Icon } from '@/components/icons'
 import { Sheet } from '@/components/Sheet'
-import { Alert, Button, Card, ConfirmDialog, Field, PageHeader, Spinner, cx } from '@/components/ui'
+import { Alert, Badge, Button, Card, ConfirmDialog, Field, PageHeader, Spinner, cx } from '@/components/ui'
 import { api } from '@/lib/api'
 import { getError, useErrorMessage } from '@/lib/errors'
 import { useFormatDate, useFormatDay, useLocalized } from '@/lib/format'
 import { paths } from '@/lib/paths'
-import { ORDER_REASON_MAX_LENGTH, type DocumentSent, type Order, type UserRef } from '@/lib/types'
+import {
+  BOX_COLORS,
+  ORDER_REASON_MAX_LENGTH,
+  type DocumentSent,
+  type Order,
+  type OrderBox,
+  type UserRef,
+} from '@/lib/types'
 import { amountOf, invalidateOrders, orderKeys, useAmountFormat, useQuantityFormat } from './api'
-import { BoxColorLabel, DirectOrderBadge, OrderCustomerName, OrderStatusBadge, customerText, telHref } from './badges'
+import { BoxColorLabel, BoxSwatch, DirectOrderBadge, OrderCustomerName, OrderStatusBadge, customerText, telHref } from './badges'
 import { DeliveredSheet, ReviewSheet, type DeliveredBody, type ReviewBody } from './OrderSheets'
 import { OrderSummaryView, fromApi } from './OrderSummaryView'
 import { useExportDeliveryNote, useExportDeliveryNotePdf } from './useExportDeliveryNote'
@@ -175,10 +183,86 @@ function ReturnsCard({ order }: { order: Order }) {
   )
 }
 
+/** The small "Return" tag of a returnable box. */
+function ReturnTag() {
+  const { t } = useTranslation()
+  return <Badge tone="blue">{t('orders.containers.returnTag')}</Badge>
+}
+
+/**
+ * The returnable boxes: before Delivered how many must come back ("Containers to return: 2 (White
+ * box 1, Black box 1)"); after it each box's result, with **Mark as returned** for the ones that
+ * didn't come back (`orders.containers`). Not shown for cancelled orders or orders without
+ * returnable boxes.
+ */
+function ContainersCard({ order, onMarkReturned }: { order: Order; onMarkReturned(box: OrderBox): void }) {
+  const { t } = useTranslation()
+  const formatDate = useFormatDate()
+  const byName = useByName()
+  const boxes = order.boxes.filter((b) => b.returnable)
+  if (!order.containers || boxes.length === 0) return null
+  const recorded = boxes.some((b) => b.container_status !== 'pending')
+  if (!recorded) {
+    const breakdown = BOX_COLORS.map((c) => [c, boxes.filter((b) => b.color === c).length] as const)
+      .filter(([, n]) => n > 0)
+      .map(([c, n]) => `${t(`orders.colors.${c}`)} ${n}`)
+      .join(', ')
+    return (
+      <Card title={t('orders.containers.title')}>
+        <p className="text-sm text-stone-700">{t('orders.containers.toReturn', { count: boxes.length, breakdown })}</p>
+      </Card>
+    )
+  }
+  return (
+    <Card title={t('orders.containers.title')}>
+      <ul className="divide-y divide-stone-100">
+        {boxes.map((box) => (
+          <li key={box.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 first:pt-0 last:pb-0">
+            <div className="min-w-0 text-sm">
+              <p className="flex items-center gap-2 font-medium text-stone-900">
+                <BoxSwatch color={box.color} />
+                <span className="whitespace-nowrap">{t('orders.boxTitle', { n: box.position })}</span>
+                <span className="font-normal text-stone-500">· {t(`orders.colors.${box.color}`)}</span>
+              </p>
+              {box.container_status === 'returned' ? (
+                <p className="text-green-800">✅ {t('orders.containers.returned')}</p>
+              ) : (
+                <p className="text-amber-800">
+                  ⏳ {t('orders.containers.notReturned')}
+                  {box.container_reason && <> — {box.container_reason}</>}
+                </p>
+              )}
+              {box.container_status === 'returned' && box.container_reason && (
+                <p className="text-xs text-stone-500">{t('orders.containers.wasReason', { reason: box.container_reason })}</p>
+              )}
+              {box.container_returned_later_at && (
+                <p className="text-xs text-stone-500">
+                  {t('orders.containers.returnedLater', {
+                    date: formatDate(box.container_returned_later_at),
+                    name: byName(box.container_returned_later_by),
+                  })}
+                </p>
+              )}
+            </div>
+            {box.container_status === 'not_returned' && (
+              <Can permission="orders.containers">
+                <Button variant="secondary" className="px-3 py-1.5" onClick={() => onMarkReturned(box)}>
+                  {t('orders.containers.markReturned')}
+                </Button>
+              </Can>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
+
 /**
  * One order: header (code, status, ⋮ Edit / Cancel while Created), customer, delivery date,
  * driver and note, the action for its status (Start delivery · Mark delivered · Review return),
- * the status timeline, the per-colour summary, the boxes and the returns.
+ * the status timeline, the per-colour summary, the boxes, the containers to bring back and the
+ * returns.
  */
 export function OrderPage() {
   const { t } = useTranslation()
@@ -206,6 +290,7 @@ export function OrderPage() {
   const [reason, setReason] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const [docResult, setDocResult] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const [returningBox, setReturningBox] = useState<OrderBox | null>(null)
 
   const onSaved = (o: Order) => {
     queryClient.setQueryData(orderKeys.order(o.id), o)
@@ -228,6 +313,21 @@ export function OrderPage() {
       (await api.post<Order>(`/orders/${orderId}/${path}`, { version: order?.version, ...body })).data,
     onSuccess: onSaved,
     onError,
+  })
+  // No version: a box coming back doesn't change the order's version (like printing).
+  const markReturned = useMutation({
+    mutationFn: async (box: OrderBox) =>
+      (await api.post<Order>(`/orders/${orderId}/boxes/${box.id}/container-returned`)).data,
+    onSuccess: (o) => {
+      queryClient.setQueryData(orderKeys.order(o.id), o)
+      invalidateOrders(queryClient)
+      setReturningBox(null)
+    },
+    onError: (err) => {
+      if (getError(err).code === 'ORDER_CONTAINER_STATE') {
+        void queryClient.invalidateQueries({ queryKey: orderKeys.order(orderId) })
+      }
+    },
   })
   const run = (path: string, body: object = {}) => {
     setNotice(null)
@@ -437,6 +537,13 @@ export function OrderPage() {
           </Card>
 
           <ReturnsCard order={order} />
+          <ContainersCard
+            order={order}
+            onMarkReturned={(box) => {
+              markReturned.reset()
+              setReturningBox(box)
+            }}
+          />
 
           <Card title={t('orders.boxesTitle', { count: order.boxes.length })}>
             <ul className="divide-y divide-stone-100">
@@ -447,6 +554,7 @@ export function OrderPage() {
                     <span className="font-normal text-stone-500">
                       <BoxColorLabel color={box.color} />
                     </span>
+                    {box.returnable && order.status !== 'cancelled' && <ReturnTag />}
                   </p>
                   <ul className="space-y-0.5 text-sm">
                     {box.lines.map((line) => (
@@ -481,6 +589,20 @@ export function OrderPage() {
         error={sheetError}
         onConfirm={() => run('delivering')}
         onClose={() => setSheet(null)}
+      />
+      <ConfirmDialog
+        open={returningBox !== null}
+        title={t('orders.containers.markReturnedTitle', { n: returningBox?.position ?? '' })}
+        body={
+          returningBox?.container_reason
+            ? t('orders.containers.markReturnedBodyReason', { reason: returningBox.container_reason })
+            : t('orders.containers.markReturnedBody')
+        }
+        confirmLabel={t('orders.containers.markReturned')}
+        loading={markReturned.isPending}
+        error={markReturned.isError ? errorMessage(markReturned.error) : null}
+        onConfirm={() => returningBox && markReturned.mutate(returningBox)}
+        onClose={() => setReturningBox(null)}
       />
       <DeliveredSheet
         key={`delivered-${order.version}`}

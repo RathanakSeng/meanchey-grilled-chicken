@@ -17,6 +17,7 @@ from app.models import Order, User
 from app.schemas.business import BusinessSupplierOut
 from app.schemas.order import (
     AvailableItem,
+    ContainersFilter,
     CustomerOption,
     CustomerType,
     DeliveredIn,
@@ -44,6 +45,7 @@ CanEdit = Annotated[User, Depends(require_permission("orders.update"))]
 CanCancel = Annotated[User, Depends(require_permission("orders.cancel"))]
 CanReview = Annotated[User, Depends(require_permission("orders.review_returns"))]
 CanExport = Annotated[User, Depends(require_permission("orders.export_delivery_note"))]
+CanContainers = Annotated[User, Depends(require_permission("orders.containers"))]
 # The pickers of the order form (create or edit); no Customers access needed.
 CanFillForm = Annotated[User, Depends(require_any_permission("orders.create", "orders.update"))]
 
@@ -74,13 +76,15 @@ async def list_orders(
     date_from: date | None = None,
     date_to: date | None = None,
     q: Annotated[str | None, Query(max_length=100)] = None,
+    containers: ContainersFilter | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> OrderPage:
     """Newest delivery date first. `status=completed`: success, partly and fully returned.
     `customer_type`: saved or direct orders; `customer_id`: one saved customer. `date_from` /
     `date_to` filter the delivery date; `q` matches the code and the order's customer name,
-    location and phone digits ("012 345" finds 012345678)."""
+    location and phone digits ("012 345" finds 012345678). `containers=outstanding`: orders with
+    at least one box not returned."""
     items, total = await svc.list_orders(
         session,
         status=status,
@@ -90,6 +94,7 @@ async def list_orders(
         date_from=date_from,
         date_to=date_to,
         q=q,
+        containers=containers,
         page=page,
         page_size=page_size,
     )
@@ -194,7 +199,8 @@ async def mark_delivered(
     background: BackgroundTasks,
 ) -> OrderOut:
     """Delivering → success (`outcome: accepted`) or return pending (`outcome: returned`, with a
-    reason and per item a quantity > 0 and ≤ what was delivered)."""
+    reason and per item a quantity > 0 and ≤ what was delivered). `containers`: every returnable
+    box once, returned or not (with a reason); ORDER_CONTAINERS_REQUIRED otherwise."""
     order = await _alerting(
         session, request, background, svc.mark_delivered(session, actor, order_id, body)
     )
@@ -215,6 +221,16 @@ async def review_returns(
     order = await _alerting(
         session, request, background, svc.review_returns(session, actor, order_id, body)
     )
+    return await svc.order_out(session, order)
+
+
+@router.post("/{order_id}/boxes/{box_id}/container-returned", response_model=OrderOut)
+async def mark_container_returned(
+    order_id: uuid.UUID, box_id: uuid.UUID, actor: CanContainers, session: SessionDep
+) -> OrderOut:
+    """A box recorded as not returned at Delivered came back: → returned (the reason is kept).
+    Any other container state → 409 ORDER_CONTAINER_STATE. The order's `version` doesn't change."""
+    order = await svc.mark_container_returned(session, actor, order_id, box_id)
     return await svc.order_out(session, order)
 
 

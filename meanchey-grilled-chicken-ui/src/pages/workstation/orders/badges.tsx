@@ -56,6 +56,18 @@ export function BoxCounts({ counts }: { counts: Record<BoxColor, number> }) {
   )
 }
 
+/** "🧺 2 not returned": boxes recorded as not returned at delivery (nothing when none). */
+export function ContainersOutstandingBadge({ count }: { count: number }) {
+  const { t } = useTranslation()
+  if (count <= 0) return null
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-200">
+      <span aria-hidden>🧺</span>
+      {t('orders.containers.notReturnedCount', { count })}
+    </span>
+  )
+}
+
 /** The list row's box counts per container. */
 export function listBoxCounts(item: OrderListItem): Record<BoxColor, number> {
   return {

@@ -15,7 +15,7 @@ import { paths } from '@/lib/paths'
 import type { CustomerOption, OrderCustomerType, OrderListItem, OrderStats, Page } from '@/lib/types'
 import { useDebounced } from '@/lib/useDebounced'
 import { orderKeys } from './api'
-import { BoxCounts, OrderCustomerName, OrderStatusBadge, listBoxCounts } from './badges'
+import { BoxCounts, ContainersOutstandingBadge, OrderCustomerName, OrderStatusBadge, listBoxCounts } from './badges'
 
 // Chips; "completed" = success, partly or fully returned.
 const STATUSES = ['all', 'created', 'delivering', 'return_pending', 'completed', 'cancelled'] as const
@@ -90,8 +90,8 @@ function CustomerTypeFilter({ value, onChange }: { value: string; onChange(type:
 
 /**
  * Orders: figures (Created · Delivering · Return pending · Delivered this month), status chips,
- * customer and delivery-date filters and search, all in the URL
- * (?status=&type=&customer=&from=&to=&q=&page=). Cards on phones, a table on desktop.
+ * the Containers not returned chip, customer and delivery-date filters and search, all in the URL
+ * (?status=&containers=&type=&customer=&from=&to=&q=&page=). Cards on phones, a table on desktop.
  */
 export function OrderListPage() {
   const { t } = useTranslation()
@@ -109,6 +109,8 @@ export function OrderListPage() {
   const customer = searchParams.get('customer') ?? ''
   const typeParam = searchParams.get('type') as OrderCustomerType | null
   const customerType = typeParam && CUSTOMER_TYPES.includes(typeParam) ? typeParam : ''
+  // Delivered orders with at least one box not returned.
+  const outstanding = searchParams.get('containers') === 'outstanding'
   const dateFrom = searchParams.get('from') ?? ''
   const dateTo = searchParams.get('to') ?? ''
   const page = Math.max(1, Number(searchParams.get('page')) || 1)
@@ -137,7 +139,7 @@ export function OrderListPage() {
     if (urlQ.trim() !== search) setQ(urlQ)
   }, [urlQ])
 
-  const filtersActive = Boolean(status !== 'all' || customer || customerType || dateFrom || dateTo || urlQ.trim())
+  const filtersActive = Boolean(status !== 'all' || outstanding || customer || customerType || dateFrom || dateTo || urlQ.trim())
   const clearFilters = () => {
     setQ('')
     setSearchParams({}, { replace: true })
@@ -147,6 +149,7 @@ export function OrderListPage() {
     status,
     customer_type: customerType || undefined,
     customer_id: customer || undefined,
+    containers: outstanding ? 'outstanding' : undefined,
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
     q: urlQ.trim() || undefined,
@@ -202,6 +205,9 @@ export function OrderListPage() {
             {s === 'all' ? t('orders.filters.all') : t(`orders.filters.${s}`)}
           </Chip>
         ))}
+        <Chip active={outstanding} onClick={() => update({ containers: outstanding ? null : 'outstanding' })}>
+          {t('orders.containers.filter')}
+        </Chip>
       </div>
 
       <div className={cx('mb-4 grid gap-2', canPickCustomers && customerType !== 'direct'
@@ -315,7 +321,10 @@ export function OrderListPage() {
                       {formatDay(item.delivery_date, { day: 'numeric', month: 'short' })}
                       {driverName(item) && ` · ${driverName(item)}`}
                     </span>
-                    <BoxCounts counts={listBoxCounts(item)} />
+                    <span className="flex shrink-0 items-center gap-2">
+                      <ContainersOutstandingBadge count={item.containers_outstanding} />
+                      <BoxCounts counts={listBoxCounts(item)} />
+                    </span>
                   </span>
                 </button>
               </li>
@@ -357,7 +366,10 @@ export function OrderListPage() {
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums">{formatDay(item.delivery_date)}</td>
                     <td className="px-4 py-3">{driverName(item) ?? <span className="text-stone-400">—</span>}</td>
                     <td className="px-4 py-3">
-                      <BoxCounts counts={listBoxCounts(item)} />
+                      <span className="flex flex-wrap items-center gap-2">
+                        <BoxCounts counts={listBoxCounts(item)} />
+                        <ContainersOutstandingBadge count={item.containers_outstanding} />
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <OrderStatusBadge status={item.status} />

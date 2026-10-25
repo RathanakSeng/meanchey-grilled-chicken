@@ -48,6 +48,8 @@ const ACTIONS = [
   'order.delivering',
   'order.delivered',
   'order.returns_reviewed',
+  'order.containers_recorded',
+  'order.container_returned',
   'order.document_printed',
   'material.create',
   'material.update',
@@ -329,6 +331,27 @@ function Details({ log }: { log: AuditLog }) {
         : t(`business.auditFields.${f}`, { defaultValue: f }),
     )
     return <span className="block text-sm text-stone-700">{fields.join(', ')}</span>
+  }
+  if (log.action === 'order.containers_recorded' || log.action === 'order.container_returned') {
+    // recorded: {boxes: [{box, color, returned, reason}]}; returned later: {box, color, reason}.
+    const boxes = (
+      log.action === 'order.container_returned'
+        ? [{ box: d.box, color: d.color, returned: true, reason: null }]
+        : Array.isArray(d.boxes)
+          ? d.boxes
+          : []
+    ) as { box: number; color: string; returned: boolean; reason: string | null }[]
+    return (
+      <span className="block text-sm text-stone-700">
+        {boxes.map((b) => (
+          <span key={b.box} className="block">
+            {t('orders.boxTitle', { n: b.box })} · {t(`orders.colors.${b.color}`, { defaultValue: b.color })}:{' '}
+            {t(b.returned ? 'orders.containers.returned' : 'orders.containers.notReturned')}
+            {!b.returned && b.reason && ` — ${b.reason}`}
+          </span>
+        ))}
+      </span>
+    )
   }
   if (log.action === 'order.returns_reviewed') {
     return (
