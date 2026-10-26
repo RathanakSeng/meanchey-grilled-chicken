@@ -11,7 +11,9 @@ from app.permissions.hierarchy import ensure_can_manage
 from app.permissions.service import effective_permissions
 from app.schemas.role_limit import RoleCapacityOut
 from app.schemas.user import RoleChange, UserCreate, UserOut, UserPage, UserStatus, UserUpdate
-from app.services import role_limit_service, user_service
+from app.services import employee_schedule_service, role_limit_service, user_service
+
+SCHEDULE_VIEWERS = frozenset({"attendance.view", "attendance.scheduling"})
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -90,10 +92,15 @@ async def create_user(body: UserCreate, actor: CanCreate, session: SessionDep) -
 
 
 @router.get("/{user_id}", response_model=UserOut)
-async def get_user(user_id: uuid.UUID, actor: CanView, session: SessionDep) -> User:
+async def get_user(user_id: uuid.UUID, actor: CanView, session: SessionDep) -> UserOut:
     target = await user_service.get_user_or_404(session, user_id, actor)
     ensure_can_manage(actor, target)
-    return target
+    out = UserOut.model_validate(target)
+    if await effective_permissions(session, actor) & SCHEDULE_VIEWERS:
+        out.attendance_schedule_summary = await employee_schedule_service.schedule_summary(
+            session, target
+        )
+    return out
 
 
 @router.patch("/{user_id}", response_model=UserOut)

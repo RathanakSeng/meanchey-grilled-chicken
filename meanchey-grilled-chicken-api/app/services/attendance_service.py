@@ -92,6 +92,7 @@ from app.schemas.attendance import (
     WorkplaceEmployee,
     WorkplaceOut,
     WorkplaceUpdate,
+    hm,
 )
 from app.schemas.attendance_request import RequestBrief
 from app.schemas.common import UserRef
@@ -121,12 +122,12 @@ def _default_values(workplace_id: uuid.UUID, day: date) -> dict[str, Any]:
 async def user_days(
     session: AsyncSession, user: User, start: date, end: date
 ) -> tuple[AttendanceWorkplace, Days] | None:
-    """The workplace where `user` checks in and its days over [start, end] (None only without
-    any workplace)."""
+    """The workplace where `user` checks in and its days over [start, end], with the employee's
+    own schedule (None only without any workplace)."""
     workplace = await user_workplace(session, user)
     if workplace is None:
         return None
-    return workplace, await load_days(session, [workplace], start, end)
+    return workplace, await load_days(session, [workplace], start, end, [user.id])
 
 
 def day_off_out(off: DayOff | None) -> DayOffOut | None:
@@ -296,9 +297,9 @@ async def me_today(session: AsyncSession, user: User, now: datetime | None = Non
         )
     found = await user_days(session, user, day, day + timedelta(days=LOOKAHEAD_DAYS))
     workplace, days = found if found else (None, None)
-    off = days.day_off(workplace.id, day) if days and workplace else None
-    today = days.windows(workplace.id, day) if days and workplace else []
-    upcoming = days.next_tracked(workplace.id, day) if days and workplace else []
+    off = days.day_off(workplace.id, day, user.id) if days and workplace else None
+    today = days.windows(workplace.id, day, user.id) if days and workplace else []
+    upcoming = days.next_tracked(workplace.id, day, user.id) if days and workplace else []
     records = await _records_of(session, user.id, day) if off is None else {}
     refs = await user_refs(session, {r.corrected_by for r in records.values()})
     shifts = [
@@ -424,11 +425,13 @@ async def check(
         float(workplace.latitude), float(workplace.longitude), location.latitude, location.longitude
     )
 
-    days = await load_days(session, [workplace], day, day + timedelta(days=LOOKAHEAD_DAYS))
+    days = await load_days(
+        session, [workplace], day, day + timedelta(days=LOOKAHEAD_DAYS), [user.id]
+    )
     schedule = days.schedule(workplace.id, day)
-    today = days.windows(workplace.id, day)
-    tomorrow = days.next_tracked(workplace.id, day)
-    off = days.day_off(workplace.id, day)
+    today = days.windows(workplace.id, day, user.id)
+    tomorrow = days.next_tracked(workplace.id, day, user.id)
+    off = days.day_off(workplace.id, day, user.id)
     if off is not None:
         nxt = tomorrow[0] if tomorrow else None
         raise await _refuse(
@@ -680,7 +683,6 @@ async def day_view(
     if workplace_id is not None and workplace_id not in all_workplaces:
         raise AppError(404, ErrorCode.ATTENDANCE_WORKPLACE_NOT_FOUND, "Workplace not found")
     default = next((w for w in all_workplaces.values() if w.is_default and w.is_active), None)
-    days = await load_days(session, list(all_workplaces.values()), day, day)
 
     def effective(wid: uuid.UUID | None) -> uuid.UUID | None:
         w = all_workplaces.get(wid) if wid else None
@@ -708,6 +710,7 @@ async def day_view(
         )
     )
     users.sort(key=lambda u: (u.role != Role.SUPERVISOR, u.full_name.casefold()))
+    days = await load_days(session, list(all_workplaces.values()), day, day, [u.id for u in users])
     refs = await user_refs(session, {r.corrected_by for r in records})
     by_user: dict[uuid.UUID, dict[str, AttendanceRecord]] = {}
     for r in records:
@@ -768,7 +771,10 @@ async def day_view(
             )
             continue
         wk = per_workplace.setdefault(wid, {})
-        off = off_at(wid)
+        # The employee's own day (their override / holiday exception) at that workplace.
+        mine = days.resolve(w_id, day, u.id) if (w_id := resolved(wid)) else None
+        off = mine.day_off if mine else None
+        own = {x.code: x for x in mine.windows()} if mine else {}
         for w in windows_for(wid):
             counters = (kpis.setdefault(w.code, empty()), wk.setdefault(w.code, empty()))
             r = by_user.get(u.id, {}).get(w.code)
@@ -780,15 +786,29 @@ async def day_view(
                     else DayCell(state="day_off", record=None)
                 )
                 continue
+            ow = own.get(w.code)
+            if ow is None:
+                # Not one of their shifts: not expected, counted nowhere.
+                cells[w.code] = (
+                    DayCell(state="recorded", record=record_out(r, refs))
+                    if r is not None
+                    else DayCell(state="not_expected", record=None)
+                )
+                continue
+            times = (
+                {"start": hm(ow.shift.start), "end": hm(ow.shift.end)}
+                if mine and mine.custom
+                else {}
+            )
             if r is None:
-                state = "not_yet" if now < w.check_in_closes else "no_record"
+                state = "not_yet" if now < ow.check_in_closes else "no_record"
                 keys = ["expected", state]
-                cells[w.code] = DayCell(state=state, record=None)  # type: ignore[arg-type]
+                cells[w.code] = DayCell(state=state, record=None, **times)  # type: ignore[arg-type]
             else:
                 keys = ["expected", r.status]
                 if r.checkout_status:
                     keys.append(r.checkout_status)
-                cells[w.code] = DayCell(state="recorded", record=record_out(r, refs))
+                cells[w.code] = DayCell(state="recorded", record=record_out(r, refs), **times)
             for k in counters:
                 for key in keys:
                     k[key] += 1
@@ -1012,8 +1032,11 @@ async def create_record(
     found = await user_days(session, target, body.work_date, body.work_date)
     schedule = found[1].schedule(found[0].id, body.work_date) if found else None
     shift = schedule.shift(body.shift_code) if schedule else None
-    if schedule is None or shift is None:
+    if schedule is None or shift is None or found is None:
         raise _field_error("shift_code", "Unknown shift")
+    # The employee's own times for that shift when they have some.
+    mine = found[1].resolve(found[0].id, body.work_date, target.id)
+    shift = next((d for d in mine.normal if d.code == shift.code), shift)
     w = win.shift_windows(shift, schedule.rules, body.work_date, zone)
     r = AttendanceRecord(
         user_id=target.id,
@@ -1464,7 +1487,7 @@ async def _summary(
     )
     if current is not None and current.id not in {w.id for w in known}:
         known.append(current)
-    calendar = await load_days(session, known, p.start, p.end)
+    calendar = await load_days(session, known, p.start, p.end, [user.id])
     names = {s["code"]: (s["name_km"], s["name_en"]) for s in DEFAULT_SHIFTS}
     if current is not None:
         names.update(
@@ -1486,7 +1509,7 @@ async def _summary(
             if current is not None
             else None
         )
-        return calendar.day_off(wid, day) if wid is not None else None
+        return calendar.day_off(wid, day, user.id) if wid is not None else None
 
     offs = {d: off_on(d) for d in {r.work_date for r in records}}
     # Days off and days inside an untracked period (kept records show, but don't count).

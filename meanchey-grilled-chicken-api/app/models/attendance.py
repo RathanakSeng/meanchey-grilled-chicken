@@ -14,6 +14,9 @@ shift, reminders sent.
   record, so later changes never rewrite history; so are the workplace's "count early check-in /
   overtime" flags. Late, early and overtime minutes are stored, so summaries are sums.
 - `attendance_reminders`: one per (user, work_date, shift, kind), so each reminder goes out once.
+- `attendance_employee_overrides`: an employee's own weekdays / shifts / shift times from a date
+  on (null fields inherit the workplace's); `attendance_holiday_exceptions`: who works on a
+  holiday day.
 """
 
 import uuid
@@ -349,6 +352,81 @@ class AttendanceUntrackedPeriod(Base):
     from_date: Mapped[date] = mapped_column(Date)
     to_date: Mapped[date | None] = mapped_column(Date)
     set_by: Mapped[uuid.UUID | None] = mapped_column(_user_fk())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now()
+    )
+
+
+class AttendanceEmployeeOverride(Base):
+    """An employee's own schedule from `effective_from` on (until their next version), on top of
+    their workplace's version for the date. Each field is **null = inherit** from the workplace:
+    `weekdays` (ISO), `shift_codes` (which of the workplace's shifts they work, 1–2) and
+    `shift_times` (`{code: {start_time, end_time}}` for the shifts whose times differ). A version
+    with every field null is "back to the workplace schedule". The rules always come from the
+    workplace.
+
+    `kept_shifts` is set only on a version effective on the day it was saved: the shifts of that
+    day whose check-in had already opened (`{code: {start_time, end_time}}`), which keep the
+    previous setting on that day."""
+
+    __tablename__ = "attendance_employee_overrides"
+    __table_args__ = (
+        UniqueConstraint("user_id", "effective_from", name="uq_attendance_employee_overrides_date"),
+        CheckConstraint(
+            "weekdays IS NULL OR (cardinality(weekdays) BETWEEN 1 AND 7 "
+            "AND weekdays <@ ARRAY[1, 2, 3, 4, 5, 6, 7]::smallint[])",
+            name="weekdays",
+        ),
+        CheckConstraint(
+            "shift_codes IS NULL OR cardinality(shift_codes) BETWEEN 1 AND 2", name="shift_codes"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_attendance_employee_overrides_user")
+    )
+    effective_from: Mapped[date] = mapped_column(Date)
+    weekdays: Mapped[list[int] | None] = mapped_column(ARRAY(SmallInteger))
+    shift_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String(32)))
+    shift_times: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    kept_shifts: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(_user_fk())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now()
+    )
+
+
+class AttendanceHolidayException(Base):
+    """An employee who works on one day of a holiday: `shift_codes` / `shift_times` null = their
+    normal shifts and times."""
+
+    __tablename__ = "attendance_holiday_exceptions"
+    __table_args__ = (
+        UniqueConstraint(
+            "holiday_id", "user_id", "date", name="uq_attendance_holiday_exceptions_day"
+        ),
+        CheckConstraint(
+            "shift_codes IS NULL OR cardinality(shift_codes) BETWEEN 1 AND 2", name="shift_codes"
+        ),
+        Index("ix_attendance_holiday_exceptions_user", "user_id", "date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    holiday_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            "attendance_holidays.id",
+            ondelete="CASCADE",
+            name="fk_attendance_holiday_exceptions_holiday",
+        )
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_attendance_holiday_exceptions_user")
+    )
+    day: Mapped[date] = mapped_column("date", Date)
+    shift_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String(32)))
+    shift_times: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(_user_fk())
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=func.now()
     )

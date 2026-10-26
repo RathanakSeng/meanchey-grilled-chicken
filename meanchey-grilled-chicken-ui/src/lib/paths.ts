@@ -23,6 +23,8 @@ export const paths = {
   attendanceToday: '/attendance/today',
   attendanceRequests: '/attendance/requests',
   attendanceScheduling: '/attendance/scheduling',
+  attendanceSchedulingEmployees: '/attendance/scheduling/employees',
+  attendanceSchedulingEmployee: (userId: string) => `/attendance/scheduling/employees?employee=${userId}`,
   /** One workplace's scheduling. */
   attendanceSchedulingFor: (workplaceId: string) => `/attendance/scheduling/${workplaceId}`,
   settings: '/settings',

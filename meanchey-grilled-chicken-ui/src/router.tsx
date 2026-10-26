@@ -99,6 +99,9 @@ const TodayPage = lazy(() => import('@/pages/attendance/TodayPage').then((m) => 
 const SchedulingListPage = lazy(() =>
   import('@/pages/attendance/scheduling/SchedulingListPage').then((m) => ({ default: m.SchedulingListPage })),
 )
+const EmployeeSchedulesPage = lazy(() =>
+  import('@/pages/attendance/scheduling/EmployeeSchedulesPage').then((m) => ({ default: m.EmployeeSchedulesPage })),
+)
 const SchedulingPage = lazy(() =>
   import('@/pages/attendance/scheduling/SchedulingPage').then((m) => ({ default: m.SchedulingPage })),
 )
@@ -336,6 +339,16 @@ export const router = createBrowserRouter([
                   <RequireAccess anyOf={SCHEDULING_ACCESS}>
                     <PageLoading>
                       <SchedulingListPage />
+                    </PageLoading>
+                  </RequireAccess>
+                ),
+              },
+              {
+                path: 'scheduling/employees',
+                element: (
+                  <RequireAccess permission="attendance.scheduling">
+                    <PageLoading>
+                      <EmployeeSchedulesPage />
                     </PageLoading>
                   </RequireAccess>
                 ),

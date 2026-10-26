@@ -43,6 +43,8 @@ export interface User {
   attendance_tracked?: boolean
   /** Since when a supervisor is not tracked (null while tracked). */
   attendance_untracked_since?: string | null
+  /** `GET /users/{id}` with attendance.view or attendance.scheduling: their schedule today. */
+  attendance_schedule_summary?: ScheduleSummary | null
 }
 
 export interface Me {
@@ -418,6 +420,9 @@ export type NotificationType =
   | 'attendance.request_approved'
   | 'attendance.request_rejected'
   | 'attendance.request_reminder'
+  | 'attendance.schedule_changed'
+  | 'attendance.holiday_work'
+  | 'attendance.holiday_off'
 
 export interface AppNotification {
   id: string
@@ -433,7 +438,9 @@ export interface AppNotification {
    * repeat};
    * attendance.request_*: {year, month, missing_minutes, salary_cut_minutes, unpaid_work_minutes,
    * name (submitted), with_changes + comment (approved), reason (rejected), balance_minutes +
-   * deadline_day + deadline_month (reminder)}. */
+   * deadline_day + deadline_month (reminder)};
+   * attendance.schedule_changed: {effective_from, weekdays, shifts: [{code, start_time, end_time}],
+   * custom}; attendance.holiday_work / _off: {holiday, holiday_km, date, shifts (work)}. */
   payload: Record<string, unknown>
   actor: UserRef | null
   created_at: string
@@ -1090,9 +1097,13 @@ export interface AttendanceDayShift extends Localized {
 }
 
 export interface AttendanceDayCell {
-  /** `day_off`: not tracked that day at the row's workplace (a kept corrected record is `recorded`). */
-  state: 'recorded' | 'not_yet' | 'no_record' | 'day_off'
+  /** `day_off`: not tracked that day for the employee (a kept corrected record is `recorded`);
+   *  `not_expected`: not one of their shifts (their own schedule). */
+  state: 'recorded' | 'not_yet' | 'no_record' | 'day_off' | 'not_expected'
   record: AttendanceRecord | null
+  /** "HH:MM": the employee's own times when their schedule is custom. */
+  start?: string | null
+  end?: string | null
 }
 
 export interface WorkplaceRef {
@@ -1250,6 +1261,127 @@ export interface SchedulingWriteResult {
   absents_recreated: number
   /** Left alone: the employee's month has a pending or approved request. */
   skipped_locked: number
+  /** Employees whose own schedule lost a shift the workplace no longer has. */
+  affected_employees?: { user_id: string; name: string }[]
+}
+
+// --- Employees' own schedules -------------------------------------------------------------------
+
+/** The fields an employee's schedule can set; the others inherit the workplace's. */
+export type ScheduleField = 'weekdays' | 'shift_codes' | 'shift_times'
+
+export interface ShiftTime {
+  /** "HH:MM" */
+  start_time: string
+  end_time: string
+}
+
+export interface PersonalShift extends Localized, ShiftTime {
+  code: ShiftCode
+  windows: ShiftWindows
+}
+
+/** An employee's schedule on a date: weekdays (Monday = 1), the shifts they work and which
+ *  fields are their own (`custom`). */
+export interface ScheduleSummary {
+  weekdays: number[]
+  shifts: PersonalShift[]
+  custom: ScheduleField[]
+}
+
+/** An override version; a null field inherits the workplace's. */
+export interface OverrideVersion {
+  id: string
+  effective_from: string
+  weekdays: number[] | null
+  shift_codes: ShiftCode[] | null
+  shift_times: Partial<Record<ShiftCode, ShiftTime>> | null
+  created_by: UserRef | null
+  created_at: string
+}
+
+export interface EmployeeScheduleRow {
+  user: UserRef
+  role: Role
+  position: string | null
+  workplace: WorkplaceRef | null
+  summary: ScheduleSummary
+  upcoming: number
+  next_change: string | null
+}
+
+export interface EmployeeScheduleList {
+  today: string
+  items: EmployeeScheduleRow[]
+  workplace_options: WorkplaceRef[]
+}
+
+export interface PreviewShift extends ShiftTime {
+  code: ShiftCode
+}
+
+export interface PreviewDay {
+  date: string
+  shifts: PreviewShift[]
+  day_off: DayOff | null
+  works_on_holiday: HolidayBrief | null
+}
+
+export interface EmployeeScheduleDetail {
+  user: UserRef
+  role: Role
+  position: string | null
+  workplace: WorkplaceRef | null
+  today: string
+  schedule: ScheduleSummary
+  /** What they inherit: the workplace's schedule today. */
+  workplace_schedule: ScheduleSummary
+  rules: AttendanceRules
+  current: OverrideVersion | null
+  upcoming: OverrideVersion[]
+  preview: PreviewDay[]
+}
+
+/** Missing key = keep the value in effect then; "inherit" = the workplace's. */
+export interface EmployeeScheduleInput {
+  user_ids: string[]
+  effective_from?: string
+  weekdays?: number[] | 'inherit'
+  shift_codes?: ShiftCode[] | 'inherit'
+  shift_times?: Partial<Record<ShiftCode, ShiftTime>> | 'inherit'
+}
+
+export interface EmployeeScheduleWriteResult {
+  effective_from: string
+  changed: string[]
+  unchanged: string[]
+}
+
+export interface HolidayException {
+  id: string
+  holiday_id: string
+  user: UserRef
+  role: Role
+  date: string
+  shift_codes: ShiftCode[] | null
+  shift_times: Partial<Record<ShiftCode, ShiftTime>> | null
+  /** What they work that day. */
+  shifts: PreviewShift[]
+  created_by: UserRef | null
+  created_at: string
+}
+
+export interface HolidayExceptionInput {
+  user_ids: string[]
+  dates: string[]
+  shift_codes?: ShiftCode[] | null
+  shift_times?: Partial<Record<ShiftCode, ShiftTime>> | null
+}
+
+export interface HolidayExceptionWriteResult {
+  items: HolidayException[]
+  records_removed: number
+  skipped_locked: number
 }
 
 export interface CalendarDay {
@@ -1259,6 +1391,8 @@ export interface CalendarDay {
   day_off: DayOff | null
   /** Holidays covering any chosen workplace. */
   holidays: HolidayBrief[]
+  /** Employees set to work on that holiday day. */
+  working?: number
   /** Per workplace when several are chosen. */
   workplaces: { workplace_id: string; day_off: DayOff | null }[] | null
 }

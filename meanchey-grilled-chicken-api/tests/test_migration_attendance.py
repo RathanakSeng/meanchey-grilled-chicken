@@ -20,6 +20,8 @@ def _tables() -> list[str]:
 
 def test_attendance_migration_round_trip() -> None:
     assert _tables() == [
+        "attendance_employee_overrides",
+        "attendance_holiday_exceptions",
         "attendance_holiday_workplaces",
         "attendance_holidays",
         "attendance_records",

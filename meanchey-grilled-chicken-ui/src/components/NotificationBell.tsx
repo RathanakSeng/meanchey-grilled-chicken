@@ -8,6 +8,7 @@ import { api } from '@/lib/api'
 import { useCalendarNames, useFormatDate } from '@/lib/format'
 import { paths } from '@/lib/paths'
 import { useDuration } from '@/pages/attendance/api'
+import { useDayName, useWeekdaysText } from '@/pages/attendance/scheduling/shared'
 import { boxCountsText } from '@/pages/workstation/orders/badges'
 import {
   BOX_COLORS,
@@ -15,6 +16,7 @@ import {
   type NotificationPage,
   type OrderAlertItem,
   type PreparationAlertMaterial,
+  type PreviewShift,
 } from '@/lib/types'
 import { Icon } from './icons'
 import { Sheet } from './Sheet'
@@ -44,6 +46,15 @@ function isRequestAlert(n: AppNotification): boolean {
   return n.type.startsWith('attendance.request_')
 }
 
+/** The employee's own schedule: changed, working on a holiday, off again. */
+function isScheduleAlert(n: AppNotification): boolean {
+  return (
+    n.type === 'attendance.schedule_changed' ||
+    n.type === 'attendance.holiday_work' ||
+    n.type === 'attendance.holiday_off'
+  )
+}
+
 const REQUEST_EMOJI: Partial<Record<AppNotification['type'], string>> = {
   'attendance.request_submitted': '📝',
   'attendance.request_approved': '✅',
@@ -56,6 +67,7 @@ const REQUEST_EMOJI: Partial<Record<AppNotification['type'], string>> = {
 function emoji(n: AppNotification): string {
   if (isOrderAlert(n)) return ORDER_EMOJI[n.type] ?? '🧾'
   if (isRequestAlert(n)) return REQUEST_EMOJI[n.type] ?? '📝'
+  if (isScheduleAlert(n)) return '📅'
   if (n.type === 'preparation.finished') return '🧂'
   if (n.type === 'production.processing_finished') return '✅'
   return n.payload.matches ? '🎉' : '⚠️'
@@ -66,9 +78,28 @@ export function useNotificationText() {
   const { t, i18n } = useTranslation()
   const duration = useDuration()
   const names = useCalendarNames()
+  const weekdaysText = useWeekdaysText()
+  const dayName = useDayName()
   return (n: AppNotification): { text: string; comment: string | null } => {
     const p = n.payload
     const again = p.repeat ? t('notifications.again') : ''
+    if (isScheduleAlert(n)) {
+      // "📅 Your attendance schedule changes from Wed 14 Oct 2026: Mon–Sat · Morning 07:30–12:00."
+      const shifts = (Array.isArray(p.shifts) ? (p.shifts as PreviewShift[]) : [])
+        .map((s) => `${t(`attendance.shiftsShort.${s.code}`)} ${s.start_time}–${s.end_time}`)
+        .join(', ')
+      const date = dayName(String(p.date ?? p.effective_from ?? ''))
+      if (n.type === 'attendance.schedule_changed') {
+        const days = Array.isArray(p.weekdays) ? (p.weekdays as number[]) : []
+        const weekdays = days.length === 7 ? t('attendance.employeeSchedules.everyDay') : weekdaysText(days)
+        return { text: t('notifications.scheduleChanged', { date, weekdays, shifts }), comment: null }
+      }
+      const holiday = (i18n.language === 'km' ? p.holiday_km : p.holiday) || p.holiday
+      if (n.type === 'attendance.holiday_work') {
+        return { text: t('notifications.holidayWork', { holiday, date, shifts }), comment: null }
+      }
+      return { text: t('notifications.holidayOff', { holiday, date }), comment: null }
+    }
     if (isRequestAlert(n)) {
       const month = `${names.month(Number(p.month))} ${p.year}`
       const cut = Number(p.salary_cut_minutes ?? 0)
@@ -199,6 +230,7 @@ export function useNotificationText() {
 
 function targetOf(n: AppNotification): string {
   if (n.type === 'attendance.request_reminder') return paths.attendanceRequests
+  if (isScheduleAlert(n)) return paths.myAttendance
   if (isRequestAlert(n)) return `${paths.attendanceRequests}?request=${n.entity_id}`
   if (isOrderAlert(n)) return paths.order(n.entity_id)
   if (n.type === 'preparation.finished') return paths.preparation(n.entity_id)

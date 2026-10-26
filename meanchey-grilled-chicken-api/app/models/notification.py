@@ -26,6 +26,9 @@ NOTIFICATION_TYPES = (
     "attendance.request_approved",
     "attendance.request_rejected",
     "attendance.request_reminder",
+    "attendance.schedule_changed",
+    "attendance.holiday_work",
+    "attendance.holiday_off",
 )
 TELEGRAM_STATUSES = ("pending", "sent", "failed", "not_linked", "bot_off")
 

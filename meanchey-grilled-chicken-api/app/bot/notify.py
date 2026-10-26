@@ -16,6 +16,7 @@ import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from datetime import date
 from html import escape
 from typing import Any
 
@@ -32,6 +33,8 @@ from app.models import Language, Notification, User, utcnow
 from app.models.order import BOX_COLORS
 from app.services.notification_service import (
     COMPLETED,
+    HOLIDAY_OFF,
+    HOLIDAY_WORK,
     ORDER_DELIVERED,
     ORDER_DELIVERING,
     ORDER_RETURN_PENDING,
@@ -42,6 +45,7 @@ from app.services.notification_service import (
     REQUEST_REJECTED,
     REQUEST_REMINDER,
     REQUEST_SUBMITTED,
+    SCHEDULE_CHANGED,
 )
 
 log = logging.getLogger(__name__)
@@ -186,6 +190,63 @@ MONTHS = {
     ],
 }
 REQUEST_TYPES = (REQUEST_SUBMITTED, REQUEST_APPROVED, REQUEST_REJECTED, REQUEST_REMINDER)
+SCHEDULE_TYPES = (SCHEDULE_CHANGED, HOLIDAY_WORK, HOLIDAY_OFF)
+WEEKDAYS = {
+    Language.EN: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    Language.KM: ["ច័ន្ទ", "អង្គារ", "ពុធ", "ព្រហស្បតិ៍", "សុក្រ", "សៅរ៍", "អាទិត្យ"],
+}
+
+
+def weekdays_text(lang: Language, days: list[int]) -> str:
+    """ "Every day", "Mon–Sat" (a run of 3 or more), else "Mon, Wed, Fri"."""
+    days = sorted(set(days))
+    if len(days) == 7:
+        return t(lang, "every_day")
+    names = WEEKDAYS[lang]
+    parts: list[str] = []
+    run: list[int] = []
+    for d in [*days, 0]:
+        if run and d == run[-1] + 1:
+            run.append(d)
+            continue
+        if len(run) >= 3:
+            parts.append(f"{names[run[0] - 1]}–{names[run[-1] - 1]}")
+        else:
+            parts += [names[x - 1] for x in run]
+        run = [d]
+    return ", ".join(parts)
+
+
+def shifts_text(lang: Language, shifts: list[dict[str, Any]]) -> str:
+    """ "Morning 07:30–12:00, Afternoon 13:00–15:00"."""
+    return ", ".join(
+        f"{t(lang, f'shift_{s["code"]}_short')} {s['start_time']}–{s['end_time']}" for s in shifts
+    )
+
+
+def day_text(lang: Language, iso: str) -> str:
+    d = date.fromisoformat(iso)
+    if lang == Language.KM:
+        return f"{d.day} {MONTHS[lang][d.month - 1]} {d.year}"
+    return f"{WEEKDAYS[lang][d.isoweekday() - 1]} {d.day} {MONTHS[lang][d.month - 1][:3]} {d.year}"
+
+
+def _schedule_message(row: Notification, lang: Language) -> str:
+    p: dict[str, Any] = row.payload
+    when = day_text(lang, p.get("date") or p.get("effective_from") or "2000-01-01")
+    if row.type == SCHEDULE_CHANGED:
+        return t(
+            lang,
+            "schedule_changed",
+            date=when,
+            weekdays=weekdays_text(lang, p.get("weekdays") or []),
+            shifts=shifts_text(lang, p.get("shifts") or []),
+        )
+    holiday = escape(str(p.get("holiday_km" if lang == Language.KM else "holiday") or ""))
+    if row.type == HOLIDAY_WORK:
+        shifts = shifts_text(lang, p.get("shifts") or [])
+        return t(lang, "holiday_work", holiday=holiday, date=when, shifts=shifts)
+    return t(lang, "holiday_off", holiday=holiday, date=when)
 
 
 def duration_text(lang: Language, minutes: int) -> str:
@@ -261,6 +322,8 @@ def message_for(row: Notification, lang: Language) -> tuple[str, InlineKeyboardM
     code = escape(str(p.get("code", "")))
     if row.type in REQUEST_TYPES:
         text, button, path = _request_message(row, lang)
+    elif row.type in SCHEDULE_TYPES:
+        text, button, path = _schedule_message(row, lang), "open_attendance", "/attendance/me"
     elif row.type in ORDER_TYPES:
         text = _order_message(row, lang)
         button, path = "open_order", f"/workstation/orders/{row.entity_id}"

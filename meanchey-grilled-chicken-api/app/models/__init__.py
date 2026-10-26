@@ -1,6 +1,8 @@
 from app.models.app_setting import AppSetting
 from app.models.attendance import (
+    AttendanceEmployeeOverride,
     AttendanceHoliday,
+    AttendanceHolidayException,
     AttendanceHolidayWorkplace,
     AttendanceRecord,
     AttendanceReminder,
@@ -39,6 +41,8 @@ __all__ = [
     "AttendanceRequest",
     "AttendanceReminder",
     "AttendanceHoliday",
+    "AttendanceHolidayException",
+    "AttendanceEmployeeOverride",
     "AttendanceHolidayWorkplace",
     "AttendanceScheduleVersion",
     "AttendanceUntrackedPeriod",

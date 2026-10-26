@@ -6,7 +6,7 @@ import { useErrorMessage } from '@/lib/errors'
 import { paths } from '@/lib/paths'
 import type { SchedulingWorkplace } from '@/lib/types'
 import { useScheduling, useShiftName } from '../api'
-import { useDayName, useWeekdaysText } from './shared'
+import { SchedulingTabs, useDayName, useWeekdaysText } from './shared'
 
 /**
  * Attendance → Scheduling (កាលវិភាគ): a card per active workplace (default first) with its
@@ -31,6 +31,7 @@ export function SchedulingListPage() {
         subtitle={t('attendance.scheduling.subtitle')}
         back={paths.attendance}
       />
+      <SchedulingTabs />
       {scheduling.isError && <Alert tone="error">{errorMessage(scheduling.error)}</Alert>}
       {!scheduling.data ? (
         !scheduling.isError && (

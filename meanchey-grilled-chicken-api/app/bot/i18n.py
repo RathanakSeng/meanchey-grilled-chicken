@@ -282,6 +282,24 @@ TEXTS: dict[str, dict[Language, str]] = {
         Language.KM: "📝 ដាក់សំណើ",
         Language.EN: "📝 Create request",
     },
+    # --- Employees' own schedules (app/bot/notify.py) ---
+    "schedule_changed": {
+        Language.KM: "📅 កាលវិភាគវត្តមានរបស់អ្នកផ្លាស់ប្តូរចាប់ពី {date}៖ {weekdays} · {shifts}។",
+        Language.EN: "📅 Your attendance schedule changes from {date}: {weekdays} · {shifts}.",
+    },
+    "holiday_work": {
+        Language.KM: "📅 អ្នកធ្វើការនៅថ្ងៃ {holiday} ({date})៖ {shifts}។",
+        Language.EN: "📅 You work on {holiday} ({date}): {shifts}.",
+    },
+    "holiday_off": {
+        Language.KM: "📅 អ្នកឈប់សម្រាកនៅថ្ងៃ {holiday} ({date})។",
+        Language.EN: "📅 You're off on {holiday} ({date}).",
+    },
+    "every_day": {Language.KM: "រៀងរាល់ថ្ងៃ", Language.EN: "Every day"},
+    "open_attendance": {
+        Language.KM: "🕒 វត្តមានរបស់ខ្ញុំ",
+        Language.EN: "🕒 My attendance",
+    },
     # The bot's menu button (next to the message field).
     "menu_button": {
         Language.KM: "បើកកម្មវិធី",

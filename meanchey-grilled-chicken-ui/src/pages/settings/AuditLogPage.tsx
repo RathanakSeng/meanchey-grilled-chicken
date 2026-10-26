@@ -353,6 +353,18 @@ function Details({ log }: { log: AuditLog }) {
       </span>
     )
   }
+  if (log.action.startsWith('attendance.employee_schedule_') || log.action.startsWith('attendance.holiday_exception_')) {
+    // Employees' own schedules: who, from when; holiday exceptions: the holiday, who, which days.
+    const users = Array.isArray(d.users) ? (d.users as string[]) : d.user ? [String(d.user)] : []
+    const dates = Array.isArray(d.dates) ? (d.dates as string[]) : d.date ? [String(d.date)] : []
+    const parts = [
+      d.holiday ? String(d.holiday) : null,
+      users.join(', '),
+      d.effective_from ? t('attendance.employeeSchedules.auditFrom', { date: String(d.effective_from) }) : null,
+      dates.join(', '),
+    ].filter(Boolean)
+    return <span className="block text-sm text-stone-700">{parts.join(' · ')}</span>
+  }
   if (log.action === 'order.returns_reviewed') {
     return (
       <span className="block text-sm text-stone-700">

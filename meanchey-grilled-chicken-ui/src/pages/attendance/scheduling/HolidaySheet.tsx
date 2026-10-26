@@ -8,6 +8,7 @@ import { useErrorMessage } from '@/lib/errors'
 import { useLocalized } from '@/lib/format'
 import type { Holiday, HolidayInput, HolidayWriteResult, WorkplaceOption } from '@/lib/types'
 import { invalidateScheduling } from '../api'
+import { HolidayWorkers } from './HolidayWorkers'
 import { addDays, ApplyToAll } from './shared'
 
 const MAX_DAYS = 31
@@ -206,6 +207,11 @@ export function HolidaySheet({ holiday, date, today, workplace, workplaceOptions
         {form.start_date <= today && <Alert tone="warning">{t('attendance.scheduling.holiday.pastWarning')}</Alert>}
         {save.isError && !confirm && <Alert tone="error">{errorMessage(save.error)}</Alert>}
       </form>
+      {holiday && holiday.end_date >= today && (
+        <div className="mt-4">
+          <HolidayWorkers holiday={holiday} today={today} />
+        </div>
+      )}
 
       {confirm === 'save' && (
         <ConfirmDialog

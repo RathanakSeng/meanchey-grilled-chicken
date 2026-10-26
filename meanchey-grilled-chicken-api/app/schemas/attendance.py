@@ -333,6 +333,13 @@ class SchedulingWriteOut(BaseModel):
     records_removed: int
     absents_recreated: int
     skipped_locked: int = 0  # records / absents left alone: a pending / approved request
+    # Employees whose own schedule lost a shift the workplace no longer has.
+    affected_employees: list["AffectedEmployee"] = []
+
+
+class AffectedEmployee(BaseModel):
+    user_id: uuid.UUID
+    name: str
 
 
 # --- Holidays and the calendar -------------------------------------------------------------------
@@ -413,12 +420,14 @@ class CalendarWorkplaceDay(BaseModel):
 class CalendarDay(BaseModel):
     """`status`: `tracked` everywhere selected, `off` everywhere (`day_off`: the first
     workplace's reason), or `mixed`. `holidays`: those covering any selected workplace.
-    `workplaces`: per workplace when several are selected."""
+    `workplaces`: per workplace when several are selected. `working`: employees set to work on
+    that holiday day (holiday exceptions)."""
 
     date: date
     status: Literal["tracked", "off", "mixed"]
     day_off: DayOffOut | None
     holidays: list[HolidayBrief]
+    working: int = 0
     workplaces: list[CalendarWorkplaceDay] | None
 
 
@@ -548,11 +557,15 @@ class DayShiftOut(BaseModel):
 
 
 class DayCell(BaseModel):
-    """`record` is null without a record: `state` says whether it may still come (`not_yet`) or
-    the day is off at the row's workplace (`day_off`; a kept corrected record is `recorded`)."""
+    """`record` is null without a record: `state` says whether it may still come (`not_yet`),
+    the day is off for the employee (`day_off`; a kept corrected record is `recorded`) or the
+    shift isn't one they work (`not_expected`, their own schedule). `start` / `end` ("HH:MM")
+    are the employee's own times when their schedule is custom."""
 
-    state: Literal["recorded", "not_yet", "no_record", "day_off"]
+    state: Literal["recorded", "not_yet", "no_record", "day_off", "not_expected"]
     record: RecordOut | None
+    start: str | None = None
+    end: str | None = None
 
 
 class DayRow(BaseModel):

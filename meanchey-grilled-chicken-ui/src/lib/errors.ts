@@ -129,6 +129,13 @@ export function useErrorMessage() {
             })
           : t('attendance.dayOff.weekday')
       }
+      // Employees' own schedules: who (and from when) doesn't fit.
+      if (code === 'ATTENDANCE_SCHEDULE_CONFLICT' && Array.isArray(details.employees)) {
+        params.names = (details.employees as { name: string }[]).map((e) => e.name).join(', ')
+      }
+      if (code === 'ATTENDANCE_SCHEDULE_INVALID' && typeof details.date === 'string') {
+        params.date = formatDate(`${details.date}T00:00:00Z`, { dateStyle: 'medium', timeZone: 'UTC' })
+      }
       params.min ??= 8
       return t(`errors.${code}`, { ...params, defaultValue: t('errors.UNKNOWN') })
     },

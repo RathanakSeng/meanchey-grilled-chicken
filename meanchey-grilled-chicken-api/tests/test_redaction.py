@@ -51,6 +51,13 @@ HOLIDAY = {
     "end_date": "2026-09-23",
     "scope": "all",
 }
+FUTURE_HOLIDAY = {
+    "name_km": "ចូលឆ្នាំ",
+    "name_en": "Khmer New Year",
+    "start_date": "2099-04-14",
+    "end_date": "2099-04-16",
+    "scope": "all",
+}
 
 
 @pytest.fixture
@@ -71,6 +78,13 @@ async def world(client, session, superadmin, make_user) -> dict:
     # The audit log is off for a GM until the superadmin allows it.
     r = await client.put(
         f"/users/{gm_id}/features/audit_log", json={"level": "view"}, headers=auth(superadmin)
+    )
+    assert r.status_code == 200, r.text
+    # So is Attendance scheduling (employees' own schedules, holiday exceptions).
+    r = await client.put(
+        f"/users/{gm_id}/features/attendance_scheduling",
+        json={"level": "full"},
+        headers=auth(superadmin),
     )
     assert r.status_code == 200, r.text
     sup_body = {"role": "supervisor", "full_name": "Sam Super", "telegram_username": "sam_sup"}
@@ -191,6 +205,25 @@ async def world(client, session, superadmin, make_user) -> dict:
         r = await client.put("/attendance/scheduling/shifts", json=body, headers=auth(superadmin))
         assert r.status_code == 200, r.text
     holiday = (await post("/attendance/holidays", HOLIDAY))["holiday"]
+    # The superadmin gave the staff member an own schedule (an upcoming version: created_by) and
+    # set them to work on a future holiday (created_by).
+    r = await client.put(
+        "/attendance/scheduling/employees",
+        json={
+            "user_ids": [staff_id],
+            "weekdays": [1, 2, 3, 4, 5, 6],
+            "effective_from": "2099-01-01",
+        },
+        headers=auth(superadmin),
+    )
+    assert r.status_code == 200, r.text
+    future = (await post("/attendance/holidays", FUTURE_HOLIDAY))["holiday"]
+    r = await client.put(
+        f"/attendance/holidays/{future['id']}/exceptions",
+        json={"user_ids": [staff_id], "dates": ["2099-04-14"]},
+        headers=auth(superadmin),
+    )
+    assert r.status_code == 200, r.text
     attendance = await post(
         "/attendance/records",
         {
@@ -282,6 +315,7 @@ async def world(client, session, superadmin, make_user) -> dict:
         "branch": branch["id"],
         "attendance_record": attendance["id"],
         "holiday": holiday["id"],
+        "future_holiday": future["id"],
         "request": request_id,
     }
 
@@ -328,7 +362,7 @@ def _fill(path: str, world: dict) -> list[str]:
     if "{workplace_id}" in path:
         return [path.replace("{workplace_id}", world["workplace"])]
     if "{holiday_id}" in path:
-        return [path.replace("{holiday_id}", world["holiday"])]
+        return [path.replace("{holiday_id}", world[k]) for k in ("holiday", "future_holiday")]
     if "{request_id}" in path:
         return [path.replace("{request_id}", world["request"])]
     assert not re.search(r"\{\w+\}", path), f"sweep doesn't know how to fill {path}"
@@ -375,6 +409,11 @@ EXTRA_QUERIES = [
     "/attendance/requests/me?year=2026",
     "/attendance/settings/requests",
     "/audit-logs?action=attendance.settings_update",
+    "/attendance/scheduling/employees",
+    "/attendance/scheduling/employees?custom_only=true",
+    "/attendance/calendar?year=2099&month=4",
+    "/audit-logs?action=attendance.employee_schedule_update",
+    "/audit-logs?action=attendance.holiday_exception_create",
 ]
 
 
@@ -452,6 +491,16 @@ async def test_no_response_reveals_the_superadmin(
             json={**HOLIDAY, "note": "Checked"},
             headers=auth(viewer),
         ),
+        client.put(
+            "/attendance/scheduling/employees",
+            json={"user_ids": [str(world["staff"].id)], "shift_codes": ["morning"]},
+            headers=auth(viewer),
+        ),
+        client.put(
+            f"/attendance/holidays/{world['future_holiday']}/exceptions",
+            json={"user_ids": [str(world["staff"].id)], "dates": ["2099-04-15"]},
+            headers=auth(viewer),
+        ),
         client.post("/attendance/workplaces", json={"name": "Branch 3"}, headers=auth(viewer)),
         client.post(f"/attendance/workplaces/{world['branch']}/restore", headers=auth(viewer)),
         client.patch(f"/users/{world['staff'].id}", json={"phone": "012"}, headers=auth(viewer)),
@@ -491,9 +540,13 @@ async def test_alerts_and_plans_name_the_superadmin_as_system(client, world) -> 
             await client.get(f"/production-plans/{world['planned']}", headers=auth(world[key]))
         ).json()["plan"]
         assert plan["confirmed_by"]["is_system"] is True
-    # Staff get no alerts at all.
+    # Staff get no alerts, only news of their own schedule (set by the superadmin: "System").
     page = (await client.get("/notifications", headers=auth(world["staff"]))).json()
-    assert page["total"] == 0
+    assert {item["type"] for item in page["items"]} == {
+        "attendance.schedule_changed",
+        "attendance.holiday_work",
+    }
+    assert all(item["actor"]["is_system"] is True for item in page["items"])
 
 
 async def test_lookup_by_id_is_not_found(client, world) -> None:
@@ -523,6 +576,18 @@ async def test_references_become_system(client, world) -> None:
     ).json()
     assert order["boxes"][0]["container_status"] == "returned"
     assert order["boxes"][0]["container_recorded_by"]["is_system"] is True
+
+    staff = world["staff"].id
+    detail = (
+        await client.get(f"/attendance/scheduling/employees/{staff}", headers=auth(gm))
+    ).json()
+    assert detail["upcoming"][0]["created_by"]["is_system"] is True
+    working = (
+        await client.get(
+            f"/attendance/holidays/{world['future_holiday']}/exceptions", headers=auth(gm)
+        )
+    ).json()
+    assert working["items"][0]["created_by"]["is_system"] is True
 
     # The superadmin sees itself.
     sa = world["superadmin"]

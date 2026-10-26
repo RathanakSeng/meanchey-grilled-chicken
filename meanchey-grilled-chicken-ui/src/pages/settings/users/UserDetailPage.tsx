@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthProvider'
 import { Can } from '@/auth/Can'
 import { usePermission } from '@/auth/usePermission'
@@ -23,7 +23,8 @@ import { paths } from '@/lib/paths'
 import { useErrorMessage } from '@/lib/errors'
 import { useFormatDate, useFormatDay } from '@/lib/format'
 import { isSuperadmin } from '@/lib/roles'
-import type { User, UserFeatures } from '@/lib/types'
+import type { ScheduleSummary, User, UserFeatures } from '@/lib/types'
+import { useScheduleText } from '@/pages/attendance/scheduling/shared'
 import { invalidateRoleCapacity } from '@/lib/useRoleCapacity'
 import { RoleChangeSheet } from './RoleChangeSheet'
 import { UserAccessTab, userFeaturesKey } from './UserAccessTab'
@@ -244,6 +245,11 @@ export function UserDetailPage() {
                   : t('userDetail.attendanceTracked')}
               </Item>
             )}
+            {user.attendance_schedule_summary && (
+              <Item label={t('userDetail.attendanceSchedule')}>
+                <AttendanceScheduleLine user={user} summary={user.attendance_schedule_summary} />
+              </Item>
+            )}
             <Item label={t('userForm.language')}>{t(`languages.${user.language}`)}</Item>
             <Item label={t('userDetail.createdAt')}>{formatDate(user.created_at)}</Item>
             <Item label={t('userDetail.updatedAt')}>{formatDate(user.updated_at)}</Item>
@@ -291,6 +297,24 @@ export function UserDetailPage() {
         />
       )}
     </>
+  )
+}
+
+/** The employee's schedule today, read-only ("Mon–Sat · Morning only 07:30–12:00", Custom), and
+ *  Edit in Scheduling with attendance.scheduling. */
+function AttendanceScheduleLine({ user, summary }: { user: User; summary: ScheduleSummary }) {
+  const { t } = useTranslation()
+  const scheduleText = useScheduleText()
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <span className="tabular-nums">{scheduleText(summary.weekdays, summary.shifts)}</span>
+      {summary.custom.length > 0 && <Badge tone="brand">{t('attendance.employeeSchedules.custom')}</Badge>}
+      <Can permission="attendance.scheduling">
+        <Link to={paths.attendanceSchedulingEmployee(user.id)} className="text-sm font-medium text-brand-700 hover:underline">
+          {t('attendance.employeeSchedules.editInScheduling')}
+        </Link>
+      </Can>
+    </span>
   )
 }
 

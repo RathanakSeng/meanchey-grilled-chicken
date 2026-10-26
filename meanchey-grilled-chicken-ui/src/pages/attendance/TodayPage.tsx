@@ -710,12 +710,16 @@ function CellView({
           </span>
         )}
       </div>
-      <p className="text-xs tabular-nums text-stone-500">
-        {t('attendance.today.scheduled', {
-          from: clockTime(shift.start, timezone),
-          to: clockTime(shift.end, timezone),
-        })}
-      </p>
+      {cell?.state !== 'not_expected' && (
+        <p className="text-xs tabular-nums text-stone-500">
+          {/* Their own times when their schedule is custom. */}
+          {t('attendance.today.scheduled', {
+            from: cell?.start ?? clockTime(shift.start, timezone),
+            to: cell?.end ?? clockTime(shift.end, timezone),
+          })}
+          {cell?.start && ` · ${t('attendance.employeeSchedules.custom')}`}
+        </p>
+      )}
       {r?.check_in_at ? (
         <p className="text-xs tabular-nums text-stone-800">
           {t('attendance.inOut', {
@@ -728,7 +732,8 @@ function CellView({
           {r.check_in_distance_m !== null && ` · ${t('attendance.distance', { distance: Math.round(r.check_in_distance_m) })}`}
         </p>
       ) : (
-        cell?.state !== 'day_off' && <p className="text-xs text-stone-500">{t('attendance.today.noCheckIn')}</p>
+        cell?.state !== 'day_off' &&
+        cell?.state !== 'not_expected' && <p className="text-xs text-stone-500">{t('attendance.today.noCheckIn')}</p>
       )}
       {onFix && (
         <button

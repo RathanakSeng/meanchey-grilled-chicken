@@ -54,7 +54,18 @@ from app.schemas.attendance_request import (
     RequestSettingsIn,
     RequestSettingsOut,
 )
+from app.schemas.attendance_schedule import (
+    EmployeeResetIn,
+    EmployeeScheduleDetail,
+    EmployeeScheduleIn,
+    EmployeeScheduleList,
+    EmployeeScheduleWriteOut,
+    HolidayExceptionIn,
+    HolidayExceptionsOut,
+    HolidayExceptionWriteOut,
+)
 from app.services import attendance_service as svc
+from app.services import employee_schedule_service as esv
 from app.services import request_service as rsv
 from app.services import scheduling_service as sch
 from app.services.notification_service import take_queued
@@ -320,6 +331,7 @@ async def _write_out(
         records_removed=effects.records_removed,
         absents_recreated=effects.absents_recreated,
         skipped_locked=effects.skipped_locked,
+        affected_employees=effects.affected_employees,  # type: ignore[arg-type]
     )
 
 
@@ -345,6 +357,69 @@ async def put_shifts(body: ShiftsIn, actor: CanSchedule, session: SessionDep) ->
 async def delete_version(version_id: uuid.UUID, actor: CanSchedule, session: SessionDep) -> None:
     """Upcoming versions only (409 ATTENDANCE_SCHEDULE_VERSION_IN_EFFECT otherwise)."""
     await sch.delete_version(session, actor, version_id)
+
+
+@router.get("/scheduling/employees", response_model=EmployeeScheduleList)
+async def list_employee_schedules(
+    viewer: CanSchedule,
+    session: SessionDep,
+    workplace_ids: WorkplaceIds = None,
+    custom_only: bool = False,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+) -> EmployeeScheduleList:
+    """Tracked employees in scope with their schedule today (which fields are their own) and
+    their upcoming changes."""
+    return await esv.list_employees(session, viewer, workplace_ids, custom_only, q)
+
+
+@router.get("/scheduling/employees/{user_id}", response_model=EmployeeScheduleDetail)
+async def get_employee_schedule(
+    user_id: uuid.UUID,
+    viewer: CanSchedule,
+    session: SessionDep,
+    from_: Annotated[date | None, Query(alias="from")] = None,
+) -> EmployeeScheduleDetail:
+    """The employee's schedule today and what they inherit, the override in effect, upcoming
+    versions and the 7 days from `from` (default today)."""
+    return await esv.detail(session, viewer, user_id, from_)
+
+
+@router.put("/scheduling/employees", response_model=EmployeeScheduleWriteOut)
+async def put_employee_schedules(
+    body: EmployeeScheduleIn,
+    actor: CanSchedule,
+    session: SessionDep,
+    request: Request,
+    background: BackgroundTasks,
+) -> EmployeeScheduleWriteOut:
+    """One version per employee from `effective_from`: a missing field keeps the value in
+    effect then, `"inherit"` clears it. 422 ATTENDANCE_SCHEDULE_INVALID when their shifts don't
+    make a valid day under the workplace's rules."""
+    out = await esv.update(session, actor, body)
+    background.add_task(deliver, take_queued(session), request.app.state.telegram)
+    return out
+
+
+@router.post("/scheduling/employees/reset", response_model=EmployeeScheduleWriteOut)
+async def reset_employee_schedules(
+    body: EmployeeResetIn,
+    actor: CanSchedule,
+    session: SessionDep,
+    request: Request,
+    background: BackgroundTasks,
+) -> EmployeeScheduleWriteOut:
+    """Back to the workplace's schedule from `effective_from` (later upcoming versions go)."""
+    out = await esv.reset(session, actor, body)
+    background.add_task(deliver, take_queued(session), request.app.state.telegram)
+    return out
+
+
+@router.delete("/scheduling/employees/{user_id}/versions/{version_id}", status_code=204)
+async def delete_employee_version(
+    user_id: uuid.UUID, version_id: uuid.UUID, actor: CanSchedule, session: SessionDep
+) -> None:
+    """Upcoming versions only (409 ATTENDANCE_SCHEDULE_VERSION_IN_EFFECT otherwise)."""
+    await esv.delete_version(session, actor, user_id, version_id)
 
 
 @router.get("/calendar", response_model=CalendarOut)
@@ -406,6 +481,48 @@ async def get_holiday(
     holiday_id: uuid.UUID, _: CanViewScheduling, session: SessionDep
 ) -> HolidayOut:
     return await sch.holiday_out(session, await sch.get_holiday(session, holiday_id))
+
+
+@router.get("/holidays/{holiday_id}/exceptions", response_model=HolidayExceptionsOut)
+async def list_holiday_exceptions(
+    holiday_id: uuid.UUID, viewer: CanViewScheduling, session: SessionDep
+) -> HolidayExceptionsOut:
+    """Who works on this holiday (employees in the viewer's scope)."""
+    return HolidayExceptionsOut(items=await esv.list_exceptions(session, viewer, holiday_id))
+
+
+@router.put("/holidays/{holiday_id}/exceptions", response_model=HolidayExceptionWriteOut)
+async def put_holiday_exceptions(
+    holiday_id: uuid.UUID,
+    body: HolidayExceptionIn,
+    actor: CanSchedule,
+    session: SessionDep,
+    request: Request,
+    background: BackgroundTasks,
+) -> HolidayExceptionWriteOut:
+    """`user_ids` work on `dates` (days of the holiday, today or later) with their normal
+    shifts, or `shift_codes` / `shift_times`."""
+    out = await esv.set_exceptions(session, actor, holiday_id, body)
+    background.add_task(deliver, take_queued(session), request.app.state.telegram)
+    return out
+
+
+@router.delete(
+    "/holidays/{holiday_id}/exceptions/{exception_id}", response_model=HolidayExceptionWriteOut
+)
+async def delete_holiday_exception(
+    holiday_id: uuid.UUID,
+    exception_id: uuid.UUID,
+    actor: CanSchedule,
+    session: SessionDep,
+    request: Request,
+    background: BackgroundTasks,
+) -> HolidayExceptionWriteOut:
+    """Off again on that day; for today their records that day are removed (corrected ones
+    kept)."""
+    out = await esv.delete_exception(session, actor, holiday_id, exception_id)
+    background.add_task(deliver, take_queued(session), request.app.state.telegram)
+    return out
 
 
 @router.patch("/holidays/{holiday_id}", response_model=HolidayWriteOut)

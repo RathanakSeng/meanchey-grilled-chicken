@@ -10,12 +10,18 @@ holidays, and the calendar.
   days off before and after it. Pairs newly off lose their records (corrected ones are kept;
   one audit entry holds the removed records' snapshots); pairs back on get their passed
   cutoffs replayed (absents recreated). Writes hold the scheduler's lock so a tick can't
-  interleave.
+  interleave. Employees with their own day (an override's weekdays, a holiday exception) keep
+  their records when only the workplace goes off.
+- **Employees' own schedules** (`app.attendance.overrides`): a change to a workplace's shifts or
+  rules that would make a current or upcoming employee override invalid is refused
+  (`ATTENDANCE_SCHEDULE_CONFLICT`); shift codes gone from a workplace are removed from its
+  employees' overrides (`affected_employees`).
 """
 
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from dataclasses import field as dc_field
 from datetime import date, timedelta
 from typing import Any
 
@@ -23,6 +29,7 @@ from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.attendance import clock
+from app.attendance import overrides as ovr
 from app.attendance import scheduler as sched
 from app.attendance import windows as win
 from app.attendance.days import DayOff, HolidaySpan, date_range, holidays_between, load_days
@@ -41,6 +48,7 @@ from app.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.models import (
     AttendanceHoliday,
+    AttendanceHolidayException,
     AttendanceHolidayWorkplace,
     AttendanceRecord,
     AttendanceScheduleVersion,
@@ -200,6 +208,7 @@ async def calendar(
     start = date(year, month, 1)
     end = (start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
     days = await load_days(session, picked, start, end)
+    working = await _working_counts(session, {h.id for h in days.holidays}, start, end)
     out = []
     for d in date_range(start, end):
         offs: list[tuple[uuid.UUID, DayOff | None]] = [
@@ -217,6 +226,7 @@ async def calendar(
                 status=status,  # type: ignore[arg-type]
                 day_off=day_off_out(offs[0][1]) if status == "off" and offs else None,
                 holidays=[_brief(h) for h in holidays.values()],
+                working=working.get(d, 0) if holidays else 0,
                 workplaces=[
                     CalendarWorkplaceDay(workplace_id=wid, day_off=day_off_out(o))
                     for wid, o in offs
@@ -234,6 +244,22 @@ async def calendar(
     )
 
 
+async def _working_counts(
+    session: AsyncSession, holiday_ids: Iterable[uuid.UUID], start: date, end: date
+) -> dict[date, int]:
+    """Employees working on a holiday (exceptions), per day."""
+    ids = list(holiday_ids)
+    if not ids:
+        return {}
+    e = AttendanceHolidayException
+    rows = await session.execute(
+        select(e.day, func.count(func.distinct(e.user_id)))
+        .where(e.holiday_id.in_(ids), e.day >= start, e.day <= end)
+        .group_by(e.day)
+    )
+    return {d: n for d, n in rows}
+
+
 # --- Retroactive effects -------------------------------------------------------------------------
 
 
@@ -245,6 +271,8 @@ class Effects:
     records_removed: int = 0
     absents_recreated: int = 0
     skipped_locked: int = 0  # left alone: the employee's month has a pending / approved request
+    # Employees whose overrides lost a shift code the workplace no longer has.
+    affected_employees: list[dict[str, str]] = dc_field(default_factory=list)
 
 
 async def _off_pairs(
@@ -293,6 +321,32 @@ def _snapshot(r: AttendanceRecord) -> dict[str, Any]:
     }
 
 
+async def _still_off(
+    session: AsyncSession, records: list[AttendanceRecord]
+) -> list[AttendanceRecord]:
+    """Of `records` (at workplaces newly off on their dates), those whose employee is off too:
+    someone with their own weekdays or a holiday exception keeps working (and their records)."""
+    if not records:
+        return records
+    workplaces = list(
+        await session.scalars(
+            select(AttendanceWorkplace).where(
+                AttendanceWorkplace.id.in_({r.workplace_id for r in records if r.workplace_id})
+            )
+        )
+    )
+    dates = [r.work_date for r in records]
+    days = await load_days(
+        session, workplaces, min(dates), max(dates), {r.user_id for r in records}
+    )
+    return [
+        r
+        for r in records
+        if r.workplace_id not in days.workplaces
+        or days.day_off(r.workplace_id, r.work_date, r.user_id) is not None
+    ]
+
+
 async def _apply_effects(
     session: AsyncSession, actor: User, before: Pairs, after: Pairs, cause: dict[str, Any]
 ) -> Effects:
@@ -316,6 +370,7 @@ async def _apply_effects(
                 .with_for_update()
             )
         )
+        removed = await _still_off(session, removed)
         locked = await locked_pairs(session, {r.user_id for r in removed})
         kept = [r for r in removed if (r.user_id, r.work_date.year, r.work_date.month) in locked]
         effects.skipped_locked += len(kept)
@@ -418,9 +473,15 @@ async def _write(
         diff = _write_version(session, actor, w.id, versions[w.id], effective, values)
         if diff:
             changes[w.name] = diff
-    after = await _off_pairs(session, workplaces, check)
     effects = Effects()
+    if changes and "shifts" in values:
+        codes = {s["code"] for s in values["shifts"]}
+        gone = {s["code"] for vs in versions.values() for v in vs for s in v.shifts} - codes
+        effects.affected_employees = await ovr.prune_codes(session, workplaces, gone)
+        await ovr.check_workplaces(session, workplaces)
+    after = await _off_pairs(session, workplaces, check)
     if changes:
+        affected = effects.affected_employees
         effects = await _apply_effects(
             session,
             actor,
@@ -428,6 +489,7 @@ async def _write(
             after,
             {"cause": action, "effective_from": effective.isoformat()},
         )
+        effects.affected_employees = affected
         audit(
             session,
             action,
@@ -531,6 +593,9 @@ async def delete_version(session: AsyncSession, actor: User, version_id: uuid.UU
         },
     )
     await session.delete(v)
+    # The version before it applies again: employees' own times must still fit.
+    if workplace is not None:
+        await ovr.check_workplaces(session, [workplace])
     await session.commit()
 
 
@@ -746,6 +811,19 @@ async def update_holiday(
         )
         for wid in new_links:
             session.add(AttendanceHolidayWorkplace(holiday_id=h.id, workplace_id=wid))
+    # Shortened: who worked on the days left out has nothing to work on.
+    dropped = await session.execute(
+        delete(AttendanceHolidayException)
+        .where(
+            AttendanceHolidayException.holiday_id == h.id,
+            or_(
+                AttendanceHolidayException.day < h.start_date,
+                AttendanceHolidayException.day > h.end_date,
+            ),
+        )
+        .returning(AttendanceHolidayException.id)
+    )
+    exceptions_removed = len(dropped.all())
     after_state = _state(h, [w.name for w in selected or []])
     if after_state == before_state:
         await session.rollback()
@@ -769,6 +847,7 @@ async def update_holiday(
         details={
             "before": before_state,
             "after": after_state,
+            "exceptions_removed": exceptions_removed,
             "records_removed": effects.records_removed,
             "absents_recreated": effects.absents_recreated,
         },

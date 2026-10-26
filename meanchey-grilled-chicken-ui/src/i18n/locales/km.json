@@ -223,7 +223,8 @@
     "attendance": "វត្តមាន",
     "attendanceStart": "ថ្ងៃ​ចាំ​ផ្ដើម​ការងារ​",
     "attendanceTracked": "កំពុងតាមដាន",
-    "attendanceUntracked": "មិនតាមដានចាប់ពី {{date}}"
+    "attendanceUntracked": "មិនតាមដានចាប់ពី {{date}}",
+    "attendanceSchedule": "កាលវិភាគវត្តមាន"
   },
   "roleChange": {
     "button": "ប្តូរតួនាទី",
@@ -375,7 +376,12 @@
       "attendance_request_submit": "បានផ្ញើសំណើវត្តមាន",
       "attendance_request_approve": "បានយល់ព្រមសំណើវត្តមាន",
       "attendance_request_reject": "បានបដិសេធសំណើវត្តមាន",
-      "attendance_settings_update": "បានប្តូរថ្ងៃកំណត់ផ្ញើសំណើ"
+      "attendance_settings_update": "បានប្តូរថ្ងៃកំណត់ផ្ញើសំណើ",
+      "attendance_employee_schedule_update": "បានផ្លាស់ប្តូរកាលវិភាគបុគ្គលិក",
+      "attendance_employee_schedule_reset": "កាលវិភាគបុគ្គលិកត្រឡប់ទៅទីកន្លែងការងារ",
+      "attendance_employee_schedule_version_delete": "បានលុបការផ្លាស់ប្តូរកាលវិភាគបុគ្គលិកដែលគ្រោងទុក",
+      "attendance_holiday_exception_create": "កំណត់ឱ្យធ្វើការនៅថ្ងៃឈប់សម្រាក",
+      "attendance_holiday_exception_delete": "ឈប់សម្រាកនៅថ្ងៃឈប់សម្រាកវិញ"
     },
     "featureChange": "{{feature}}៖ {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
@@ -625,7 +631,10 @@
     "ATTENDANCE_REQUEST_NOT_FOUND": "សំណើនេះមិនមានទៀតទេ។",
     "ATTENDANCE_REQUEST_NOT_PENDING": "សំណើនេះត្រូវបានពិនិត្យរួចហើយ។",
     "ATTENDANCE_REQUEST_NOT_NEEDED": "ម៉ោងដែលខ្វះតិចជាង ១ ម៉ោង ដូច្នេះមិនចាំបាច់ដាក់សំណើទេ។",
-    "ATTENDANCE_MONTH_LOCKED": "ខែនេះត្រូវបានចាក់សោដោយសំណើវត្តមាន ដូច្នេះមិនអាចប្តូរវត្តមានរបស់វាបានទេ។"
+    "ATTENDANCE_MONTH_LOCKED": "ខែនេះត្រូវបានចាក់សោដោយសំណើវត្តមាន ដូច្នេះមិនអាចប្តូរវត្តមានរបស់វាបានទេ។",
+    "ATTENDANCE_SCHEDULE_INVALID": "ម៉ោងវេនរបស់ {{name}} មិនត្រឹមត្រូវចាប់ពី {{date}} (វេនជាន់គ្នា បញ្ចប់មុនចាប់ផ្តើម ឬម៉ោងចុះវត្តមាន / ចុះចេញនៅក្រៅថ្ងៃ)។",
+    "ATTENDANCE_SCHEDULE_CONFLICT": "ការផ្លាស់ប្តូរនេះមិនត្រូវនឹងម៉ោងវេនផ្ទាល់ខ្លួនរបស់៖ {{names}}។ សូមកែកាលវិភាគរបស់ពួកគេជាមុន។",
+    "ATTENDANCE_EXCEPTION_NOT_FOUND": "បុគ្គលិកនេះលែងត្រូវបានកំណត់ឱ្យធ្វើការនៅថ្ងៃនោះហើយ។"
   },
   "permissions": {
     "readOnlyNotice": "អ្នកអាចមើលសិទ្ធិទាំងនេះ ប៉ុន្តែមិនអាចផ្លាស់ប្តូរនៅទីនេះបានទេ។",
@@ -898,7 +907,10 @@
     "requestApproved": "សំណើរបស់អ្នកសម្រាប់ {{month}} ត្រូវបានយល់ព្រម៖ {{split}}។",
     "requestApprovedChanges": "សំណើរបស់អ្នកសម្រាប់ {{month}} ត្រូវបានយល់ព្រមដោយកែប្រែ៖ {{split}}។",
     "requestRejected": "សំណើរបស់អ្នកសម្រាប់ {{month}} ត្រូវបានបដិសេធ៖ “{{reason}}”។",
-    "requestReminder": "សមតុល្យ {{month}} របស់អ្នកគឺ −{{missing}}។ សូមដាក់សំណើរបស់អ្នកមុនថ្ងៃទី {{deadline}}។"
+    "requestReminder": "សមតុល្យ {{month}} របស់អ្នកគឺ −{{missing}}។ សូមដាក់សំណើរបស់អ្នកមុនថ្ងៃទី {{deadline}}។",
+    "scheduleChanged": "កាលវិភាគវត្តមានរបស់អ្នកផ្លាស់ប្តូរចាប់ពី {{date}}៖ {{weekdays}} · {{shifts}}។",
+    "holidayWork": "អ្នកធ្វើការនៅថ្ងៃ {{holiday}} ({{date}})៖ {{shifts}}។",
+    "holidayOff": "អ្នកឈប់សម្រាកនៅថ្ងៃ {{holiday}} ({{date}})។"
   },
   "telegramLink": {
     "title": "Telegram",
@@ -1495,7 +1507,8 @@
       "recorded": "បានកត់ត្រា",
       "not_yet": "មិនទាន់",
       "no_record": "គ្មានកំណត់ត្រា",
-      "day_off": "ថ្ងៃឈប់"
+      "day_off": "ថ្ងៃឈប់",
+      "not_expected": "មិនមែនវេនរបស់គាត់"
     },
     "filter": {
       "present": "មានវត្តមាន",
@@ -1947,6 +1960,75 @@
         "hint": "សំណើសម្រាប់មួយខែត្រូវបានទទួលពីថ្ងៃទី ១ នៃខែបន្ទាប់ រហូតដល់ថ្ងៃនេះ (១–២៨)។",
         "saved": "បានរក្សាទុកថ្ងៃកំណត់។"
       }
+    },
+    "employeeSchedules": {
+      "tabWorkplaces": "ទីកន្លែងការងារ",
+      "tabEmployees": "បុគ្គលិក",
+      "subtitle": "បុគ្គលិកម្នាក់ៗតាមកាលវិភាគទីកន្លែងការងាររបស់ខ្លួន លុះត្រាតែកំណត់ផ្សេងនៅទីនេះ។",
+      "everyDay": "រៀងរាល់ថ្ងៃ",
+      "only": "តែ{{shift}} {{from}}–{{to}}",
+      "custom": "ផ្ទាល់ខ្លួន",
+      "search": "ស្វែងរកបុគ្គលិក",
+      "workplace": "ទីកន្លែងការងារ",
+      "customOnly": "តែផ្ទាល់ខ្លួន",
+      "none": "គ្មានបុគ្គលិកត្រូវបង្ហាញទេ។",
+      "selectAll": "ជ្រើសទាំងអស់ ({{count}})",
+      "selected_one": "បានជ្រើស {{count}}",
+      "selected_other": "បានជ្រើស {{count}}",
+      "clear": "សម្អាត",
+      "edit": "កែកាលវិភាគ",
+      "reset": "ត្រឡប់ទៅកាលវិភាគទីកន្លែងការងារ",
+      "resetTitle": "ត្រឡប់ទៅកាលវិភាគទីកន្លែងការងារ?",
+      "resetBody_one": "បុគ្គលិកនេះនឹងតាមថ្ងៃធ្វើការ វេន និងម៉ោងរបស់ទីកន្លែងការងារវិញ ចាប់ពីថ្ងៃដែលបានជ្រើស។ ការផ្លាស់ប្តូរដែលគ្រោងទុកនឹងត្រូវលុប។",
+      "resetBody_other": "បុគ្គលិក {{count}} នាក់នេះនឹងតាមថ្ងៃធ្វើការ វេន និងម៉ោងរបស់ទីកន្លែងការងារវិញ ចាប់ពីថ្ងៃដែលបានជ្រើស។ ការផ្លាស់ប្តូរដែលគ្រោងទុកនឹងត្រូវលុប។",
+      "resetDone_one": "បុគ្គលិក {{count}} នាក់តាមកាលវិភាគទីកន្លែងការងារវិញ។",
+      "resetDone_other": "បុគ្គលិក {{count}} នាក់តាមកាលវិភាគទីកន្លែងការងារវិញ។",
+      "changesOn": "ផ្លាស់ប្តូរនៅ {{date}}",
+      "editOne": "កាលវិភាគ៖ {{name}}",
+      "editSeveral_one": "កាលវិភាគបុគ្គលិក {{count}} នាក់",
+      "editSeveral_other": "កាលវិភាគបុគ្គលិក {{count}} នាក់",
+      "saved_one": "បានរក្សាទុកកាលវិភាគសម្រាប់បុគ្គលិក {{count}} នាក់។",
+      "saved_other": "បានរក្សាទុកកាលវិភាគសម្រាប់បុគ្គលិក {{count}} នាក់។",
+      "unchanged": "គ្មានអ្វីផ្លាស់ប្តូរ៖ កាលវិភាគបានកំណត់បែបនេះរួចហើយ។",
+      "severalWorkplaces": "បុគ្គលិកទាំងនេះធ្វើការនៅទីកន្លែងផ្សេងៗគ្នា៖ \"ទីកន្លែងការងារ\" មានន័យថាទីកន្លែងការងាររបស់ម្នាក់ៗ។",
+      "workingDays": "ថ្ងៃធ្វើការ",
+      "atLeastOneDay": "សូមជ្រើសយ៉ាងហោចណាស់មួយថ្ងៃ។",
+      "shifts": "វេន",
+      "atLeastOneShift": "សូមជ្រើសយ៉ាងហោចណាស់មួយវេន។",
+      "shiftTimes": "ម៉ោងវេន",
+      "start": "ចាប់ផ្តើម",
+      "end": "បញ្ចប់",
+      "windows": "ចុះវត្តមាន {{opens}}–, យឺតក្រោយ {{late}}, អវត្តមានចាប់ពី {{absent}} · ចុះចេញ {{out}}–{{outUntil}}",
+      "endAfterStart": "វេនត្រូវបញ្ចប់ក្រោយពេលចាប់ផ្តើម។",
+      "todayNote": "ថ្ងៃនេះ៖ តែវេនដែលមិនទាន់បើក។",
+      "deleteVersion": "ការផ្លាស់ប្តូរដែលគ្រោងចាប់ពី {{date}} នឹងត្រូវលុប។",
+      "mode": {
+        "keep": "មិនផ្លាស់ប្តូរ",
+        "workplace": "ទីកន្លែងការងារ",
+        "custom": "ផ្ទាល់ខ្លួន"
+      },
+      "thisWeek": "សប្តាហ៍នេះ",
+      "worksOnHoliday": "ធ្វើការថ្ងៃ {{name}}",
+      "backToWorkplace": "ត្រឡប់ទៅកាលវិភាគទីកន្លែងការងារ",
+      "editInScheduling": "កែក្នុងកាលវិភាគ",
+      "auditFrom": "ចាប់ពី {{date}}"
+    },
+    "holidayWork": {
+      "title": "ធ្វើការថ្ងៃឈប់សម្រាក",
+      "add": "បន្ថែមបុគ្គលិក",
+      "none": "គ្មាននរណាធ្វើការនៅថ្ងៃឈប់សម្រាកនេះទេ។",
+      "remove": "ដកចេញ",
+      "employees": "បុគ្គលិក",
+      "dates": "ថ្ងៃ",
+      "normalShifts": "វេនធម្មតារបស់គាត់",
+      "chooseShifts": "ជ្រើសវេន",
+      "otherTimes": "ម៉ោងផ្សេង",
+      "save": "កំណត់ឱ្យធ្វើការ",
+      "removeTitle": "ឈប់សម្រាកនៅថ្ងៃនេះ?",
+      "removeBody": "{{name}} នឹងឈប់សម្រាកនៅ {{date}}។",
+      "removeToday": "វត្តមានដែលគាត់បានកត់ត្រាថ្ងៃនេះនឹងត្រូវលុប (កំណត់ត្រាដែលបានកែត្រូវរក្សាទុក)។",
+      "working_one": "{{count}} នាក់ធ្វើការ",
+      "working_other": "{{count}} នាក់ធ្វើការ"
     }
   }
 }

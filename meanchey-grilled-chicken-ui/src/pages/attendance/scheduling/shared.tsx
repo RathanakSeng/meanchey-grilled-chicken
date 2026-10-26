@@ -1,5 +1,11 @@
+import type { InputHTMLAttributes } from 'react'
 import { useTranslation } from 'react-i18next'
+import { NavLink } from 'react-router-dom'
+import { usePermission } from '@/auth/usePermission'
+import { Input, cx } from '@/components/ui'
 import { useCalendarNames } from '@/lib/format'
+import { paths } from '@/lib/paths'
+import type { AttendanceRules, ShiftCode, ShiftTime } from '@/lib/types'
 
 /** ISO weekdays, Monday first (Monday = 1 … Sunday = 7). */
 export const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const
@@ -104,4 +110,80 @@ export function addDays(iso: string, days: number): string {
 /** ISO weekday (Monday = 1) of a YYYY-MM-DD date. */
 export function isoWeekday(iso: string): number {
   return ((new Date(`${iso}T00:00:00Z`).getUTCDay() + 6) % 7) + 1
+}
+
+/** "Mon–Sat · Morning only 07:30–12:00" / "Every day · Morning 07:00–12:00, Afternoon 13:00–15:00". */
+export function useScheduleText() {
+  const { t } = useTranslation()
+  const weekdaysText = useWeekdaysText()
+  return (weekdays: number[], shifts: (ShiftTime & { code: ShiftCode })[]) => {
+    const days = weekdays.length === 7 ? t('attendance.employeeSchedules.everyDay') : weekdaysText(weekdays)
+    const times =
+      shifts.length === 1
+        ? t('attendance.employeeSchedules.only', {
+            shift: t(`attendance.shiftsShort.${shifts[0].code}`),
+            from: shifts[0].start_time,
+            to: shifts[0].end_time,
+          })
+        : shifts.map((s) => `${t(`attendance.shiftsShort.${s.code}`)} ${s.start_time}–${s.end_time}`).join(', ')
+    return `${days} · ${times}`
+  }
+}
+
+function minutes(hm: string): number {
+  const [h, m] = hm.split(':').map(Number)
+  return h * 60 + m
+}
+
+function hm(total: number): string {
+  const t = ((total % 1440) + 1440) % 1440
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`
+}
+
+/** A shift's windows from its times and the workplace's rules (as the API derives them). */
+export function windowsOf(start: string, end: string, rules: AttendanceRules) {
+  const s = minutes(start)
+  const e = minutes(end)
+  return {
+    check_in_opens: hm(s - rules.open_before_min),
+    check_in_until: hm(s + rules.absent_after_min - 1),
+    absent_from: hm(s + rules.absent_after_min),
+    check_out_opens: hm(e),
+    check_out_until: hm(e + rules.checkout_window_min),
+    forgot_from: hm(e + rules.checkout_window_min + 1),
+  }
+}
+
+/** Scheduling's two tabs: Workplaces and (attendance.scheduling) Employees. */
+export function SchedulingTabs() {
+  const { t } = useTranslation()
+  const canSchedule = usePermission('attendance.scheduling')
+  if (!canSchedule) return null
+  const tab = ({ isActive }: { isActive: boolean }) =>
+    cx(
+      'inline-flex min-h-9 items-center justify-center whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition',
+      'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+      isActive ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200' : 'text-stone-600 hover:text-stone-900',
+    )
+  return (
+    <nav aria-label={t('attendance.scheduling.title')} className="mb-4">
+      <div className="grid grid-cols-2 gap-1 rounded-full bg-stone-100 p-1 sm:inline-grid sm:auto-cols-auto sm:grid-flow-col">
+        <NavLink to={paths.attendanceScheduling} end className={tab}>
+          {t('attendance.employeeSchedules.tabWorkplaces')}
+        </NavLink>
+        <NavLink to={paths.attendanceSchedulingEmployees} className={tab}>
+          {t('attendance.employeeSchedules.tabEmployees')}
+        </NavLink>
+      </div>
+    </nav>
+  )
+}
+
+/** A compact "HH:MM" input (the shared Input is full width). */
+export function TimeInput(props: InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <span className="w-28 shrink-0">
+      <Input type="time" {...props} />
+    </span>
+  )
 }

@@ -38,6 +38,9 @@ REQUEST_SUBMITTED = "attendance.request_submitted"
 REQUEST_APPROVED = "attendance.request_approved"
 REQUEST_REJECTED = "attendance.request_rejected"
 REQUEST_REMINDER = "attendance.request_reminder"
+SCHEDULE_CHANGED = "attendance.schedule_changed"
+HOLIDAY_WORK = "attendance.holiday_work"
+HOLIDAY_OFF = "attendance.holiday_off"
 REQUEST_REVIEW_PERMISSION = "attendance.requests_review"
 # Holding any of these brings alerts (bell + Telegram): the app asks unlinked holders to link.
 TELEGRAM_ALERT_PERMISSIONS = frozenset(

@@ -8,7 +8,12 @@ the others skip that minute. Every step is idempotent and keyed on "now ≥ the 
 **per workplace** (with its schedule version for the date) for the employees assigned to it; an
 employee without an active workplace counts at the default one. **Days off** (a weekday the
 schedule doesn't track, or a holiday) are skipped entirely: no absents, no forgot check-out, no
-reminders (waiting ones are skipped):
+reminders (waiting ones are skipped).
+
+**Personal schedules** (employee overrides, holiday exceptions; `Days.resolve`): employees whose
+day may differ from their workplace's are taken out of the workplace's group and handled in
+groups of identical days (same shifts and times), so reminders, absents and forgot check-out
+follow each person's own times and only the shifts they are expected to work:
 
 - **Absent:** from a shift's check-in cutoff (start + absent_after), an `absent` record
   (`source = auto`) for every tracked employee without one, who existed before the cutoff.
@@ -37,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.attendance import clock
 from app.attendance import windows as win
-from app.attendance.days import load_days
+from app.attendance.days import Days, load_days
 from app.attendance.month_lock import month_locked_sql
 from app.attendance.telegram import send_reminders
 from app.attendance.tracking import tracked_on_sql
@@ -132,12 +137,15 @@ async def _mark_absent(
     return len(result.all())
 
 
-async def _mark_forgot(session: AsyncSession, w: win.ShiftWindows, workplace_id: uuid.UUID) -> int:
-    """Open records of this workplace's shift (records keep the workplace they were made at)."""
+async def _mark_forgot(
+    session: AsyncSession, w: win.ShiftWindows, records: ColumnElement[bool]
+) -> int:
+    """Open records of this shift among `records` (a workplace's: records keep the workplace
+    they were made at; or a group of employees with their own times)."""
     result = await session.execute(
         update(AttendanceRecord)
         .where(
-            AttendanceRecord.workplace_id == workplace_id,
+            records,
             AttendanceRecord.work_date == w.work_date,
             AttendanceRecord.shift_code == w.code,
             AttendanceRecord.status != "absent",
@@ -214,18 +222,65 @@ async def _active_workplaces(session: AsyncSession) -> list[AttendanceWorkplace]
     )
 
 
+@dataclass
+class _Group:
+    """Employees evaluated together at one workplace on one date."""
+
+    workplace: AttendanceWorkplace
+    at: ColumnElement[bool]  # who (on `User`)
+    records: ColumnElement[bool]  # their records (on `AttendanceRecord`), for forgot check-out
+    windows: list[win.ShiftWindows]
+    off: bool  # a day off for all of them
+    reminders: bool
+
+
+async def _groups(
+    session: AsyncSession, days: Days, workplaces: list[AttendanceWorkplace], day: date
+) -> list[_Group]:
+    """Per workplace: everyone following its schedule as one group, then the employees with a
+    personal day (override or holiday exception), grouped by identical windows."""
+    active_ids = [w.id for w in workplaces]
+    default = next((w for w in workplaces if w.is_default), None)
+    personal = days.personal_ids(day)
+    by_key: dict[tuple, list[uuid.UUID]] = {}
+    if personal:
+        rows = await session.execute(
+            select(User.id, User.workplace_id).where(User.id.in_(personal))
+        )
+        for user_id, workplace_id in rows:
+            wid = workplace_id if workplace_id in active_ids else (default.id if default else None)
+            if wid is None:
+                continue
+            r = days.resolve(wid, day, user_id)
+            key = (wid, r.day_off is not None, tuple((d.code, d.start, d.end) for d in r.defs))
+            by_key.setdefault(key, []).append(user_id)
+    groups: list[_Group] = []
+    for workplace in workplaces:
+        resolved = days.resolve(workplace.id, day)
+        reminders = resolved.rules.reminders_enabled
+        at = _assigned(workplace, active_ids)
+        records = AttendanceRecord.workplace_id == workplace.id
+        if personal:
+            at = and_(at, User.id.not_in(personal))
+            records = and_(records, AttendanceRecord.user_id.not_in(personal))
+        off = resolved.day_off is not None
+        groups.append(_Group(workplace, at, records, resolved.windows(), off, reminders))
+        for (wid, off, _), ids in by_key.items():
+            if wid != workplace.id:
+                continue
+            windows = days.resolve(wid, day, ids[0]).windows()
+            who, theirs = User.id.in_(ids), AttendanceRecord.user_id.in_(ids)
+            groups.append(_Group(workplace, who, theirs, windows, off, reminders))
+    return groups
+
+
 async def _cutoffs(
-    session: AsyncSession,
-    w: win.ShiftWindows,
-    workplace_id: uuid.UUID,
-    at: ColumnElement[bool],
-    now: datetime,
-    result: TickResult,
+    session: AsyncSession, w: win.ShiftWindows, g: _Group, now: datetime, result: TickResult
 ) -> None:
     if now >= w.check_in_closes:
-        result.absent += await _mark_absent(session, w, workplace_id, at, result)
+        result.absent += await _mark_absent(session, w, g.workplace.id, g.at, result)
     if now >= w.check_out_closes:
-        result.forgot_checkout += await _mark_forgot(session, w, workplace_id)
+        result.forgot_checkout += await _mark_forgot(session, w, g.records)
 
 
 async def rerun(
@@ -241,14 +296,14 @@ async def rerun(
     if not wanted:
         return result
     workplaces = await _active_workplaces(session)
-    active_ids = [w.id for w in workplaces]
     every = [d for dates in wanted.values() for d in dates]
-    days = await load_days(session, workplaces, min(every), max(every))
-    for workplace in workplaces:
-        at = _assigned(workplace, active_ids)
-        for day in sorted(wanted.get(workplace.id, ())):
-            for w in days.windows(workplace.id, day):
-                await _cutoffs(session, w, workplace.id, at, now, result)
+    days = await load_days(session, workplaces, min(every), max(every), "all")
+    for day in sorted(set(every)):
+        for g in await _groups(session, days, workplaces, day):
+            if day not in wanted.get(g.workplace.id, ()):
+                continue
+            for w in g.windows:
+                await _cutoffs(session, w, g, now, result)
     return result
 
 
@@ -262,25 +317,22 @@ async def tick(session: AsyncSession, now: datetime) -> TickResult | None:
     result = TickResult()
     day = win.work_date(now, get_settings().business_tz)
     workplaces = await _active_workplaces(session)
-    active_ids = [w.id for w in workplaces]
-    days = await load_days(session, workplaces, day, day)
+    days = await load_days(session, workplaces, day, day, "all")
     # Employees of workplaces with reminders off or a day off today.
     muted: list[ColumnElement[bool]] = []
-    for workplace in workplaces:
-        at = _assigned(workplace, active_ids)
-        if days.day_off(workplace.id, day) is not None:
-            muted.append(at)
+    for g in await _groups(session, days, workplaces, day):
+        if g.off:
+            muted.append(g.at)
             continue
-        reminders = days.schedule(workplace.id, day).rules.reminders_enabled
-        if not reminders:
-            muted.append(at)
-        for w in days.windows(workplace.id, day):
-            await _cutoffs(session, w, workplace.id, at, now, result)
-            if reminders:
+        if not g.reminders:
+            muted.append(g.at)
+        for w in g.windows:
+            await _cutoffs(session, w, g, now, result)
+            if g.reminders:
                 if w.check_in_opens <= now < w.check_in_closes:
-                    await _queue_reminders(session, w, "check_in", now, at)
+                    await _queue_reminders(session, w, "check_in", now, g.at)
                 if w.check_out_opens <= now < w.check_out_closes:
-                    await _queue_reminders(session, w, "check_out", now, at)
+                    await _queue_reminders(session, w, "check_out", now, g.at)
     # Never sent late: a reminder whose window closed (downtime) is skipped. Turning a
     # workplace's reminders off (or a day off) also skips its employees' waiting ones.
     untracked = (

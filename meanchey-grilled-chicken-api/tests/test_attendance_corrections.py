@@ -253,7 +253,8 @@ async def test_day_view(client, session, clock, workplace, make_user) -> None:
     cell = rows[str(late.id)]["shifts"]["morning"]
     assert cell["state"] == "recorded"
     assert (cell["record"]["status"], cell["record"]["late_minutes"]) == ("late", 15)
-    assert rows[str(absent.id)]["shifts"]["afternoon"] == {"state": "not_yet", "record": None}
+    cell = rows[str(absent.id)]["shifts"]["afternoon"]
+    assert (cell["state"], cell["record"], cell["start"]) == ("not_yet", None, None)
 
     # A supervisor sees staff only.
     day = (await client.get("/attendance/day", headers=auth(sup))).json()

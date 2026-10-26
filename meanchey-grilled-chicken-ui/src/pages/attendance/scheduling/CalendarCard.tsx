@@ -239,6 +239,11 @@ function DayCell({
           </span>
         ))}
         {weekdayOff && <span className="block truncate text-[11px] text-stone-600">{t('attendance.scheduling.dayOff')}</span>}
+        {!!day.working && (
+          <span className="block truncate text-[11px] font-medium text-brand-700">
+            {t('attendance.holidayWork.working', { count: day.working })}
+          </span>
+        )}
       </span>
     </>
   )

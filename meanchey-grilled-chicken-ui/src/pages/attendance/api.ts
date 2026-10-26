@@ -12,7 +12,10 @@ import type {
   AttendanceSummary,
   AttendanceToday,
   DayOff,
+  EmployeeScheduleDetail,
+  EmployeeScheduleList,
   Holiday,
+  HolidayException,
   Scheduling,
   ShiftCode,
   Workplace,
@@ -51,6 +54,18 @@ export const attendanceKeys = {
   calendarAll: ['attendance-calendar'] as const,
   holidays: (params: { year: number }) => ['attendance-holidays', params] as const,
   holidaysAll: ['attendance-holidays'] as const,
+  employeeSchedules: (params: EmployeeScheduleParams) => ['attendance-employee-schedules', params] as const,
+  employeeSchedulesAll: ['attendance-employee-schedules'] as const,
+  employeeSchedule: (id: string, from: string | null) => ['attendance-employee-schedule', id, from] as const,
+  employeeScheduleAll: ['attendance-employee-schedule'] as const,
+  holidayExceptions: (holidayId: string) => ['attendance-holiday-exceptions', holidayId] as const,
+  holidayExceptionsAll: ['attendance-holiday-exceptions'] as const,
+}
+
+export interface EmployeeScheduleParams {
+  workplaceIds: string[]
+  customOnly: boolean
+  q: string
 }
 
 /** The business time zone (the API sends it; Cambodia has no DST). */
@@ -219,9 +234,58 @@ export function useHolidays(year: number) {
   })
 }
 
-/** After any scheduling change (versions, weekdays, holidays): the scheduling page, today's
- *  state, the day views, the summaries and the workplaces' schedule summaries refetch. */
+/** Tracked employees in scope with their schedule today (attendance.scheduling). */
+export function useEmployeeSchedules(params: EmployeeScheduleParams) {
+  return useQuery({
+    queryKey: attendanceKeys.employeeSchedules(params),
+    queryFn: async () =>
+      (
+        await api.get<EmployeeScheduleList>('/attendance/scheduling/employees', {
+          params: {
+            workplace_ids: params.workplaceIds,
+            custom_only: params.customOnly || undefined,
+            q: params.q.trim() || undefined,
+          },
+          paramsSerializer: repeatLists,
+        })
+      ).data,
+    placeholderData: (previous) => previous,
+  })
+}
+
+/** One employee's schedule: today, what they inherit, versions and 7 days from `from`. */
+export function useEmployeeSchedule(id: string | null, from: string | null = null) {
+  return useQuery({
+    queryKey: attendanceKeys.employeeSchedule(id ?? '', from),
+    queryFn: async () =>
+      (
+        await api.get<EmployeeScheduleDetail>(`/attendance/scheduling/employees/${id}`, {
+          params: { from: from ?? undefined },
+        })
+      ).data,
+    enabled: !!id,
+    placeholderData: (previous) => previous,
+  })
+}
+
+/** Who works on a holiday. */
+export function useHolidayExceptions(holidayId: string | null) {
+  return useQuery({
+    queryKey: attendanceKeys.holidayExceptions(holidayId ?? ''),
+    queryFn: async () =>
+      (await api.get<{ items: HolidayException[] }>(`/attendance/holidays/${holidayId}/exceptions`)).data.items,
+    enabled: !!holidayId,
+  })
+}
+
+/** After any scheduling change (versions, weekdays, holidays, employees' own schedules,
+ *  holiday exceptions): the scheduling pages, today's state, the day views, the summaries and
+ *  the workplaces' schedule summaries refetch. */
 export function invalidateScheduling(queryClient: QueryClient) {
+  void queryClient.invalidateQueries({ queryKey: attendanceKeys.employeeSchedulesAll })
+  void queryClient.invalidateQueries({ queryKey: attendanceKeys.employeeScheduleAll })
+  void queryClient.invalidateQueries({ queryKey: attendanceKeys.holidayExceptionsAll })
+  void queryClient.invalidateQueries({ queryKey: ['user'] })
   void queryClient.invalidateQueries({ queryKey: attendanceKeys.schedulingAll })
   void queryClient.invalidateQueries({ queryKey: attendanceKeys.calendarAll })
   void queryClient.invalidateQueries({ queryKey: attendanceKeys.holidaysAll })

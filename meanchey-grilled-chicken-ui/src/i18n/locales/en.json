@@ -223,7 +223,8 @@
     "attendance": "Attendance",
     "attendanceStart": "1st working date",
     "attendanceTracked": "Tracked",
-    "attendanceUntracked": "Not tracked since {{date}}"
+    "attendanceUntracked": "Not tracked since {{date}}",
+    "attendanceSchedule": "Attendance schedule"
   },
   "roleChange": {
     "button": "Change role",
@@ -375,7 +376,12 @@
       "attendance_request_submit": "Sent an attendance request",
       "attendance_request_approve": "Approved an attendance request",
       "attendance_request_reject": "Rejected an attendance request",
-      "attendance_settings_update": "Changed the request deadline"
+      "attendance_settings_update": "Changed the request deadline",
+      "attendance_employee_schedule_update": "Employee schedule changed",
+      "attendance_employee_schedule_reset": "Employee schedule reset to the workplace",
+      "attendance_employee_schedule_version_delete": "Planned employee schedule change deleted",
+      "attendance_holiday_exception_create": "Set to work on a holiday",
+      "attendance_holiday_exception_delete": "Off on a holiday again"
     },
     "featureChange": "{{feature}}: {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
@@ -625,7 +631,10 @@
     "ATTENDANCE_REQUEST_NOT_FOUND": "This request no longer exists.",
     "ATTENDANCE_REQUEST_NOT_PENDING": "This request was already reviewed.",
     "ATTENDANCE_REQUEST_NOT_NEEDED": "The missing time is under 1 hour, so no request is needed.",
-    "ATTENDANCE_MONTH_LOCKED": "This month is locked by an attendance request, so its attendance can't be changed."
+    "ATTENDANCE_MONTH_LOCKED": "This month is locked by an attendance request, so its attendance can't be changed.",
+    "ATTENDANCE_SCHEDULE_INVALID": "{{name}}'s shift times don't make a valid day from {{date}} (shifts overlap, end before they start, or a check-in / check-out window falls outside the day).",
+    "ATTENDANCE_SCHEDULE_CONFLICT": "This change doesn't fit the own shift times of: {{names}}. Change their schedule first.",
+    "ATTENDANCE_EXCEPTION_NOT_FOUND": "This employee isn't set to work on that day any more."
   },
   "permissions": {
     "readOnlyNotice": "You can view these permissions, but you can't change them here.",
@@ -898,7 +907,10 @@
     "requestApproved": "Your request for {{month}} was approved: {{split}}.",
     "requestApprovedChanges": "Your request for {{month}} was approved with changes: {{split}}.",
     "requestRejected": "Your request for {{month}} was rejected: “{{reason}}”.",
-    "requestReminder": "Your {{month}} balance is −{{missing}}. Submit your request by {{deadline}}."
+    "requestReminder": "Your {{month}} balance is −{{missing}}. Submit your request by {{deadline}}.",
+    "scheduleChanged": "Your attendance schedule changes from {{date}}: {{weekdays}} · {{shifts}}.",
+    "holidayWork": "You work on {{holiday}} ({{date}}): {{shifts}}.",
+    "holidayOff": "You're off on {{holiday}} ({{date}})."
   },
   "telegramLink": {
     "title": "Telegram",
@@ -1495,7 +1507,8 @@
       "recorded": "Recorded",
       "not_yet": "Not yet",
       "no_record": "No record",
-      "day_off": "Day off"
+      "day_off": "Day off",
+      "not_expected": "Not their shift"
     },
     "filter": {
       "present": "Present",
@@ -1947,6 +1960,75 @@
         "hint": "Requests for a month are accepted from the 1st of the next month up to this day (1–28).",
         "saved": "The deadline was saved."
       }
+    },
+    "employeeSchedules": {
+      "tabWorkplaces": "Workplaces",
+      "tabEmployees": "Employees",
+      "subtitle": "Each employee follows their workplace's schedule unless set otherwise here.",
+      "everyDay": "Every day",
+      "only": "{{shift}} only {{from}}–{{to}}",
+      "custom": "Custom",
+      "search": "Search employees",
+      "workplace": "Workplace",
+      "customOnly": "Custom only",
+      "none": "No employees to show.",
+      "selectAll": "Select all ({{count}})",
+      "selected_one": "{{count}} selected",
+      "selected_other": "{{count}} selected",
+      "clear": "Clear",
+      "edit": "Edit schedule",
+      "reset": "Reset to workplace",
+      "resetTitle": "Back to the workplace's schedule?",
+      "resetBody_one": "This employee will follow their workplace's working days, shifts and times again from the chosen date. Upcoming changes are deleted.",
+      "resetBody_other": "These {{count}} employees will follow their workplace's working days, shifts and times again from the chosen date. Upcoming changes are deleted.",
+      "resetDone_one": "{{count}} employee follows the workplace's schedule again.",
+      "resetDone_other": "{{count}} employees follow the workplace's schedule again.",
+      "changesOn": "Changes on {{date}}",
+      "editOne": "Schedule: {{name}}",
+      "editSeveral_one": "Schedule of {{count}} employee",
+      "editSeveral_other": "Schedule of {{count}} employees",
+      "saved_one": "Schedule saved for {{count}} employee.",
+      "saved_other": "Schedule saved for {{count}} employees.",
+      "unchanged": "Nothing changed: the schedule was already set this way.",
+      "severalWorkplaces": "These employees work at different workplaces: \"Workplace\" means each one's own workplace.",
+      "workingDays": "Working days",
+      "atLeastOneDay": "Pick at least one day.",
+      "shifts": "Shifts",
+      "atLeastOneShift": "Pick at least one shift.",
+      "shiftTimes": "Shift times",
+      "start": "Start",
+      "end": "End",
+      "windows": "Check-in {{opens}}–, late after {{late}}, absent from {{absent}} · check-out {{out}}–{{outUntil}}",
+      "endAfterStart": "A shift must end after it starts.",
+      "todayNote": "Today: only shifts that haven't opened yet.",
+      "deleteVersion": "The change planned from {{date}} will be deleted.",
+      "mode": {
+        "keep": "No change",
+        "workplace": "Workplace",
+        "custom": "Custom"
+      },
+      "thisWeek": "This week",
+      "worksOnHoliday": "Works on {{name}}",
+      "backToWorkplace": "Back to the workplace's schedule",
+      "editInScheduling": "Edit in Scheduling",
+      "auditFrom": "from {{date}}"
+    },
+    "holidayWork": {
+      "title": "Who works on this holiday",
+      "add": "Add employees",
+      "none": "Nobody works on this holiday.",
+      "remove": "Remove",
+      "employees": "Employees",
+      "dates": "Days",
+      "normalShifts": "Their normal shifts",
+      "chooseShifts": "Choose shifts",
+      "otherTimes": "Different times",
+      "save": "Set to work",
+      "removeTitle": "Off on this day?",
+      "removeBody": "{{name}} will be off on {{date}}.",
+      "removeToday": "What they recorded today is removed (corrected records are kept).",
+      "working_one": "{{count}} working",
+      "working_other": "{{count}} working"
     }
   }
 }

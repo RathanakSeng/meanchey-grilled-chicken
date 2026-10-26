@@ -59,6 +59,12 @@ BODIES: dict[tuple[str, str], dict] = {
     ("POST", "/attendance/holidays"): HOLIDAY,
     ("PATCH", "/attendance/holidays/{holiday_id}"): HOLIDAY,
     ("POST", "/attendance/holidays/copy"): {"from_year": 2099, "to_year": 2100},
+    ("PUT", "/attendance/scheduling/employees"): {"user_ids": [], "weekdays": [1, 2, 3]},
+    ("POST", "/attendance/scheduling/employees/reset"): {"user_ids": []},
+    ("PUT", "/attendance/holidays/{holiday_id}/exceptions"): {
+        "user_ids": [],
+        "dates": ["2099-12-25"],
+    },
     ("PUT", "/attendance/scheduling/shifts"): {
         "workplace_ids": "all",
         "shifts": [
@@ -156,8 +162,16 @@ async def world(client, session, superadmin, make_user) -> dict:
             headers=h,
         )
     ).json()
+    working = (
+        await client.put(
+            f"/attendance/holidays/{holiday['holiday']['id']}/exceptions",
+            json={"user_ids": [str(target.id)], "dates": ["2099-12-25"]},
+            headers=h,
+        )
+    ).json()
     # Every POST /attendance/records after the first answers 409 (exists): never 403.
     return {
+        "exception_id": working["items"][0]["id"],
         "record_id": record["id"],
         "workplace_id": workplace["id"],
         "holiday_id": holiday["holiday"]["id"],
@@ -204,6 +218,7 @@ def _fill(path: str, world: dict) -> str:
     url = url.replace("{workplace_id}", world["workplace_id"])
     url = url.replace("{holiday_id}", world["holiday_id"])
     url = url.replace("{version_id}", world["version_id"])
+    url = url.replace("{exception_id}", world["exception_id"])
     # Someone else's (or no) request: 404 for both, never 403.
     url = url.replace("{request_id}", str(uuid.uuid4()))
     # Someone else's (or no) notification: 404 for both, never 403.
@@ -306,6 +321,14 @@ async def test_superadmin_is_never_forbidden_where_the_gm_is_allowed(
         "POST /attendance/holidays",
         "POST /attendance/holidays/copy",
         "GET /attendance/holidays/{holiday_id}",
+        "GET /attendance/scheduling/employees",
+        "GET /attendance/scheduling/employees/{user_id}",
+        "PUT /attendance/scheduling/employees",
+        "POST /attendance/scheduling/employees/reset",
+        "DELETE /attendance/scheduling/employees/{user_id}/versions/{version_id}",
+        "GET /attendance/holidays/{holiday_id}/exceptions",
+        "PUT /attendance/holidays/{holiday_id}/exceptions",
+        "DELETE /attendance/holidays/{holiday_id}/exceptions/{exception_id}",
         "GET /attendance/requests",
         "GET /attendance/requests/{request_id}",
         "POST /attendance/requests/{request_id}/approve",

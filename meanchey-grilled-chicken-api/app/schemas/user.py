@@ -8,6 +8,7 @@ from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field
 from app.models import Language, Role
 from app.models.user import POSITION_MAX_LENGTH
 from app.schemas.attendance import UserWorkplace
+from app.schemas.attendance_schedule import ScheduleSummaryOut
 from app.schemas.common import UserRef
 
 PHONE_PATTERN = r"^[0-9+()\-\s]{6,32}$"
@@ -57,6 +58,9 @@ class UserOut(BaseModel):
     attendance_start_date: date | None = None
     attendance_tracked: bool = True
     attendance_untracked_since: date | None = None
+    # GET /users/{id} only, for viewers with attendance.view or attendance.scheduling: the
+    # employee's schedule today (custom fields included), read-only.
+    attendance_schedule_summary: ScheduleSummaryOut | None = None
 
 
 class UserCreate(BaseModel):
