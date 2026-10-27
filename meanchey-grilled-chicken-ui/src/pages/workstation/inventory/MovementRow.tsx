@@ -75,6 +75,25 @@ export function MovementRow({
           </Link>
         )}
       </>
+    ) : m.source === 'clear' ? (
+      // "Clear CL-… · PR-…" (the batch or preparation the quantity is attributed to).
+      <>
+        {t('inventory.sources.clear')}{' '}
+        {m.clear && (
+          <Link to={paths.inventoryClear(m.clear.id)} className="font-medium tabular-nums text-brand-700 hover:underline">
+            {m.clear.code}
+          </Link>
+        )}
+        {batchLink && <span> · {batchLink}</span>}
+        {m.preparation && (
+          <span>
+            {' · '}
+            <Link to={paths.preparation(m.preparation.id)} className="tabular-nums text-stone-600 hover:underline">
+              {m.preparation.code}
+            </Link>
+          </span>
+        )}
+      </>
     ) : m.source === 'adjustment' ? (
       <>
         {t('inventory.sources.adjustment')}

@@ -9,6 +9,7 @@ from sqlalchemy.orm import InstrumentedAttribute, aliased
 from app.models import (
     AuditLog,
     Customer,
+    InventoryClear,
     InventoryMaterial,
     Order,
     Preparation,
@@ -26,6 +27,7 @@ ENTITY_LABELS: dict[str, InstrumentedAttribute[str]] = {
     "order": Order.code,
     "material": InventoryMaterial.name_en,
     "preparation": Preparation.code,
+    "inventory_clear": InventoryClear.code,
 }
 
 

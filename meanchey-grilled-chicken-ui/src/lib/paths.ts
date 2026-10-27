@@ -10,6 +10,9 @@ export const paths = {
   productionPlans: '/workstation/production-plans',
   productionPlan: (batchId: string) => `/workstation/production-plans/${batchId}`,
   inventory: '/workstation/inventory',
+  /** The clears list (History → Clears). */
+  inventoryClears: '/workstation/inventory?tab=history&view=clears',
+  inventoryClear: (id: string) => `/workstation/inventory/clears/${id}`,
   orders: '/workstation/orders',
   newOrder: '/workstation/orders/new',
   order: (id: string) => `/workstation/orders/${id}`,

@@ -91,6 +91,7 @@ def test_menus() -> None:
         "inventory": "workstation",
         "inventory_history": "workstation",
         "inventory_materials": "workstation",
+        "inventory_clear": "workstation",
         "orders": "workstation",
         "order_management": "workstation",
         "order_returns": "workstation",
@@ -204,6 +205,7 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
                 "production_plan",
                 "inventory",
                 "inventory_materials",
+                "inventory_clear",
                 "orders",
                 "order_management",
                 "order_returns",
@@ -227,6 +229,7 @@ async def test_gm_sees_supervisor_features_full_by_default(client, make_user) ->
     assert levels.pop("staff_management") == "view"
     assert levels.pop("inventory") == "record"
     assert levels.pop("inventory_materials") == "off"
+    assert levels.pop("inventory_clear") == "off"
     # Preparation Record; preparation management Off.
     assert levels.pop("preparation") == "record"
     assert levels.pop("preparation_management") == "off"

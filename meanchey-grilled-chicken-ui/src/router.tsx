@@ -54,6 +54,9 @@ const ProductionBatchPage = lazy(() =>
 const InventoryPage = lazy(() =>
   import('@/pages/workstation/inventory/InventoryPage').then((m) => ({ default: m.InventoryPage })),
 )
+const ClearDetailPage = lazy(() =>
+  import('@/pages/workstation/inventory/ClearRecords').then((m) => ({ default: m.ClearDetailPage })),
+)
 // Preparations: a lazy chunk for holders of preparation.view.
 const PreparationListPage = lazy(() =>
   import('@/pages/workstation/preparations/PreparationListPage').then((m) => ({
@@ -196,6 +199,17 @@ export const router = createBrowserRouter([
                   <RequireAccess permission="inventory.view">
                     <PageLoading>
                       <InventoryPage />
+                    </PageLoading>
+                  </RequireAccess>
+                ),
+              },
+              {
+                // A clear record: Inventory history or Inventory clear (the alert's Open).
+                path: 'inventory/clears/:id',
+                element: (
+                  <RequireAccess anyOf={[{ permission: 'inventory.history' }, { permission: 'inventory.clear' }]}>
+                    <PageLoading>
+                      <ClearDetailPage />
                     </PageLoading>
                   </RequireAccess>
                 ),

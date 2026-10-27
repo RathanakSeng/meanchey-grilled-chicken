@@ -80,11 +80,14 @@ def check_keyboard(lang: Language, button: str) -> InlineKeyboardMarkup | None:
 
 def app_keyboard(lang: Language, *, attendance: bool = False) -> InlineKeyboardMarkup | None:
     """Open app; with `attendance` (tracked employees) also Attendance → the check screen, side
-    by side. None when MINI_APP_URL isn't HTTPS (Telegram only accepts HTTPS Mini App URLs)."""
+    by side (currently disabled: Open app only). None when MINI_APP_URL isn't HTTPS (Telegram
+    only accepts HTTPS Mini App URLs)."""
     url = get_settings().mini_app_url
     if not url.startswith("https://"):
         return None
     row = [InlineKeyboardButton(text=t(lang, "open_app"), web_app=WebAppInfo(url=url))]
+    # Attendance button on /start disabled for now (reminders + Home card are the entry points);
+    # uncomment to restore.
     # if attendance:
     #     row.append(
     #         InlineKeyboardButton(
@@ -143,8 +146,9 @@ async def on_start(message: Message, command: CommandObject) -> None:
     text = t(lang, "start", name=name)
     if bound:
         text = f"{text}\n\n{t(lang, 'start_linked')}"
-    attendance = await _is_tracked(message.from_user.id)
-    await _answer(message, text, lang, attendance=attendance)
+    # The Attendance button is disabled (app_keyboard), so the tracked-employee lookup is skipped.
+    # To restore: uncomment the button and pass attendance=await _is_tracked(message.from_user.id).
+    await _answer(message, text, lang)
     await set_chat_menu(message, lang)
 
 

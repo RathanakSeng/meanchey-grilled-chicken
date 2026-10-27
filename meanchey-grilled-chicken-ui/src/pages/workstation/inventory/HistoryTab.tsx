@@ -9,6 +9,7 @@ import { useLocalized } from '@/lib/format'
 import type { InventoryItem, InventoryMovement, Page } from '@/lib/types'
 import { useDebounced } from '@/lib/useDebounced'
 import { inventoryKeys } from './api'
+import { ClearsList } from './ClearRecords'
 import { MovementRow } from './MovementRow'
 
 const PAGE_SIZE = 50
@@ -16,11 +17,56 @@ const PAGE_SIZE = 50
 const FILTERS = ['item', 'area', 'source', 'from', 'to', 'batch'] as const
 
 /**
+ * History: **Movements** (inventory.history) or **Clears** (`view=clears`; inventory.history or
+ * inventory.clear: without inventory.history only the clears show).
+ */
+export function HistoryTab({ items, movements }: { items: InventoryItem[]; movements: boolean }) {
+  const { t } = useTranslation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const view = !movements || searchParams.get('view') === 'clears' ? 'clears' : 'movements'
+  return (
+    <>
+      {movements && (
+        <div className="mb-4 inline-grid grid-flow-col gap-1 rounded-full bg-stone-100 p-1" role="tablist">
+          {(['movements', 'clears'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={view === key}
+              onClick={() =>
+                setSearchParams(
+                  (prev) => {
+                    const next = new URLSearchParams({ tab: 'history' })
+                    const section = prev.get('section')
+                    if (section) next.set('section', section)
+                    if (key === 'clears') next.set('view', 'clears')
+                    return next
+                  },
+                  { replace: true },
+                )
+              }
+              className={cx(
+                'min-h-9 rounded-full px-3 py-1.5 text-sm font-medium',
+                view === key ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200' : 'text-stone-600',
+              )}
+            >
+              {t(`inventory.historyViews.${key}`)}
+            </button>
+          ))}
+        </div>
+      )}
+      {view === 'clears' ? <ClearsList /> : <MovementsList items={items} />}
+    </>
+  )
+}
+
+/**
  * Movements, newest first. Filters (kept in the URL with `tab=history`): item, section (`area`), type
  * (production; manual items would add adjustments), date range (business days) and part of a
  * batch code.
  */
-export function HistoryTab({ items }: { items: InventoryItem[] }) {
+function MovementsList({ items }: { items: InventoryItem[] }) {
   const { t } = useTranslation()
   const localized = useLocalized()
   const errorMessage = useErrorMessage()
@@ -103,6 +149,7 @@ export function HistoryTab({ items }: { items: InventoryItem[] }) {
               <option value="material_remove">{t('inventory.sources.material_remove')}</option>
               <option value="material_unit_change">{t('inventory.sources.material_unit_change')}</option>
               <option value="preparation">{t('inventory.sources.preparation')}</option>
+              <option value="clear">{t('inventory.sources.clear')}</option>
             </Select>
           )}
         </Field>

@@ -7,12 +7,15 @@ import { useIsMobileLayout } from '@/layouts/useIsMobileLayout'
 import { api } from '@/lib/api'
 import { useCalendarNames, useFormatDate } from '@/lib/format'
 import { paths } from '@/lib/paths'
+import { useQuantityFormat } from '@/lib/quantity'
 import { useDuration } from '@/pages/attendance/api'
 import { useDayName, useWeekdaysText } from '@/pages/attendance/scheduling/shared'
 import { boxCountsText } from '@/pages/workstation/orders/badges'
 import {
   BOX_COLORS,
   type AppNotification,
+  type ClearAlertItem,
+  type ClearImpactType,
   type NotificationPage,
   type OrderAlertItem,
   type PreparationAlertMaterial,
@@ -69,6 +72,7 @@ function emoji(n: AppNotification): string {
   if (isRequestAlert(n)) return REQUEST_EMOJI[n.type] ?? '📝'
   if (isScheduleAlert(n)) return '📅'
   if (n.type === 'preparation.finished') return '🧂'
+  if (n.type === 'inventory.cleared') return '🧹'
   if (n.type === 'production.processing_finished') return '✅'
   return n.payload.matches ? '🎉' : '⚠️'
 }
@@ -80,9 +84,24 @@ export function useNotificationText() {
   const names = useCalendarNames()
   const weekdaysText = useWeekdaysText()
   const dayName = useDayName()
+  const formatQuantity = useQuantityFormat()
   return (n: AppNotification): { text: string; comment: string | null } => {
     const p = n.payload
     const again = p.repeat ? t('notifications.again') : ''
+    if (n.type === 'inventory.cleared') {
+      // "Dara cleared stock CL-…: 4-Piece Packs 20, Liver (processed) 1.500 kg — “…”. Affects 2 orders."
+      const items = (Array.isArray(p.items) ? (p.items as ClearAlertItem[]) : [])
+        .map((i) => `${(i18n.language === 'en' ? i.name_en : i.name_km) || i.name_en} ${formatQuantity(i.quantity, i.unit)}`)
+        .join(', ')
+      const counts = (p.impacts ?? {}) as Partial<Record<ClearImpactType, number>>
+      const affects = (['order', 'production', 'plan', 'preparation', 'reopen'] as const)
+        .filter((type) => counts[type])
+        .map((type) => t(`inventory.clear.affects.${type}`, { count: counts[type] }))
+        .join(', ')
+      const name = n.actor && !n.actor.is_system ? n.actor.full_name : t('audit.system')
+      const text = t('notifications.inventoryCleared', { name, code: p.code, items, reason: p.reason })
+      return { text: affects ? `${text} ${t('notifications.clearAffects', { list: affects })}` : text, comment: null }
+    }
     if (isScheduleAlert(n)) {
       // "📅 Your attendance schedule changes from Wed 14 Oct 2026: Mon–Sat · Morning 07:30–12:00."
       const shifts = (Array.isArray(p.shifts) ? (p.shifts as PreviewShift[]) : [])
@@ -234,6 +253,7 @@ function targetOf(n: AppNotification): string {
   if (isRequestAlert(n)) return `${paths.attendanceRequests}?request=${n.entity_id}`
   if (isOrderAlert(n)) return paths.order(n.entity_id)
   if (n.type === 'preparation.finished') return paths.preparation(n.entity_id)
+  if (n.type === 'inventory.cleared') return paths.inventoryClear(n.entity_id)
   return n.type === 'production.processing_finished'
     ? paths.productionPlan(n.entity_id)
     : paths.productionBatch(n.entity_id, 3)

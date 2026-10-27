@@ -29,12 +29,13 @@ from app.bot.runtime import TelegramRuntime
 from app.bot.setup import create_bot
 from app.config import get_settings
 from app.db import SessionLocal
-from app.models import Language, Notification, User, utcnow
+from app.models import Language, Notification, Role, User, utcnow
 from app.models.order import BOX_COLORS
 from app.services.notification_service import (
     COMPLETED,
     HOLIDAY_OFF,
     HOLIDAY_WORK,
+    INVENTORY_CLEARED,
     ORDER_DELIVERED,
     ORDER_DELIVERING,
     ORDER_RETURN_PENDING,
@@ -315,12 +316,46 @@ def _request_message(row: Notification, lang: Language) -> tuple[str, str, str]:
     return text, "create_request", "/attendance/requests"
 
 
-def message_for(row: Notification, lang: Language) -> tuple[str, InlineKeyboardMarkup | None]:
-    """The alert text (HTML) and its Mini App button, in `lang`."""
+def clear_message(lang: Language, p: dict[str, Any], actor_name: str | None) -> str:
+    """ "🧹 Dara cleared stock CL-…: 4-Piece Packs 20, Liver (processed) 1.500 kg — “…”." plus
+    what the acknowledged impacts affect (names escaped)."""
+    name_key = "name_km" if lang == Language.KM else "name_en"
+    items = ", ".join(
+        f"{escape(str(i.get(name_key, '')))} {i.get('quantity')}"
+        + (t(lang, f"unit_{i.get('unit')}") if i.get("unit") in ("kg", "g", "m2", "count") else "")
+        for i in p.get("items") or []
+    )
+    text = t(
+        lang,
+        "inventory_cleared",
+        name=escape(actor_name or t(lang, "system")),
+        code=escape(str(p.get("code", ""))),
+        items=items,
+        reason=escape(str(p.get("reason") or "")),
+    )
+    impacts = p.get("impacts") or {}
+    parts = [
+        t(lang, f"clear_affects_{kind}" + ("_one" if impacts[kind] == 1 else ""), n=impacts[kind])
+        for kind in ("order", "production", "plan", "preparation", "reopen")
+        if impacts.get(kind)
+    ]
+    if parts:
+        text += " " + t(lang, "clear_affects", list=t(lang, "list_sep").join(parts))
+    return text
+
+
+def message_for(
+    row: Notification, lang: Language, actor_name: str | None = None
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """The alert text (HTML) and its Mini App button, in `lang`. `actor_name`: who acted, for
+    alerts that name them (None: "System")."""
     p: dict[str, Any] = row.payload
     again = t(lang, "again") if p.get("repeat") else ""
     code = escape(str(p.get("code", "")))
-    if row.type in REQUEST_TYPES:
+    if row.type == INVENTORY_CLEARED:
+        text = clear_message(lang, p, actor_name)
+        button, path = "open_clear", f"/workstation/inventory/clears/{row.entity_id}"
+    elif row.type in REQUEST_TYPES:
         text, button, path = _request_message(row, lang)
     elif row.type in SCHEDULE_TYPES:
         text, button, path = _schedule_message(row, lang), "open_attendance", "/attendance/me"
@@ -392,6 +427,16 @@ async def _send_all(ids: list[uuid.UUID], bot: Bot | None) -> dict[str, int]:
                 select(User).where(User.id.in_({r.user_id for r in rows}))
             )
         }
+        actor_ids = {
+            uuid.UUID(r.payload["actor_id"])
+            for r in rows
+            if r.type == INVENTORY_CLEARED and r.payload.get("actor_id")
+        }
+        actors = (
+            {u.id: u for u in await session.scalars(select(User).where(User.id.in_(actor_ids)))}
+            if actor_ids
+            else {}
+        )
         for row in rows:
             user = users.get(row.user_id)
             if bot is None:
@@ -399,7 +444,15 @@ async def _send_all(ids: list[uuid.UUID], bot: Bot | None) -> dict[str, int]:
             elif user is None or user.telegram_user_id is None:
                 row.telegram_status = "not_linked"
             else:
-                text, keyboard = message_for(row, user.language)
+                actor = (
+                    actors.get(uuid.UUID(row.payload["actor_id"]))
+                    if row.type == (INVENTORY_CLEARED) and row.payload.get("actor_id")
+                    else None
+                )
+                # The superadmin reads as "System" to everyone else (redaction, like the bell).
+                hidden = actor is not None and actor.role == Role.SUPERADMIN != user.role
+                actor_name = actor.full_name if actor is not None and not hidden else None
+                text, keyboard = message_for(row, user.language, actor_name)
                 try:
                     await bot.send_message(user.telegram_user_id, text, reply_markup=keyboard)
                 except Exception as e:  # blocked bot, network, bad request: logged, not retried

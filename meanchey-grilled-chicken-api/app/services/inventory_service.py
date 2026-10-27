@@ -2,15 +2,16 @@
 
 Everything that changes stock goes through `apply_movements` in the caller's transaction:
 production (finish / reopen / cancel, `production_service`), orders (Delivering and the return
-review, `order_service`) and adjustments (`set_value`). It
+review, `order_service`), preparations, materials by hand and clears (`inventory_clear_service`). It
 locks the affected balance rows `FOR UPDATE` in `item_code` order (a fixed order, so two
 transactions can't deadlock on them; the batch row, when there is one, is always locked first),
 applies the deltas, refuses with `409 INVENTORY_INSUFFICIENT` if any balance would go below zero
 (the caller's whole action is then rolled back), and inserts the movements with the balances
 after. It never commits.
 
-Every catalog item has `origin = production`: it changes only through production and orders,
-and `set_value` refuses it for everyone (INVENTORY_ITEM_PRODUCTION_ONLY). Migration 0011 removed
+Every catalog item has `origin = production`: it changes only through production, orders and
+clears (stock cleared with a reason, attributed oldest batch first), and `set_value` refuses it
+for everyone (INVENTORY_ITEM_PRODUCTION_ONLY). Migration 0011 removed
 the adjustments made before this rule.
 
 **Materials** (`inventory_materials`, `origin = manual`, group raw) are items resolved from the
@@ -103,6 +104,7 @@ from app.inventory.catalog import (
 )
 from app.models import (
     InventoryBalance,
+    InventoryClear,
     InventoryMaterial,
     InventoryMovement,
     Order,
@@ -123,6 +125,7 @@ from app.schemas.inventory import (
     ItemPreparationSourceOut,
     ItemSourceOut,
     MovementBatch,
+    MovementClear,
     MovementOrder,
     MovementOut,
     MovementPage,
@@ -154,6 +157,7 @@ class Delta:
     batch_id: uuid.UUID | None = None
     order_id: uuid.UUID | None = None
     preparation_id: uuid.UUID | None = None
+    clear_id: uuid.UUID | None = None
 
 
 def _kg(value: Decimal | None) -> Decimal:
@@ -416,6 +420,7 @@ async def apply_movements(
             batch_id=d.batch_id or batch_id,
             order_id=d.order_id,
             preparation_id=d.preparation_id or preparation_id,
+            clear_id=d.clear_id,
             step=d.step,
             reversal_of=d.reversal_of,
             reason=d.reason,
@@ -730,6 +735,7 @@ async def _guard_reversal(
     if not short:
         return
     order_codes = await _orders_using(session, batch.id, [i.code for i, *_ in short])
+    clear_codes = await _orders_using(session, batch.id, [i.code for i, *_ in short], clears=True)
     raise AppError(
         409,
         ErrorCode.PRODUCTION_STOCK_ALREADY_USED,
@@ -745,28 +751,35 @@ async def _guard_reversal(
                     "needed_count": need_c if item.tracks_count else None,
                     "needed_kg": str(_kg(need_k)) if item.tracks_kg else None,
                     "orders": order_codes.get(item.code, []),
+                    "clears": clear_codes.get(item.code, []),
                 }
                 for item, have_c, have_k, need_c, need_k in short
             ],
             "orders": sorted({c for codes_ in order_codes.values() for c in codes_}),
+            "clears": sorted({c for codes_ in clear_codes.values() for c in codes_}),
         },
     )
 
 
 async def _orders_using(
-    session: AsyncSession, batch_id: uuid.UUID, codes: list[str]
+    session: AsyncSession, batch_id: uuid.UUID, codes: list[str], *, clears: bool = False
 ) -> dict[str, list[str]]:
-    """Per item, the codes of the orders that took this batch's stock of it."""
+    """Per item, the codes of the orders (`clears`: the clears) that took this batch's stock of
+    it."""
+    model: Any = InventoryClear if clears else Order
+    key = InventoryMovement.clear_id if clears else InventoryMovement.order_id
     rows = await session.execute(
-        select(InventoryMovement.item_code, Order.code)
-        .join(Order, Order.id == InventoryMovement.order_id)
+        select(InventoryMovement.item_code, model.code)
+        .join(model, model.id == key)
         .where(
             InventoryMovement.batch_id == batch_id,
-            InventoryMovement.source == "order",
+            InventoryMovement.source == ("clear" if clears else "order"),
             InventoryMovement.item_code.in_(codes),
+            # A clear moving stock to Wasted adds there: only what it took counts.
+            func.coalesce(InventoryMovement.count_delta, InventoryMovement.kg_delta) < 0,
         )
         .distinct()
-        .order_by(InventoryMovement.item_code, Order.code)
+        .order_by(InventoryMovement.item_code, model.code)
     )
     result: dict[str, list[str]] = {}
     for code, order_code in rows:
@@ -1197,6 +1210,7 @@ async def movements(
     batch_code: str | None = None,
     order_id: uuid.UUID | None = None,
     preparation_id: uuid.UUID | None = None,
+    clear_id: uuid.UUID | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     page: int = 1,
@@ -1227,6 +1241,8 @@ async def movements(
         conditions.append(InventoryMovement.order_id == order_id)
     if preparation_id:
         conditions.append(InventoryMovement.preparation_id == preparation_id)
+    if clear_id:
+        conditions.append(InventoryMovement.clear_id == clear_id)
     if batch_code:
         conditions.append(
             InventoryMovement.batch_id.in_(
@@ -1290,6 +1306,19 @@ async def movements(
         if preparation_ids
         else {}
     )
+    clear_ids = {m.clear_id for m in rows if m.clear_id}
+    clears = (
+        {
+            c.id: c.code
+            for c in await session.execute(
+                select(InventoryClear.id, InventoryClear.code).where(
+                    InventoryClear.id.in_(clear_ids)
+                )
+            )
+        }
+        if clear_ids
+        else {}
+    )
     items = await resolve(session, {m.item_code for m in rows})
     user_ids = {m.created_by for m in rows if m.created_by}
     users = (
@@ -1321,6 +1350,9 @@ async def movements(
                     id=m.preparation_id, code=preparations[m.preparation_id]
                 )
                 if m.preparation_id in preparations
+                else None,
+                clear=MovementClear(id=m.clear_id, code=clears[m.clear_id])
+                if m.clear_id in clears
                 else None,
                 step=m.step,
                 reversal_of=m.reversal_of,

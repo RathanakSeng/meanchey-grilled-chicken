@@ -20,7 +20,7 @@ InventoryUnit = Literal["count", "kg", "g", "m2"]
 # order: stock out at Delivering; order_return: returned items (stock or wasted) at the review;
 # material_add / material_remove: materials by hand; material_unit_change: kg <-> g switch (or
 # an empty balance to / from m²);
-# preparation: a preparation finished, reopened or cancelled.
+# preparation: a preparation finished, reopened or cancelled; clear: stock cleared (CL-...).
 MovementSource = Literal[
     "production",
     "adjustment",
@@ -30,6 +30,7 @@ MovementSource = Literal[
     "material_remove",
     "material_unit_change",
     "preparation",
+    "clear",
 ]
 # What a preparation may do with a material (models/inventory.PREP_ROLES).
 PrepRole = Literal["none", "packaging", "satay_sauce", "zip_bag_2", "zip_bag_4"]
@@ -135,6 +136,11 @@ class MovementPreparation(BaseModel):
     code: str
 
 
+class MovementClear(BaseModel):
+    id: uuid.UUID
+    code: str
+
+
 class MovementOut(BaseModel):
     id: int
     item_code: str
@@ -153,6 +159,8 @@ class MovementOut(BaseModel):
     order: MovementOrder | None = None
     # Preparation movements: the preparation.
     preparation: MovementPreparation | None = None
+    # Clear movements: the clear (CL-...).
+    clear: MovementClear | None = None
     step: int | None
     # Set on a reversal: the movement it undoes; `reason` is then "reopen" or "cancel".
     reversal_of: int | None

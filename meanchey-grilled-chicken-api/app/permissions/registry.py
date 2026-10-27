@@ -310,6 +310,21 @@ PERMISSIONS += [
         description_km="បង្កើត ប្តូរឈ្មោះ និងទុកសម្ភារៈក្នុងបណ្ណសារ ព្រមទាំងប្តូរខ្នាត។",
         assignable_to=_MANAGERS,
     ),
+    PermissionDef(
+        code="inventory.clear",
+        module="inventory",
+        name_en="Clear stock",
+        name_km="សម្អាតស្តុក",
+        description_en=(
+            "Clear chosen quantities of items with a reason: production losses move to Wasted, "
+            "everything else is removed. Can't be undone."
+        ),
+        description_km=(
+            "សម្អាតបរិមាណទំនិញដែលបានជ្រើសរើស ដោយបញ្ជាក់មូលហេតុ៖ ការខាតបង់ពីផលិតកម្មផ្ទេរទៅខូចខាត "
+            "ផ្សេងទៀតត្រូវដកចេញ។ មិនអាចត្រឡប់វិញបានទេ។"
+        ),
+        assignable_to=_MANAGERS,
+    ),
     # `inventory.adjust` (set stock values) was removed: production items change only through
     # production, materials through add / remove. The sync keeps it inactive.
 ]
@@ -714,6 +729,24 @@ FEATURES: list[FeatureDef] = [
         levels=(("off", ()), ("full", ("inventory.materials_manage",))),
     ),
     FeatureDef(
+        code="inventory_clear",
+        menu="workstation",
+        name_en="Inventory clear",
+        name_km="សម្អាតស្តុក",
+        description_en=(
+            "Clear stock: chosen quantities with a reason, production losses to Wasted, the rest "
+            "removed. Warns about orders, production and preparations it affects. Receives the "
+            "clear alerts."
+        ),
+        description_km=(
+            "សម្អាតស្តុក៖ បរិមាណដែលបានជ្រើសរើស ដោយបញ្ជាក់មូលហេតុ ការខាតបង់ពីផលិតកម្មទៅខូចខាត "
+            "ផ្សេងទៀតដកចេញ។ ព្រមានអំពីការបញ្ជាទិញ ផលិតកម្ម និងការរៀបចំដែលរងផលប៉ះពាល់។ "
+            "ទទួលការជូនដំណឹងអំពីការសម្អាត។"
+        ),
+        applies_to=(Role.GENERAL_MANAGER, Role.SUPERVISOR),
+        levels=(("off", ()), ("full", ("inventory.clear",))),
+    ),
+    FeatureDef(
         code="orders",
         menu="workstation",
         name_en="Orders",
@@ -966,9 +999,14 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
     | _PARTNER_CODES
     | _PRODUCTION_CODES
     | _PLAN_CODES
-    # Inventory Record and Inventory materials Full; Inventory history is Off until the
-    # superadmin allows it.
-    | {"inventory.view", "inventory.materials_stock", "inventory.materials_manage"}
+    # Inventory Record, Inventory materials and Inventory clear Full; Inventory history is Off
+    # until the superadmin allows it.
+    | {
+        "inventory.view",
+        "inventory.materials_stock",
+        "inventory.materials_manage",
+        "inventory.clear",
+    }
     # Orders Record, management, returns, export and containers Full.
     | _ORDER_CODES
     # Preparation Record, preparation management Full.
@@ -995,6 +1033,7 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
             "inventory": "record",
             "inventory_history": "off",
             "inventory_materials": "off",
+            "inventory_clear": "off",
             # Orders Record; editing, cancelling and reviewing returns are the GM's to allow.
             "orders": "record",
             "order_management": "off",

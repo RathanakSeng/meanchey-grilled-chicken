@@ -157,6 +157,66 @@ TEXTS: dict[str, dict[Language, str]] = {
         Language.KM: "",
         Language.EN: "",
     },
+    "inventory_cleared": {
+        Language.KM: "🧹 {name} បានសម្អាតស្តុក <b>{code}</b>៖ {items} — “{reason}”។",
+        Language.EN: "🧹 {name} cleared stock <b>{code}</b>: {items} — “{reason}”.",
+    },
+    "clear_affects": {
+        Language.KM: "ប៉ះពាល់ដល់ {list}។",
+        Language.EN: "Affects {list}.",
+    },
+    "clear_affects_order": {
+        Language.KM: "ការបញ្ជាទិញ {n}",
+        Language.EN: "{n} orders",
+    },
+    "clear_affects_order_one": {
+        Language.KM: "ការបញ្ជាទិញ {n}",
+        Language.EN: "{n} order",
+    },
+    "clear_affects_production": {
+        Language.KM: "បាច់ផលិតកម្ម {n}",
+        Language.EN: "{n} production batches",
+    },
+    "clear_affects_production_one": {
+        Language.KM: "បាច់ផលិតកម្ម {n}",
+        Language.EN: "{n} production batch",
+    },
+    "clear_affects_plan": {
+        Language.KM: "ផែនការវេចខ្ចប់ {n}",
+        Language.EN: "{n} packaging plans",
+    },
+    "clear_affects_plan_one": {
+        Language.KM: "ផែនការវេចខ្ចប់ {n}",
+        Language.EN: "{n} packaging plan",
+    },
+    "clear_affects_preparation": {
+        Language.KM: "ការរៀបចំ {n}",
+        Language.EN: "{n} preparations",
+    },
+    "clear_affects_preparation_one": {
+        Language.KM: "ការរៀបចំ {n}",
+        Language.EN: "{n} preparation",
+    },
+    "clear_affects_reopen": {
+        Language.KM: "ជំហានដែលមិនអាចបើកឡើងវិញ {n}",
+        Language.EN: "{n} steps that can't be reopened",
+    },
+    "clear_affects_reopen_one": {
+        Language.KM: "ជំហានដែលមិនអាចបើកឡើងវិញ {n}",
+        Language.EN: "{n} step that can't be reopened",
+    },
+    "list_sep": {
+        Language.KM: ", ",
+        Language.EN: ", ",
+    },
+    "system": {
+        Language.KM: "ប្រព័ន្ធ",
+        Language.EN: "System",
+    },
+    "open_clear": {
+        Language.KM: "🧹 បើក",
+        Language.EN: "🧹 Open",
+    },
     "open_preparation": {
         Language.KM: "🧂 បើកការរៀបចំ",
         Language.EN: "🧂 Open preparation",

@@ -65,6 +65,7 @@ export function InventoryItemCard({
   ariaLabel,
   onOpen,
   action,
+  selection,
 }: {
   picture: string | null
   /** Drawn when there's no picture (the box, or a material's unit icon). */
@@ -80,20 +81,36 @@ export function InventoryItemCard({
   ariaLabel: string
   onOpen(): void
   action?: ReactNode
+  /** Selection mode (Clear stock): a checkbox in the corner; tapping toggles it (`onOpen`). */
+  selection?: { checked: boolean; disabled: boolean }
 }) {
   return (
     <div
       className={cx(
         'relative flex h-full flex-col rounded-2xl bg-white shadow-sm ring-1 ring-stone-200 transition',
-        'hover:ring-brand-300',
+        selection?.checked ? 'ring-2 ring-brand-500' : 'hover:ring-brand-300',
+        selection?.disabled && 'opacity-50',
       )}
     >
       <button
         type="button"
         onClick={onOpen}
         aria-label={ariaLabel}
-        className="flex flex-1 flex-col items-center rounded-2xl px-3 pb-2 pt-4 text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+        aria-pressed={selection ? selection.checked : undefined}
+        disabled={selection?.disabled}
+        className="flex flex-1 flex-col items-center rounded-2xl px-3 pb-2 pt-4 text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:cursor-not-allowed"
       >
+        {selection && (
+          <span
+            className={cx(
+              'absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded ring-1 ring-inset',
+              selection.checked ? 'bg-brand-600 text-white ring-brand-600' : 'bg-white ring-stone-300',
+            )}
+            aria-hidden
+          >
+            {selection.checked && <Icon name="check" width={14} height={14} strokeWidth={3} />}
+          </span>
+        )}
         {badge && (
           <span
             className={cx(

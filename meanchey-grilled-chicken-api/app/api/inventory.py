@@ -1,13 +1,24 @@
-"""Inventory: balances, per-batch breakdown, the movement history (inventory.history) and
-materials (services/material_service.py)."""
+"""Inventory: balances, per-batch breakdown, the movement history (inventory.history),
+materials (services/material_service.py) and clears (services/inventory_clear_service.py)."""
 
 import uuid
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 
-from app.deps import SessionDep, require_permission
+from app.bot.notify import deliver
+from app.deps import SessionDep, require_any_permission, require_permission
 from app.inventory.catalog import Section
 from app.models import User
 from app.permissions.service import effective_permissions
@@ -19,6 +30,13 @@ from app.schemas.inventory import (
     MovementSource,
     SetValueIn,
 )
+from app.schemas.inventory_clear import (
+    ClearCreateIn,
+    ClearOut,
+    ClearPage,
+    ClearPreviewIn,
+    ClearPreviewOut,
+)
 from app.schemas.material import (
     MaterialCreate,
     MaterialOut,
@@ -26,8 +44,8 @@ from app.schemas.material import (
     StockAddIn,
     StockRemoveIn,
 )
+from app.services import inventory_clear_service, material_service, notification_service
 from app.services import inventory_service as svc
-from app.services import material_service
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -35,6 +53,10 @@ CanView = Annotated[User, Depends(require_permission("inventory.view"))]
 CanSeeHistory = Annotated[User, Depends(require_permission("inventory.history"))]
 CanStock = Annotated[User, Depends(require_permission("inventory.materials_stock"))]
 CanManage = Annotated[User, Depends(require_permission("inventory.materials_manage"))]
+CanClear = Annotated[User, Depends(require_permission("inventory.clear"))]
+CanSeeClears = Annotated[
+    User, Depends(require_any_permission(*inventory_clear_service.READ_PERMISSIONS))
+]
 
 
 @router.get("", response_model=InventoryOut)
@@ -62,6 +84,7 @@ async def movements(
     batch_code: Annotated[str | None, Query(max_length=32)] = None,
     order_id: uuid.UUID | None = None,
     preparation_id: uuid.UUID | None = None,
+    clear_id: uuid.UUID | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
@@ -69,7 +92,7 @@ async def movements(
 ) -> MovementPage:
     """Newest first. Dates are business days (BUSINESS_TIMEZONE); `batch_code` matches part of
     the batch code; `order_id`: the movements of one order (delivery and return);
-    `preparation_id`: one preparation's."""
+    `preparation_id`: one preparation's; `clear_id`: one clear's."""
     return await svc.movements(
         session,
         item_code=item_code,
@@ -79,6 +102,7 @@ async def movements(
         batch_code=batch_code,
         order_id=order_id,
         preparation_id=preparation_id,
+        clear_id=clear_id,
         date_from=date_from,
         date_to=date_to,
         page=page,
@@ -204,3 +228,57 @@ async def remove_stock(
     """`quantity` > 0 and a `reason`; can't go below 0 (INVENTORY_INSUFFICIENT)."""
     material = await material_service.remove_stock(session, actor, material_id, body)
     return await material_service.material_out(session, material)
+
+
+# --- Clears --------------------------------------------------------------------------------------
+
+
+@router.post("/clears/preview", response_model=ClearPreviewOut)
+async def preview_clear(body: ClearPreviewIn, _: CanClear, session: SessionDep) -> ClearPreviewOut:
+    """Dry run: per line current / after and where it goes (its wasted item or removed), and the
+    impacts. Over the balance → 409 INVENTORY_INSUFFICIENT. Nothing is written."""
+    return await inventory_clear_service.preview(session, body)
+
+
+@router.post("/clears", response_model=ClearOut, status_code=status.HTTP_201_CREATED)
+async def create_clear(
+    body: ClearCreateIn,
+    actor: CanClear,
+    session: SessionDep,
+    request: Request,
+    background: BackgroundTasks,
+) -> ClearOut:
+    """Clear the lines (CL-YYYYMMDD-NNN), applied at once and never undone. With impacts,
+    `acknowledge_impacts: true` is required (else 409 INVENTORY_CLEAR_UNACKNOWLEDGED with them).
+    The alert is stored now and sent to Telegram after the response."""
+    try:
+        clear = await inventory_clear_service.create(session, actor, body)
+    except Exception:
+        notification_service.discard_queued(session)
+        raise
+    ids = notification_service.take_queued(session)
+    if ids:
+        background.add_task(deliver, ids, request.app.state.telegram)
+    return await inventory_clear_service.clear_out(session, clear)
+
+
+@router.get("/clears", response_model=ClearPage)
+async def list_clears(
+    _: CanSeeClears,
+    session: SessionDep,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = inventory_clear_service.PAGE_SIZE,
+) -> ClearPage:
+    """Newest first; dates are business days (BUSINESS_TIMEZONE)."""
+    return await inventory_clear_service.list_clears(
+        session, date_from=date_from, date_to=date_to, page=page, page_size=page_size
+    )
+
+
+@router.get("/clears/{clear_id}", response_model=ClearOut)
+async def get_clear(clear_id: uuid.UUID, _: CanSeeClears, session: SessionDep) -> ClearOut:
+    """The lines, the reason, the impacts acknowledged, who and when."""
+    clear = await inventory_clear_service.get(session, clear_id)
+    return await inventory_clear_service.clear_out(session, clear)

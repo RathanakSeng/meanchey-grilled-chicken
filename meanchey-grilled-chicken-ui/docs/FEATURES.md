@@ -29,7 +29,7 @@ Phase 1 covers sign-in, user management and access control (feature access level
 
 | | PC dashboard | Telegram Mini App |
 |---|---|---|
-| Opened from | Browser | The bot's **Open app** button or menu button (**បើកកម្មវិធី**), or the **Attendance** button (in `/start` for staff and supervisors, reminders and confirmations) straight to the check screen |
+| Opened from | Browser | The bot's **Open app** button or menu button (**បើកកម្មវិធី**), or the **Attendance** button of reminders and confirmations straight to the check screen (the `/start` Attendance button is disabled for now) |
 | Sign-in | Username + password | Automatic, using Telegram `initData` |
 | Layout | Left sidebar + top bar | Top bar + bottom navigation, full-height, safe-area aware |
 | Navigation | Sidebar: Home · Workstation · Attendance · Settings (with its sub-pages nested) | Bottom bar: Home · Workstation · Attendance · Settings |
@@ -271,14 +271,15 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
 
 | 🧂 | A preparation finished (§6.7) | *"PP-…: preparation finished — 40 satay sachets (2-piece), 25 (4-piece) | Skewer 2.000 kg."* ("again" after a reopen) | the preparation |
 | 🚚 ✅ ↩️ 📦 | An order out for delivery, delivered, returned, return reviewed (§6.6) | e.g. *"OR-…: Dara Shop returned items — 2 × 4-Piece Packs. Review the return."* and the reason | the order |
+| 🧹 | Stock cleared (§6.5) | *"Dara cleared stock CL-…: Liver (processed) 1.500 kg, 4-Piece Packs 20 — “Freezer broke overnight”. Affects 1 order, 1 production batch."* | the clear record |
 
-**Who gets them:** production alerts go to everyone with Production plan access, preparation alerts to everyone with **Preparation management**, order alerts to everyone with **Order returns** (general managers, supervisors given access, and the system account), also on **Telegram** when their Telegram account is linked, with an **Open plan** / **Open batch** / **Open order** button into the Mini App. Staff get none.
+**Who gets them:** production alerts go to everyone with Production plan access, preparation alerts to everyone with **Preparation management**, order alerts to everyone with **Order returns** (general managers, supervisors given access, and the system account), clear alerts to the system account and everyone with **Inventory clear** or **Inventory history** (who can open the record), also on **Telegram** when their Telegram account is linked, with an **Open plan** / **Open batch** / **Open order** button into the Mini App. Staff get none.
 
 ### 6.5 Inventory (ស្តុក)
 
 **Path:** `/workstation/inventory`: main tabs **Stock** (ស្តុក, `?tab=stock&section=raw|processed|packed|prepared|wasted`) and **History** (ប្រវត្តិ, `?tab=history`). **Who can open it:** `inventory.view` (GM and supervisors by default; staff when given *View only*). Lazy-loaded.
 
-**Production items are read-only.** Every production item changes only through production (Finish, reopen, cancel) and orders (Start delivery, return review, §6.6); nobody sets their stock by hand. **Materials** (string, skewers, stickers, sauces, bags…) are the exception: see *Materials* below. **History** (every movement) needs **Inventory history** (`inventory.history`), which is off by default: without it there is no tab bar and Stock shows directly, item sheets show no recent changes, and batch pages show no Stock changes.
+**Production items are read-only.** Every production item changes only through production (Finish, reopen, cancel), orders (Start delivery, return review, §6.6) and **Clear stock** (below); nobody sets their stock by hand. **Materials** (string, skewers, stickers, sauces, bags…) are the exception: see *Materials* below. **History** (every movement) needs **Inventory history** (`inventory.history`), which is off by default: without it item sheets show no recent changes and batch pages show no Stock changes, and there is no tab bar (Stock shows directly) unless the user has **Inventory clear**, whose History tab then shows only the clear records.
 
 Stock updates **automatically** as production steps are finished; reopening a step or cancelling a batch undoes what it did. Nothing can go below zero.
 
@@ -315,14 +316,22 @@ Stock updates **automatically** as production steps are finished; reopening a st
 - **Item sheet:** **From preparations** (ពីការរៀបចំ) instead of From production: one row per preparation that currently adds to it (its code, linking to the preparation, and its prepared date) with the amount, then a Total equal to the balance; *"Nothing from preparations right now."* when empty. Recent changes with Inventory history as usual.
 - History rows: *"Preparation PP-…"* (links to it) or *"Reversed: reopen / cancelled · PP-…"*; prepared items read *"Prepared: Skewer"*. The area filter has **Prepared**, the type filter **Preparation**.
 
+**Clear stock (សម្អាតស្តុក)** — with **Inventory clear** (`inventory.clear`; general managers by default, supervisors when given it)
+
+- Every sub-tab has a **🧹 Clear stock** button above the grid. It switches the grid into **selection mode**: a hint (*"Tap the items to clear. Items without stock can't be chosen; your choice is kept across the tabs."*), a checkbox in each card's corner (tapping a card ticks it, with an orange ring; cards at 0 are dimmed and can't be chosen), no Add buttons or archived materials. The selection is kept while switching sub-tabs. A dark bar at the bottom: *"2 items selected"* · **Cancel** (leaves selection mode) · **Continue** (disabled at 0).
+- **Review sheet** (*Clear stock*): one row per item with its picture, name (*"Wasted: 4-Piece Packs"* for wasted items), *"In stock: 28 · → Wasted"* (red) or *"· Removed"*, the **amount to clear** (empty by default; numeric / decimal keypad in the item's unit, the count for chicken, wings, thighs and packs) with **All** (fills the whole stock), and the live *"28 → 8"* (with the kg a counted item takes, *"(≈ 1.050 kg)"*); too much or too many decimals in red. **×** removes a row. A required **Reason**. While amounts change, the dry run runs again (*"Checking what this affects…"*): when something is affected a red box says *"This clear affects 1 order, 1 production batch, 3 records that can't be reopened."* and lists them under **Orders · Production · Plans · Preparations · Reopen**, each with its code linking to the order, batch (at that step), plan or preparation, e.g. *"OR-20261027-003 needs 10 of 4-Piece Packs; 8 would be left, so Start delivery would fail."*; then the required checkbox **"I understand this affects the items above"**. Otherwise *"Nothing else is affected."* Footer: *"A clear is applied at once and can't be undone."* and **Confirm clear** (red), disabled until every amount is valid, the dry run matches them, the reason is filled and the warnings acknowledged. If stock changed meanwhile: *"Stock changed while you were reviewing: check the warnings again and acknowledge them."*
+- After confirming: *"Stock cleared: CL-20261027-001."* with **Open the record**, the grid refreshed (the amounts appear in Wasted), selection mode off.
+- **Clear records:** History → **Clears** (pills *Movements · Clears* above the history with Inventory history; the only view with Inventory clear alone): newest first, a date range, each with its code, *Warnings acknowledged* when there were some, the items and amounts, the reason, when and who. A record (`/workstation/inventory/clears/:id`, also from the alert, history rows and the audit log): who, when, the reason, the items (*"−20 → Wasted"* / *"−1.500 kg Removed"*) and the warnings acknowledged, grouped like the sheet.
+
 **History tab**
 
-- Movements, newest first, 50 per page (the same rows as in the item sheet). Filters (kept in the URL): item, section (stock / wasted), type (production, order, return), date range, part of a batch code. Only with **Inventory history**.
+- Movements, newest first, 50 per page (the same rows as in the item sheet). Filters (kept in the URL): item, section (stock / wasted), type (production, order, return, …, clear), date range, part of a batch code. Only with **Inventory history**.
 - Each row: item (*"Wasted: Wings"* for wasted items), the change (+ green / − red; count and kg, "≈" when estimated), the new balance, the source and who did it:
   - production: the **batch code** (opens the batch at that step) · step name;
   - a reversal: *"Reversed: reopen"* or *"Reversed: cancelled"* · batch code · step;
   - an order: *"Order OR-… · from PR-…"* (the order and the batch the packs were taken from), or a return: *"Return OR-… · to PR-…"*;
-  - an adjustment: *"Adjustment — reason"*.
+  - an adjustment: *"Adjustment — reason"*;
+  - a clear: *"Clear CL-… · PR-…"* (the clear and the batch or preparation the quantity came from).
 - Movements made by the superadmin read *System*.
 
 **On the production batch page**
@@ -421,7 +430,7 @@ Raw materials made **ready to use**. **Not production step 3 (Standardize)**: pr
 
 ### 7.1 Check screen (`/attendance/check`)
 
-Opened by the Telegram reminders and confirmations, the **Attendance** button of the bot's `/start` message, the Home card and My attendance. Tracked employees only (lazy chunk with the map).
+Opened by the Telegram reminders and confirmations, the bot's menu button (through the app), the Home card and My attendance (the bot's `/start` message has no Attendance button for now: it shows Open app only). Tracked employees only (lazy chunk with the map).
 
 - **One action**, the API's `next_action`: *Check in — Morning shift* / *Check out — Morning shift* with *Open until 07:44*. With nothing to do (no window open, or a **day off**) it goes straight to the Attendance page, whose card says why. In the 12:30–12:59 overlap it shows the morning check-out first; the afternoon check-in is then the Attendance card's button. An `?action=` from an older link is ignored.
 - **Before the start date / switched off:** instead of the form, a notice — *"Your attendance starts on 20 Oct 2026."* (the employee's `attendance_start_date`, `me/today` `starts_on`), or *"Attendance isn't required for you."* for a supervisor whose attendance is switched off (`tracked = false`). Nothing to confirm; the Mini App never asks for a location.
@@ -739,11 +748,12 @@ Supervisors never see detailed permissions; they see feature levels only on the 
   - production: batch started, step finished and step reopened (*"Step 1 · Intake"*, plus *"Also back to draft: step 2, 3"* when later steps were reopened with it), batch cancelled (with the reason). Draft saves aren't logged;
   - packaging plans: *Edited packaging plan* (field changes in the details) and *Confirmed packaging plan* (*"148 × 4-piece · 4 × 2-piece"*), linked to the batch;
   - preparations: started, finished (the sachets made or the materials moved), reopened, cancelled (with the reason), linked to the preparation;
+  - stock clears: *Stock cleared* (*"4-Piece Packs −20 → Wasted, String −1.500 kg Removed — “reason”"*), linked to the clear record;
   - orders: created, edited, cancelled (with the reason), out for delivery, delivered (*Everything accepted* / *Items returned* and the reason), return reviewed (*Partly* / *Fully returned*), delivery note printed (*Original* / *Copy #n*, downloaded or sent to Telegram), linked to the order;
   - business info changed (the changed fields; the superadmin's changes are hidden from general managers);
   - employees' own schedules: *Employee schedule changed* / *reset to the workplace* / *Planned employee schedule change deleted* (who and from when), *Set to work on a holiday* / *Off on a holiday again* (the holiday, who, which days);
   - the system account linking or unlinking its Telegram (superadmin only).
-- **Filters:** record type (All · Suppliers · Customers · Production batches · Orders · Materials · Preparations) and action type.
+- **Filters:** record type (All · Suppliers · Customers · Production batches · Orders · Materials · Preparations · Stock clears) and action type.
 - Each entry shows:
   - the time, in the current language's format;
   - the action, as a translated badge, red for failures and locks;
@@ -837,6 +847,8 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 | Set stock by hand | ❌ never (production items) | ❌ never | ❌ never | ❌ never |
 | Add / remove material stock (Raw) | ✅ | Inventory = Record (default) | Inventory = Record (default) | Inventory = Record (default Off) |
 | Add, edit, archive, restore materials; Show archived | ✅ | Inventory materials = Full (default) | Inventory materials = Full (default Off) | ❌ never |
+| Clear stock (selection mode, review sheet); History → Clears and clear records; clear alerts | ✅ | Inventory clear = Full (default; the superadmin can turn it off; with Inventory history alone the GM still gets the alerts) | Inventory clear = Full (default Off; given by a GM) | ❌ never |
+| Clear records only (History → Clears, the record page) | ✅ | Inventory history or Inventory clear | Inventory history or Inventory clear | ❌ never |
 | Workstation → Orders (list, order page) | ✅ | Orders ≥ View only (default Record) | Orders ≥ View only (default Record) | Orders ≥ View only (default Off) |
 | Create orders, Start delivery, Mark delivered (incl. returns) | ✅ | Orders = Record (default) | Orders = Record (default) | Orders = Record |
 | Edit / cancel Created orders | ✅ | Order management = Full (default) | Order management = Full (default Off) | ❌ never |

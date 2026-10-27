@@ -29,6 +29,7 @@ NOTIFICATION_TYPES = (
     "attendance.schedule_changed",
     "attendance.holiday_work",
     "attendance.holiday_off",
+    "inventory.cleared",
 )
 TELEGRAM_STATUSES = ("pending", "sent", "failed", "not_linked", "bot_off")
 

@@ -1,5 +1,6 @@
-"""Attendance in the bot: the /start Attendance button (tracked employees only), no attendance
-commands, the menu button at registration (fingerprint includes MINI_APP_URL) and per chat."""
+"""Attendance in the bot: /start shows Open app only (its Attendance button is disabled for now),
+no attendance commands, the menu button at registration (fingerprint includes MINI_APP_URL) and
+per chat."""
 
 import pytest
 
@@ -38,14 +39,17 @@ def _buttons(sent) -> list[tuple[str, str]]:
     return [(b.text, b.web_app.url) for b in row]
 
 
-async def test_start_shows_attendance_for_tracked_employees(client, tg, make_user) -> None:
+# The /start Attendance button is disabled for now (the commented-out lines in
+# app/bot/handlers.py `app_keyboard`): everyone gets Open app only, tracked employees included.
+# When it's restored, tracked staff / supervisors expect
+# ("🕒 វត្តមាន", f"{MINI_APP}/attendance/check") next to it.
+
+
+async def test_start_for_tracked_employees_is_open_app_only(client, tg, make_user) -> None:
     await make_user(Role.STAFF, telegram_user_id=901)
     await _command(client, "/start", 901)
     (sent,) = tg.calls("SendMessage")
-    assert _buttons(sent) == [
-        ("🍗 បើកកម្មវិធី", MINI_APP),
-        ("🕒 វត្តមាន", f"{MINI_APP}/attendance/check"),
-    ]
+    assert _buttons(sent) == [("🍗 បើកកម្មវិធី", MINI_APP)]
 
 
 async def test_start_in_english_for_supervisors(client, session, tg, make_user) -> None:
@@ -54,11 +58,12 @@ async def test_start_in_english_for_supervisors(client, session, tg, make_user) 
     await session.commit()
     await _command(client, "/start", 902)
     (sent,) = tg.calls("SendMessage")
-    assert [text for text, _ in _buttons(sent)] == ["🍗 Open app", "🕒 Attendance"]
+    assert [text for text, _ in _buttons(sent)] == ["🍗 Open app"]
 
 
 async def test_start_without_attendance(client, tg, make_user) -> None:
-    """General managers, deactivated employees and unlinked chats only get Open app."""
+    """General managers, deactivated employees and unlinked chats get Open app (like everyone
+    while the Attendance button is disabled)."""
     await make_user(Role.GENERAL_MANAGER, telegram_user_id=903)
     await make_user(Role.STAFF, telegram_user_id=904, is_active=False)
     for tg_id in (903, 904, 999):

@@ -188,6 +188,11 @@ async def world(client, session, superadmin, make_user) -> dict:
     prepared = await post(f"/preparations/{prepared['id']}/finish", {"version": 2})
     dropped = await post("/preparations", {"type": "satay_sachet"})
     await post(f"/preparations/{dropped['id']}/cancel", {"version": 1, "reason": "Not needed"})
+    # Stock the superadmin cleared (created_by, its movements, the audit entry, the GMs' alert).
+    clear = await post(
+        "/inventory/clears",
+        {"lines": [{"item_code": string["item_code"], "quantity": "0.2"}], "reason": "Spilled"},
+    )
     # Its step 1 finish above also wrote inventory movements with created_by = the superadmin.
     # Attendance: the superadmin set the workplace, created a second one (created_by), changed
     # the schedule of all (today and an upcoming version: created_by), added a holiday, added a
@@ -311,6 +316,7 @@ async def world(client, session, superadmin, make_user) -> dict:
         "kept_box": kept["boxes"][0]["id"],
         "string": string,
         "preparations": [prepared["id"], dropped["id"]],
+        "clear": clear["id"],
         "workplace": workplace["id"],
         "branch": branch["id"],
         "attendance_record": attendance["id"],
@@ -365,6 +371,8 @@ def _fill(path: str, world: dict) -> list[str]:
         return [path.replace("{holiday_id}", world[k]) for k in ("holiday", "future_holiday")]
     if "{request_id}" in path:
         return [path.replace("{request_id}", world["request"])]
+    if "{clear_id}" in path:
+        return [path.replace("{clear_id}", world["clear"])]
     assert not re.search(r"\{\w+\}", path), f"sweep doesn't know how to fill {path}"
     return [path]
 
@@ -414,6 +422,10 @@ EXTRA_QUERIES = [
     "/attendance/calendar?year=2099&month=4",
     "/audit-logs?action=attendance.employee_schedule_update",
     "/audit-logs?action=attendance.holiday_exception_create",
+    "/inventory/clears",
+    "/inventory/movements?source=clear",
+    "/audit-logs?action=inventory.clear",
+    "/audit-logs?entity_type=inventory_clear",
 ]
 
 
@@ -533,8 +545,9 @@ async def test_delivery_note_names_the_superadmin_as_system(client, world, html_
 async def test_alerts_and_plans_name_the_superadmin_as_system(client, world) -> None:
     for key in ("gm", "sup"):
         page = (await client.get("/notifications", headers=auth(world[key]))).json()
-        # The plan alert; the GM also the preparation alert (preparation.update).
-        assert page["total"] == (2 if key == "gm" else 1)
+        # The plan alert; the GM also the preparation alert (preparation.update) and the clear
+        # alert (every general manager).
+        assert page["total"] == (3 if key == "gm" else 1)
         assert all(item["actor"]["is_system"] is True for item in page["items"])
         plan = (
             await client.get(f"/production-plans/{world['planned']}", headers=auth(world[key]))
@@ -566,6 +579,8 @@ async def test_references_become_system(client, world) -> None:
     assert supplier["created_by"]["is_system"] is True
     assert supplier["updated_by"]["is_system"] is True
 
+    clear = (await client.get(f"/inventory/clears/{world['clear']}", headers=auth(gm))).json()
+    assert clear["created_by"]["is_system"] is True
     order = (await client.get(f"/orders/{world['orders'][2]}", headers=auth(gm))).json()
     assert order["boxes"][0]["container_recorded_by"]["is_system"] is True
     order = (

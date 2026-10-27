@@ -46,7 +46,12 @@ async def test_gm_gets_all_phase1_partner_and_production_permissions(client, sup
         | PRODUCTION
         | PLAN
         # Inventory Record, Inventory materials Full; not inventory.history (Off).
-        | {"inventory.view", "inventory.materials_stock", "inventory.materials_manage"}
+        | {
+            "inventory.view",
+            "inventory.materials_stock",
+            "inventory.materials_manage",
+            "inventory.clear",
+        }
         | ORDERS  # Orders Record, management Full, returns Full
         | {"orders.export_delivery_note", "orders.containers"}
         # Preparation Record, preparation management Full.

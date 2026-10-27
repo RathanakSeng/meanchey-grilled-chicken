@@ -275,7 +275,8 @@
       "attendance_workplace": "Workplaces",
       "attendance_shifts": "Schedules",
       "attendance_requests": "Attendance requests",
-      "audit_log": "Audit log"
+      "audit_log": "Audit log",
+      "inventory_clear": "Inventory clear"
     },
     "legendRecord": "Record: can start batches and fill in steps, but can't reopen finished steps.",
     "gmHint": "Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced).",
@@ -306,7 +307,8 @@
       "order": "Order",
       "material": "Material",
       "preparation": "Preparation",
-      "attendance_request": "Attendance request"
+      "attendance_request": "Attendance request",
+      "inventory_clear": "Stock clear"
     },
     "defaultBackfill": "Granted automatically (role default)",
     "actions": {
@@ -381,7 +383,8 @@
       "attendance_employee_schedule_reset": "Employee schedule reset to the workplace",
       "attendance_employee_schedule_version_delete": "Planned employee schedule change deleted",
       "attendance_holiday_exception_create": "Set to work on a holiday",
-      "attendance_holiday_exception_delete": "Off on a holiday again"
+      "attendance_holiday_exception_delete": "Off on a holiday again",
+      "inventory_clear": "Stock cleared"
     },
     "featureChange": "{{feature}}: {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
@@ -573,7 +576,7 @@
     "INVENTORY_ITEM_NOT_FOUND": "This inventory item doesn't exist.",
     "inventoryShortItem": "Not enough {{name}} in stock: {{available}} available, {{needed}} needed.",
     "INVENTORY_ITEM_PRODUCTION_ONLY": "This item changes only through production.",
-    "PRODUCTION_STOCK_ALREADY_USED": "{{items}} from this batch were already delivered in {{orders}} — can't reopen or cancel it.",
+    "PRODUCTION_STOCK_ALREADY_USED": "{{items}} from this batch were already delivered or cleared ({{orders}}) — can't reopen or cancel it.",
     "ORDER_NOT_FOUND": "Order not found.",
     "ORDER_CONFLICT": "Someone else changed this order. It has been reloaded; please try again.",
     "ORDER_INVALID_STATUS": "This order has moved on and can’t be changed this way any more.",
@@ -634,7 +637,9 @@
     "ATTENDANCE_MONTH_LOCKED": "This month is locked by an attendance request, so its attendance can't be changed.",
     "ATTENDANCE_SCHEDULE_INVALID": "{{name}}'s shift times don't make a valid day from {{date}} (shifts overlap, end before they start, or a check-in / check-out window falls outside the day).",
     "ATTENDANCE_SCHEDULE_CONFLICT": "This change doesn't fit the own shift times of: {{names}}. Change their schedule first.",
-    "ATTENDANCE_EXCEPTION_NOT_FOUND": "This employee isn't set to work on that day any more."
+    "ATTENDANCE_EXCEPTION_NOT_FOUND": "This employee isn't set to work on that day any more.",
+    "INVENTORY_CLEAR_UNACKNOWLEDGED": "Stock changed while you were reviewing: check the warnings again and acknowledge them.",
+    "INVENTORY_CLEAR_NOT_FOUND": "This clear doesn't exist."
   },
   "permissions": {
     "readOnlyNotice": "You can view these permissions, but you can't change them here.",
@@ -910,7 +915,9 @@
     "requestReminder": "Your {{month}} balance is −{{missing}}. Submit your request by {{deadline}}.",
     "scheduleChanged": "Your attendance schedule changes from {{date}}: {{weekdays}} · {{shifts}}.",
     "holidayWork": "You work on {{holiday}} ({{date}}): {{shifts}}.",
-    "holidayOff": "You're off on {{holiday}} ({{date}})."
+    "holidayOff": "You're off on {{holiday}} ({{date}}).",
+    "inventoryCleared": "{{name}} cleared stock {{code}}: {{items}} — “{{reason}}”.",
+    "clearAffects": "Affects {{list}}."
   },
   "telegramLink": {
     "title": "Telegram",
@@ -1007,7 +1014,8 @@
       "material_add": "Added",
       "material_remove": "Removed",
       "material_unit_change": "Unit changed",
-      "preparation": "Preparation"
+      "preparation": "Preparation",
+      "clear": "Clear"
     },
     "reversedReopen": "Reversed: reopen",
     "reversedCancel": "Reversed: cancelled",
@@ -1046,7 +1054,76 @@
     "toBatch": "to",
     "gValue": "{{value}} g",
     "fromPreparation": "From preparations",
-    "noPreparationStock": "Nothing from preparations right now."
+    "noPreparationStock": "Nothing from preparations right now.",
+    "clear": {
+      "start": "Clear stock",
+      "selectHint": "Tap the items to clear. Items without stock can't be chosen; your choice is kept across the tabs.",
+      "selected_one": "{{count}} item selected",
+      "selected_other": "{{count}} items selected",
+      "continue": "Continue",
+      "done": "Stock cleared: {{code}}.",
+      "openRecord": "Open the record",
+      "title": "Clear stock",
+      "intro": "Enter how much of each item to clear. Production losses (processed and packed items) move to Wasted; everything else is removed.",
+      "reason": "Reason",
+      "reasonHint": "Required. Shown on the record and in the alert.",
+      "checking": "Checking what this affects…",
+      "affectsSummary": "This clear affects {{list}}.",
+      "acknowledge": "I understand this affects the items above",
+      "noImpacts": "Nothing else is affected.",
+      "noUndo": "A clear is applied at once and can't be undone.",
+      "confirm": "Confirm clear",
+      "removeLine": "Remove {{name}}",
+      "inStock": "In stock: {{amount}}",
+      "toWasted": "→ Wasted",
+      "removed": "Removed",
+      "amount": "Amount of {{name}} to clear ({{unit}})",
+      "all": "All",
+      "tooMuch": "Only {{amount}} in stock.",
+      "enterAmount": "Enter an amount.",
+      "groups": {
+        "order": "Orders",
+        "production": "Production",
+        "plan": "Plans",
+        "preparation": "Preparations",
+        "reopen": "Reopen"
+      },
+      "impact": {
+        "order_short": "needs {{needed}} of {{item}}; {{available}} would be left, so Start delivery would fail.",
+        "production_step2_short": "needs {{needed}} of {{item}} for step 2; {{available}} would be left.",
+        "production_step3_short": "needs {{needed}} of {{item}} for step 3; {{available}} would be left.",
+        "plan_sachets_short": "plans {{needed}} {{item}}; {{available}} would be left.",
+        "preparation_short": "uses {{needed}} of {{item}}; {{available}} would be left.",
+        "reopen_batch_blocked": "step {{step}} made {{needed}} of {{item}}; with {{available}} left it couldn't be reopened or cancelled.",
+        "reopen_preparation_blocked": "made {{needed}} of {{item}}; with {{available}} left it couldn't be reopened or cancelled."
+      },
+      "affects": {
+        "order_one": "{{count}} order",
+        "order_other": "{{count}} orders",
+        "production_one": "{{count}} production batch",
+        "production_other": "{{count}} production batches",
+        "plan_one": "{{count}} packaging plan",
+        "plan_other": "{{count}} packaging plans",
+        "preparation_one": "{{count}} preparation",
+        "preparation_other": "{{count}} preparations",
+        "reopen_one": "{{count}} record that can't be reopened",
+        "reopen_other": "{{count}} records that can't be reopened"
+      },
+      "none": "No stock has been cleared yet.",
+      "withImpacts": "Warnings acknowledged",
+      "recordTitle": "Clear",
+      "recordSubtitle": "Stock cleared by hand",
+      "by": "Cleared by",
+      "when": "When",
+      "items": "Items",
+      "impactsTitle": "Warnings acknowledged",
+      "noImpactsRecorded": "Nothing else was affected.",
+      "acknowledgedSummary": "Acknowledged: affects {{list}}."
+    },
+    "historyViews": {
+      "movements": "Movements",
+      "clears": "Clears"
+    }
   },
   "orders": {
     "title": "Orders",

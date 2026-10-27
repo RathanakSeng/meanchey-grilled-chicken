@@ -43,6 +43,12 @@ BODIES: dict[tuple[str, str], dict] = {
     ("POST", "/inventory/materials/{material_id}/add"): {"quantity": "1"},
     ("POST", "/inventory/materials/{material_id}/remove"): {"quantity": "0.5", "reason": "Test"},
     ("POST", "/preparations"): {"type": "satay_sachet"},
+    # No packs in stock: 409 INVENTORY_INSUFFICIENT for both, never 403.
+    ("POST", "/inventory/clears/preview"): {"lines": [{"item_code": "packs_big", "quantity": "1"}]},
+    ("POST", "/inventory/clears"): {
+        "lines": [{"item_code": "packs_big", "quantity": "1"}],
+        "reason": "Superset",
+    },
     ("PATCH", "/preparations/{preparation_id}"): {"version": 1, "note": "Superset"},
     ("POST", "/preparations/{preparation_id}/finish"): {"version": 1},
     ("POST", "/preparations/{preparation_id}/reopen"): {"version": 1},
@@ -219,6 +225,8 @@ def _fill(path: str, world: dict) -> str:
     url = url.replace("{holiday_id}", world["holiday_id"])
     url = url.replace("{version_id}", world["version_id"])
     url = url.replace("{exception_id}", world["exception_id"])
+    # No such clear: 404 for both, never 403.
+    url = url.replace("{clear_id}", str(uuid.uuid4()))
     # Someone else's (or no) request: 404 for both, never 403.
     url = url.replace("{request_id}", str(uuid.uuid4()))
     # Someone else's (or no) notification: 404 for both, never 403.
@@ -292,6 +300,10 @@ async def test_superadmin_is_never_forbidden_where_the_gm_is_allowed(
         "GET /inventory/materials/{material_id}/icon",
         "PUT /inventory/materials/{material_id}/icon",
         "DELETE /inventory/materials/{material_id}/icon",
+        "POST /inventory/clears/preview",
+        "POST /inventory/clears",
+        "GET /inventory/clears",
+        "GET /inventory/clears/{clear_id}",
         "GET /preparations",
         "GET /preparations/stats",
         "GET /preparations/material-options",

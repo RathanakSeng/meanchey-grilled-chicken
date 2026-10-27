@@ -423,6 +423,7 @@ export type NotificationType =
   | 'attendance.schedule_changed'
   | 'attendance.holiday_work'
   | 'attendance.holiday_off'
+  | 'inventory.cleared'
 
 export interface AppNotification {
   id: string
@@ -440,7 +441,8 @@ export interface AppNotification {
    * name (submitted), with_changes + comment (approved), reason (rejected), balance_minutes +
    * deadline_day + deadline_month (reminder)};
    * attendance.schedule_changed: {effective_from, weekdays, shifts: [{code, start_time, end_time}],
-   * custom}; attendance.holiday_work / _off: {holiday, holiday_km, date, shifts (work)}. */
+   * custom}; attendance.holiday_work / _off: {holiday, holiday_km, date, shifts (work)};
+   * inventory.cleared: {code, items: ClearAlertItem[], reason, impacts: {order?: n, …}}. */
   payload: Record<string, unknown>
   actor: UserRef | null
   created_at: string
@@ -505,6 +507,7 @@ export type MovementSource =
   | 'material_remove'
   | 'material_unit_change'
   | 'preparation'
+  | 'clear'
 
 /** Set on materials (origin manual): what the Raw cards and sheets need. */
 export interface ItemMaterial {
@@ -624,6 +627,8 @@ export interface InventoryMovement extends Localized {
   order?: { id: string; code: string } | null
   /** Preparation movements: the preparation. */
   preparation?: { id: string; code: string } | null
+  /** Clear movements: the clear (CL-…). */
+  clear?: { id: string; code: string } | null
   step: StepNumber | null
   /** Set on a reversal: the movement it undoes (`reason` is then "reopen" or "cancel"). */
   reversal_of: number | null
@@ -632,6 +637,88 @@ export interface InventoryMovement extends Localized {
   balance_kg_after: string | null
   balance_g_after: string | null
   balance_m2_after: string | null
+  created_by: UserRef | null
+  created_at: string
+}
+
+// --- Clear stock --------------------------------------------------------------------------------
+
+/** One item of the inventory.cleared alert. */
+export interface ClearAlertItem {
+  name_en: string
+  name_km: string
+  quantity: string
+  unit: QuantityUnit
+}
+
+export const CLEAR_REASON_MAX_LENGTH = 500
+
+export type ClearImpactType = 'order' | 'production' | 'plan' | 'preparation' | 'reopen'
+export type ClearImpactMessage =
+  | 'order_short'
+  | 'production_step2_short'
+  | 'production_step3_short'
+  | 'plan_sachets_short'
+  | 'preparation_short'
+  | 'reopen_batch_blocked'
+  | 'reopen_preparation_blocked'
+
+/** Something a clear leaves short (it doesn't block the clear, but must be acknowledged). */
+export interface ClearImpact extends Localized {
+  type: ClearImpactType
+  /** The order, batch or preparation code and id (for the link). */
+  code: string
+  id: string
+  step: StepNumber | null
+  item_code: string
+  unit: QuantityUnit
+  needed: string
+  available_after: string
+  message_key: ClearImpactMessage
+}
+
+export interface ClearItemRef extends Localized {
+  item_code: string
+  section: InventorySection | null
+}
+
+export interface ClearPreviewLine extends Localized {
+  item_code: string
+  section: InventorySection
+  group: InventoryGroup
+  unit: QuantityUnit
+  current: string
+  clear: string
+  after: string
+  /** Counted items that also track kg: the kg taken (≈ when estimated). */
+  kg: string | null
+  kg_estimated: boolean
+  /** The wasted item it moves to; null: removed. */
+  destination: ClearItemRef | null
+}
+
+export interface ClearPreview {
+  lines: ClearPreviewLine[]
+  impacts: ClearImpact[]
+}
+
+export interface InventoryClearLine extends Localized {
+  item_code: string
+  section: InventorySection | null
+  unit: QuantityUnit
+  quantity: string
+  kg: string | null
+  kg_estimated: boolean
+  moved_to: ClearItemRef | null
+}
+
+export interface InventoryClear {
+  id: string
+  code: string
+  reason: string
+  lines: InventoryClearLine[]
+  /** The impacts acknowledged when it was made. */
+  impacts: ClearImpact[]
   created_by: UserRef | null
   created_at: string
 }

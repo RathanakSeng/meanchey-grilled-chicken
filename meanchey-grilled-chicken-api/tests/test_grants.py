@@ -171,6 +171,7 @@ async def test_permission_catalog(client, superadmin) -> None:
         "inventory.history",
         "inventory.materials_stock",
         "inventory.materials_manage",
+        "inventory.clear",
     ]
     assert orders["module"] == "orders"
     assert [p["code"] for p in orders["permissions"]] == [

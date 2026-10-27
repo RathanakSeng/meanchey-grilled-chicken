@@ -4,13 +4,15 @@
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -23,7 +25,8 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, utcnow
 
@@ -31,7 +34,8 @@ from app.models.base import Base, utcnow
 # material_add / material_remove: stock of a material added or taken out by hand;
 # material_unit_change: a material switched between kg and g (balance converted) or, with no
 # movements yet, to / from m² (an empty balance);
-# preparation: a preparation finished (inputs out, outputs in) or reversed (reopen / cancel).
+# preparation: a preparation finished (inputs out, outputs in) or reversed (reopen / cancel);
+# clear: stock cleared by hand (inventory_clears): moved to its wasted item or removed.
 MOVEMENT_SOURCES = (
     "production",
     "adjustment",
@@ -41,8 +45,10 @@ MOVEMENT_SOURCES = (
     "material_remove",
     "material_unit_change",
     "preparation",
+    "clear",
 )
 ADJUST_REASON_MAX_LENGTH = 500
+CLEAR_REASON_MAX_LENGTH = 500
 INVENTORY_KG = Numeric(12, 3)
 # Grams (materials measured in g), 1 decimal.
 INVENTORY_G = Numeric(14, 1)
@@ -87,7 +93,7 @@ class InventoryMovement(Base):
     """One change of one item's stock, with the balance after it. Never updated or deleted.
 
     Sources: production (finish / reopen / cancel; also the marinade a step 2 used), preparation
-    (finish / reopen / cancel), order
+    (finish / reopen / cancel), clear (stock cleared by hand, `clear_id`), order
     (Delivering), order_return (return review), material_add / material_remove (materials, by
     hand), material_unit_change (kg <-> g: the old unit out and the new unit in, one row),
     adjustment (kept for old rows).
@@ -134,6 +140,10 @@ class InventoryMovement(Base):
     # Preparation movements: the preparation they belong to.
     preparation_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("preparations.id", ondelete="SET NULL"), index=True
+    )
+    # Clear movements: the clear they belong to.
+    clear_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("inventory_clears.id", ondelete="SET NULL"), index=True
     )
     step: Mapped[int | None] = mapped_column(SmallInteger)
     reversal_of: Mapped[int | None] = mapped_column(
@@ -226,3 +236,69 @@ class InventoryMaterial(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=func.now()
     )
+
+
+class InventoryClear(Base):
+    """Stock cleared by hand in one action (CL-YYYYMMDD-NNN): applied at once, never undone.
+    Production items in Processed / Packed move to their wasted item; everything else is removed
+    (services/inventory_clear_service.py). `impacts_snapshot`: the impacts acknowledged."""
+
+    __tablename__ = "inventory_clears"
+    __table_args__ = (
+        CheckConstraint(
+            f"char_length(reason) BETWEEN 1 AND {CLEAR_REASON_MAX_LENGTH}", name="reason"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String(32), unique=True)
+    reason: Mapped[str] = mapped_column(Text)
+    impacts_snapshot: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), index=True
+    )
+
+    lines: Mapped[list["InventoryClearLine"]] = relationship(
+        order_by="InventoryClearLine.position", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+
+class InventoryClearLine(Base):
+    """One item of a clear: the quantity taken out (in the units the item tracks; a counted
+    production item also has its kg) and where it went (`moved_to_item_code`, null: removed)."""
+
+    __tablename__ = "inventory_clear_lines"
+    __table_args__ = (
+        CheckConstraint(
+            "count IS NOT NULL OR kg IS NOT NULL OR g IS NOT NULL OR m2 IS NOT NULL",
+            name="has_quantity",
+        ),
+        CheckConstraint("count >= 0 AND kg >= 0 AND g >= 0 AND m2 >= 0", name="quantity"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    clear_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("inventory_clears.id", ondelete="CASCADE"), index=True
+    )
+    position: Mapped[int] = mapped_column(SmallInteger)
+    item_code: Mapped[str] = mapped_column(String(64))
+    count: Mapped[int | None] = mapped_column(Integer)
+    kg: Mapped[Decimal | None] = mapped_column(INVENTORY_KG)
+    g: Mapped[Decimal | None] = mapped_column(INVENTORY_G)
+    m2: Mapped[Decimal | None] = mapped_column(INVENTORY_M2)
+    kg_estimated: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    moved_to_item_code: Mapped[str | None] = mapped_column(String(64))
+
+
+class InventoryClearCounter(Base):
+    """Last clear number used per day (codes CL-YYYYMMDD-NNN, BUSINESS_TIMEZONE)."""
+
+    __tablename__ = "inventory_clear_counters"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    last_number: Mapped[int] = mapped_column(Integer)

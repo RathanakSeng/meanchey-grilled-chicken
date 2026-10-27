@@ -15,7 +15,8 @@ def _g_columns() -> list[tuple[str, str]]:
         _run(
             "SELECT table_name, column_name FROM information_schema.columns "
             "WHERE column_name IN ('g', 'g_delta', 'balance_g_after') "
-            "AND table_name LIKE 'inventory_%' ORDER BY table_name, column_name"
+            "AND table_name LIKE 'inventory_%' AND table_name <> 'inventory_clear_lines' "
+            "ORDER BY table_name, column_name"
         )
     )
 

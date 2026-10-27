@@ -109,6 +109,9 @@ async def test_upload_resize_serve_and_delete(client, session, gm) -> None:  # n
         (image("BMP"), "icon.png", "image/png"),  # judged by its content, not its name
         (b"\x89PNG" + b"0" * material_service.ICON_MAX_BYTES, "huge.png", "image/png"),
     ],
+    # Short ids: the file bytes would otherwise end up in the test id (and PYTEST_CURRENT_TEST,
+    # which Windows caps at 32,767 characters).
+    ids=["empty", "not_an_image", "wrong_type", "bmp_named_png", "too_big"],
 )
 async def test_upload_rejected(client, gm, data, name, mime) -> None:  # noqa: F811
     string = (await materials(client, gm))["String"]

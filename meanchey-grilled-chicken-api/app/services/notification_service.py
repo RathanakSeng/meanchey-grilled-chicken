@@ -41,6 +41,8 @@ REQUEST_REMINDER = "attendance.request_reminder"
 SCHEDULE_CHANGED = "attendance.schedule_changed"
 HOLIDAY_WORK = "attendance.holiday_work"
 HOLIDAY_OFF = "attendance.holiday_off"
+INVENTORY_CLEARED = "inventory.cleared"
+INVENTORY_CLEAR_PERMISSION = "inventory.clear"
 REQUEST_REVIEW_PERMISSION = "attendance.requests_review"
 # Holding any of these brings alerts (bell + Telegram): the app asks unlinked holders to link.
 TELEGRAM_ALERT_PERMISSIONS = frozenset(
@@ -49,6 +51,7 @@ TELEGRAM_ALERT_PERMISSIONS = frozenset(
         ORDER_ALERT_PERMISSION,
         PREPARATION_ALERT_PERMISSION,
         REQUEST_REVIEW_PERMISSION,
+        INVENTORY_CLEAR_PERMISSION,
     }
 )
 _QUEUE_KEY = "queued_notifications"

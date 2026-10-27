@@ -10,17 +10,22 @@ export const inventoryKeys = {
   item: (code: string) => ['inventory-item', code] as const,
   /** `GET /inventory/materials` (`{include_archived}`). */
   materials: (params: { include_archived: boolean }) => ['inventory-materials', params] as const,
+  /** `GET /inventory/clears` (`{date_from, date_to, page}`). */
+  clears: (params: Record<string, unknown>) => ['inventory-clears', params] as const,
+  /** `GET /inventory/clears/{id}`. */
+  clear: (id: string) => ['inventory-clear', id] as const,
 }
 
 /**
- * After a Finish, reopen or cancel, and after any material change: balances, breakdowns,
- * materials and history are refetched.
+ * After a Finish, reopen or cancel, a material change or a clear: balances, breakdowns,
+ * materials, history and the clear records are refetched.
  */
 export function invalidateInventory(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: inventoryKeys.overview })
   void queryClient.invalidateQueries({ queryKey: inventoryKeys.movements })
   void queryClient.invalidateQueries({ queryKey: ['inventory-item'] })
   void queryClient.invalidateQueries({ queryKey: ['inventory-materials'] })
+  void queryClient.invalidateQueries({ queryKey: ['inventory-clears'] })
 }
 
 /**

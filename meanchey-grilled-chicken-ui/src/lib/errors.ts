@@ -102,7 +102,9 @@ export function useErrorMessage() {
       // PRODUCTION_STOCK_ALREADY_USED: {items, orders} → the order codes and the items.
       if (code === 'PRODUCTION_STOCK_ALREADY_USED') {
         const orders = Array.isArray(details.orders) ? (details.orders as string[]) : []
-        params.orders = orders.join(', ') || '—'
+        // Stock cleared from the batch (CL-…) counts as used too.
+        const clears = Array.isArray(details.clears) ? (details.clears as string[]) : []
+        params.orders = [...orders, ...clears].join(', ') || '—'
         const items = Array.isArray(details.items) ? (details.items as { name_en: string; name_km: string }[]) : []
         params.items = items.map((i) => (lang === 'km' ? i.name_km : i.name_en) || i.name_en).join(', ')
       }

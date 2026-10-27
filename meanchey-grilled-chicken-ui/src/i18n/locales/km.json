@@ -275,7 +275,8 @@
       "attendance_workplace": "កន្លែងធ្វើការ",
       "attendance_shifts": "កាលវិភាគ",
       "attendance_requests": "សំណើវត្តមាន",
-      "audit_log": "កំណត់ហេតុសកម្មភាព"
+      "audit_log": "កំណត់ហេតុសកម្មភាព",
+      "inventory_clear": "សម្អាតស្តុក"
     },
     "legendRecord": "កត់ត្រា៖ អាចចាប់ផ្តើមបាច់ និងបំពេញជំហាន ប៉ុន្តែមិនអាចបើកជំហានដែលបានបញ្ចប់ឡើងវិញបានទេ។",
     "gmHint": "ការបិទគណនីអ្នកប្រើ ការកំណត់ពាក្យសម្ងាត់ឡើងវិញ ការគ្រប់គ្រងការចូលប្រើ និងការលុបចោលបាច់ ត្រូវកំណត់នៅក្នុង សិទ្ធិ (កម្រិតខ្ពស់)។",
@@ -306,7 +307,8 @@
       "order": "ការបញ្ជាទិញ",
       "material": "សម្ភារៈ",
       "preparation": "ការរៀបចំ",
-      "attendance_request": "សំណើវត្តមាន"
+      "attendance_request": "សំណើវត្តមាន",
+      "inventory_clear": "ការសម្អាតស្តុក"
     },
     "defaultBackfill": "ផ្តល់ដោយស្វ័យប្រវត្តិ (សិទ្ធិលំនាំដើមរបស់តួនាទី)",
     "actions": {
@@ -381,7 +383,8 @@
       "attendance_employee_schedule_reset": "កាលវិភាគបុគ្គលិកត្រឡប់ទៅទីកន្លែងការងារ",
       "attendance_employee_schedule_version_delete": "បានលុបការផ្លាស់ប្តូរកាលវិភាគបុគ្គលិកដែលគ្រោងទុក",
       "attendance_holiday_exception_create": "កំណត់ឱ្យធ្វើការនៅថ្ងៃឈប់សម្រាក",
-      "attendance_holiday_exception_delete": "ឈប់សម្រាកនៅថ្ងៃឈប់សម្រាកវិញ"
+      "attendance_holiday_exception_delete": "ឈប់សម្រាកនៅថ្ងៃឈប់សម្រាកវិញ",
+      "inventory_clear": "បានសម្អាតស្តុក"
     },
     "featureChange": "{{feature}}៖ {{from}} → {{to}}",
     "roleChange": "{{from}} → {{to}}",
@@ -573,7 +576,7 @@
     "INVENTORY_ITEM_NOT_FOUND": "ទំនិញស្តុកនេះមិនមានទេ។",
     "inventoryShortItem": "{{name}} ក្នុងស្តុកមិនគ្រប់គ្រាន់៖ មាន {{available}} ត្រូវការ {{needed}}។",
     "INVENTORY_ITEM_PRODUCTION_ONLY": "ទំនិញនេះផ្លាស់ប្តូរតែតាមរយៈផលិតកម្មប៉ុណ្ណោះ។",
-    "PRODUCTION_STOCK_ALREADY_USED": "{{items}} ពីបាច់នេះត្រូវបានដឹកជញ្ជូនរួចហើយក្នុង {{orders}} — មិនអាចបើកឡើងវិញ ឬលុបចោលបានទេ។",
+    "PRODUCTION_STOCK_ALREADY_USED": "{{items}} ពីបាច់នេះត្រូវបានដឹកជញ្ជូន ឬសម្អាតរួចហើយ ({{orders}}) — មិនអាចបើកឡើងវិញ ឬលុបចោលបានទេ។",
     "ORDER_NOT_FOUND": "រកមិនឃើញការបញ្ជាទិញ។",
     "ORDER_CONFLICT": "មាននរណាម្នាក់បានកែការបញ្ជាទិញនេះ។ វាត្រូវបានផ្ទុកឡើងវិញ សូមព្យាយាមម្តងទៀត។",
     "ORDER_INVALID_STATUS": "ការបញ្ជាទិញនេះបានផ្លាស់ប្តូរស្ថានភាពរួចហើយ មិនអាចកែតាមរបៀបនេះបានទៀតទេ។",
@@ -634,7 +637,9 @@
     "ATTENDANCE_MONTH_LOCKED": "ខែនេះត្រូវបានចាក់សោដោយសំណើវត្តមាន ដូច្នេះមិនអាចប្តូរវត្តមានរបស់វាបានទេ។",
     "ATTENDANCE_SCHEDULE_INVALID": "ម៉ោងវេនរបស់ {{name}} មិនត្រឹមត្រូវចាប់ពី {{date}} (វេនជាន់គ្នា បញ្ចប់មុនចាប់ផ្តើម ឬម៉ោងចុះវត្តមាន / ចុះចេញនៅក្រៅថ្ងៃ)។",
     "ATTENDANCE_SCHEDULE_CONFLICT": "ការផ្លាស់ប្តូរនេះមិនត្រូវនឹងម៉ោងវេនផ្ទាល់ខ្លួនរបស់៖ {{names}}។ សូមកែកាលវិភាគរបស់ពួកគេជាមុន។",
-    "ATTENDANCE_EXCEPTION_NOT_FOUND": "បុគ្គលិកនេះលែងត្រូវបានកំណត់ឱ្យធ្វើការនៅថ្ងៃនោះហើយ។"
+    "ATTENDANCE_EXCEPTION_NOT_FOUND": "បុគ្គលិកនេះលែងត្រូវបានកំណត់ឱ្យធ្វើការនៅថ្ងៃនោះហើយ។",
+    "INVENTORY_CLEAR_UNACKNOWLEDGED": "ស្តុកបានផ្លាស់ប្តូរ ពេលអ្នកកំពុងពិនិត្យ៖ សូមពិនិត្យការព្រមានម្តងទៀត ហើយទទួលស្គាល់វា។",
+    "INVENTORY_CLEAR_NOT_FOUND": "ការសម្អាតនេះមិនមានទេ។"
   },
   "permissions": {
     "readOnlyNotice": "អ្នកអាចមើលសិទ្ធិទាំងនេះ ប៉ុន្តែមិនអាចផ្លាស់ប្តូរនៅទីនេះបានទេ។",
@@ -910,7 +915,9 @@
     "requestReminder": "សមតុល្យ {{month}} របស់អ្នកគឺ −{{missing}}។ សូមដាក់សំណើរបស់អ្នកមុនថ្ងៃទី {{deadline}}។",
     "scheduleChanged": "កាលវិភាគវត្តមានរបស់អ្នកផ្លាស់ប្តូរចាប់ពី {{date}}៖ {{weekdays}} · {{shifts}}។",
     "holidayWork": "អ្នកធ្វើការនៅថ្ងៃ {{holiday}} ({{date}})៖ {{shifts}}។",
-    "holidayOff": "អ្នកឈប់សម្រាកនៅថ្ងៃ {{holiday}} ({{date}})។"
+    "holidayOff": "អ្នកឈប់សម្រាកនៅថ្ងៃ {{holiday}} ({{date}})។",
+    "inventoryCleared": "{{name}} បានសម្អាតស្តុក {{code}}៖ {{items}} — “{{reason}}”។",
+    "clearAffects": "ប៉ះពាល់ដល់ {{list}}។"
   },
   "telegramLink": {
     "title": "Telegram",
@@ -1007,7 +1014,8 @@
       "material_add": "បានបន្ថែម",
       "material_remove": "បានដកចេញ",
       "material_unit_change": "បានប្តូរខ្នាត",
-      "preparation": "ការរៀបចំ"
+      "preparation": "ការរៀបចំ",
+      "clear": "សម្អាត"
     },
     "reversedReopen": "បានដកវិញ៖ បើកឡើងវិញ",
     "reversedCancel": "បានដកវិញ៖ លុបចោល",
@@ -1046,7 +1054,76 @@
     "toBatch": "ទៅ",
     "gValue": "{{value}} ក្រាម",
     "fromPreparation": "ពីការរៀបចំ",
-    "noPreparationStock": "មិនមានអ្វីពីការរៀបចំនៅពេលនេះទេ។"
+    "noPreparationStock": "មិនមានអ្វីពីការរៀបចំនៅពេលនេះទេ។",
+    "clear": {
+      "start": "សម្អាតស្តុក",
+      "selectHint": "ចុចលើទំនិញដែលត្រូវសម្អាត។ ទំនិញគ្មានស្តុកមិនអាចជ្រើសបានទេ ហើយការជ្រើសរើសត្រូវរក្សាទុកនៅគ្រប់ផ្ទាំង។",
+      "selected_one": "បានជ្រើសទំនិញ {{count}}",
+      "selected_other": "បានជ្រើសទំនិញ {{count}}",
+      "continue": "បន្ត",
+      "done": "បានសម្អាតស្តុក៖ {{code}}។",
+      "openRecord": "បើកកំណត់ត្រា",
+      "title": "សម្អាតស្តុក",
+      "intro": "បញ្ចូលបរិមាណដែលត្រូវសម្អាតសម្រាប់ទំនិញនីមួយៗ។ ការខាតបង់ពីផលិតកម្ម (ទំនិញផលិត និងវេចខ្ចប់) ផ្ទេរទៅខូចខាត ផ្សេងទៀតត្រូវដកចេញ។",
+      "reason": "មូលហេតុ",
+      "reasonHint": "ត្រូវតែបំពេញ។ បង្ហាញក្នុងកំណត់ត្រា និងការជូនដំណឹង។",
+      "checking": "កំពុងពិនិត្យផលប៉ះពាល់…",
+      "affectsSummary": "ការសម្អាតនេះប៉ះពាល់ដល់ {{list}}។",
+      "acknowledge": "ខ្ញុំយល់ថាការនេះប៉ះពាល់ដល់អ្វីដែលបានរាយខាងលើ",
+      "noImpacts": "មិនប៉ះពាល់ដល់អ្វីផ្សេងទៀតទេ។",
+      "noUndo": "ការសម្អាតត្រូវអនុវត្តភ្លាមៗ ហើយមិនអាចត្រឡប់វិញបានទេ។",
+      "confirm": "បញ្ជាក់ការសម្អាត",
+      "removeLine": "ដក {{name}} ចេញ",
+      "inStock": "មានក្នុងស្តុក៖ {{amount}}",
+      "toWasted": "→ ខូចខាត",
+      "removed": "ដកចេញ",
+      "amount": "បរិមាណ {{name}} ដែលត្រូវសម្អាត ({{unit}})",
+      "all": "ទាំងអស់",
+      "tooMuch": "មានក្នុងស្តុកតែ {{amount}} ប៉ុណ្ណោះ។",
+      "enterAmount": "បញ្ចូលបរិមាណ។",
+      "groups": {
+        "order": "ការបញ្ជាទិញ",
+        "production": "ផលិតកម្ម",
+        "plan": "ផែនការ",
+        "preparation": "ការរៀបចំ",
+        "reopen": "បើកឡើងវិញ"
+      },
+      "impact": {
+        "order_short": "ត្រូវការ {{item}} {{needed}} ប៉ុន្តែនឹងនៅសល់ {{available}} ដូច្នេះការចាប់ផ្តើមដឹកជញ្ជូននឹងបរាជ័យ។",
+        "production_step2_short": "ត្រូវការ {{item}} {{needed}} សម្រាប់ជំហានទី២ ប៉ុន្តែនឹងនៅសល់ {{available}}។",
+        "production_step3_short": "ត្រូវការ {{item}} {{needed}} សម្រាប់ជំហានទី៣ ប៉ុន្តែនឹងនៅសល់ {{available}}។",
+        "plan_sachets_short": "គ្រោងប្រើ {{item}} {{needed}} ប៉ុន្តែនឹងនៅសល់ {{available}}។",
+        "preparation_short": "ប្រើ {{item}} {{needed}} ប៉ុន្តែនឹងនៅសល់ {{available}}។",
+        "reopen_batch_blocked": "ជំហានទី{{step}} បានផលិត {{item}} {{needed}}។ បើនៅសល់ {{available}} នឹងមិនអាចបើកឡើងវិញ ឬលុបចោលបានទេ។",
+        "reopen_preparation_blocked": "បានរៀបចំ {{item}} {{needed}}។ បើនៅសល់ {{available}} នឹងមិនអាចបើកឡើងវិញ ឬលុបចោលបានទេ។"
+      },
+      "affects": {
+        "order_one": "ការបញ្ជាទិញ {{count}}",
+        "order_other": "ការបញ្ជាទិញ {{count}}",
+        "production_one": "បាច់ផលិតកម្ម {{count}}",
+        "production_other": "បាច់ផលិតកម្ម {{count}}",
+        "plan_one": "ផែនការវេចខ្ចប់ {{count}}",
+        "plan_other": "ផែនការវេចខ្ចប់ {{count}}",
+        "preparation_one": "ការរៀបចំ {{count}}",
+        "preparation_other": "ការរៀបចំ {{count}}",
+        "reopen_one": "កំណត់ត្រា {{count}} ដែលមិនអាចបើកឡើងវិញ",
+        "reopen_other": "កំណត់ត្រា {{count}} ដែលមិនអាចបើកឡើងវិញ"
+      },
+      "none": "មិនទាន់មានការសម្អាតស្តុកនៅឡើយទេ។",
+      "withImpacts": "បានទទួលស្គាល់ការព្រមាន",
+      "recordTitle": "ការសម្អាត",
+      "recordSubtitle": "ស្តុកដែលបានសម្អាតដោយដៃ",
+      "by": "សម្អាតដោយ",
+      "when": "ពេលវេលា",
+      "items": "ទំនិញ",
+      "impactsTitle": "ការព្រមានដែលបានទទួលស្គាល់",
+      "noImpactsRecorded": "មិនបានប៉ះពាល់ដល់អ្វីផ្សេងទៀតទេ។",
+      "acknowledgedSummary": "បានទទួលស្គាល់៖ ប៉ះពាល់ដល់ {{list}}។"
+    },
+    "historyViews": {
+      "movements": "ការកែប្រែ",
+      "clears": "ការសម្អាត"
+    }
   },
   "orders": {
     "title": "ការបញ្ជាទិញ",

@@ -563,26 +563,57 @@ async def _reverse(session: AsyncSession, actor: User, p: Preparation, cause: st
     )
 
 
+_UNITS = ("count", "kg", "g", "m2")
+
+
 async def _guard_outputs(session: AsyncSession, p: Preparation, deltas: list[Delta]) -> None:
-    """Counted outputs taken back must still belong to this preparation (production step 3 may
-    have used some of its sachets): refuse with INVENTORY_INSUFFICIENT, nothing written."""
-    needed: dict[str, int] = {}
+    """Outputs taken back must still belong to this preparation (production step 3 may have used
+    some of its sachets, a clear some of its prepared stock): refuse with INVENTORY_INSUFFICIENT
+    (`available_*` = what this preparation still has), nothing written."""
+    needed: dict[str, dict[str, Decimal]] = {}
     for d in deltas:
-        if d.count is not None and d.count < 0:
-            needed[d.item_code] = needed.get(d.item_code, 0) - d.count
+        for unit in _UNITS:
+            value = getattr(d, unit)
+            if value is not None and value < 0:
+                per_unit = needed.setdefault(d.item_code, {})
+                per_unit[unit] = per_unit.get(unit, Decimal(0)) - Decimal(value)
     if not needed:
         return
     # Every balance of the reversal locked (item_code order) before the contributions are read.
     balances = await inventory_service.lock_balances(session, [d.item_code for d in deltas])
     codes = sorted(needed)
-    own = await inventory_service.preparation_contributions(session, codes, preparation_id=p.id)
+    own = {
+        code: dict(zip(_UNITS, (Decimal(v) for v in sums), strict=True))
+        for code, *sums in await session.execute(
+            select(
+                InventoryMovement.item_code,
+                *(
+                    func.coalesce(func.sum(getattr(InventoryMovement, f"{u}_delta")), 0)
+                    for u in _UNITS
+                ),
+            )
+            .where(InventoryMovement.preparation_id == p.id, InventoryMovement.item_code.in_(codes))
+            .group_by(InventoryMovement.item_code)
+        )
+    }
     items = await inventory_service.resolve(session, codes)
     short = []
     for code in codes:
-        have = sum(n for _, n in own[code])
-        if have < needed[code]:
-            entry = inventory_service._short_entry(items[code], balances[code], needed[code], None)
-            short.append({**entry, "available_count": have})
+        have = own.get(code, {})
+        if any(have.get(u, Decimal(0)) < need for u, need in needed[code].items()):
+            need = needed[code]
+            entry = inventory_service._short_entry(
+                items[code],
+                balances[code],
+                int(need["count"]) if "count" in need else None,
+                need.get("kg"),
+                need.get("g"),
+                need.get("m2"),
+            )
+            for unit in need:
+                value = have.get(unit, Decimal(0))
+                entry[f"available_{unit}"] = int(value) if unit == "count" else str(value)
+            short.append(entry)
     if short:
         raise inventory_service._insufficient(short)
 

@@ -61,6 +61,7 @@ const ACTIONS = [
   'preparation.finish',
   'preparation.reopen',
   'preparation.cancel',
+  'inventory.clear',
   // A GM given Business info sees its own changes.
   'settings.business_update',
 ]
@@ -68,7 +69,15 @@ const ACTIONS = [
 const SUPERADMIN_ACTIONS = ['settings.role_limit_update']
 // Detailed permission entries are listed by the API for the superadmin only.
 const PERMISSION_ACTIONS = ['permission.grant', 'permission.revoke']
-const ENTITY_TYPES = ['supplier', 'customer', 'production_batch', 'order', 'material', 'preparation'] as const
+const ENTITY_TYPES = [
+  'supplier',
+  'customer',
+  'production_batch',
+  'order',
+  'material',
+  'preparation',
+  'inventory_clear',
+] as const
 const STEP_LABELS = ['production.steps.rawMaterial', 'production.steps.produced', 'production.steps.standardize']
 const PAGE_SIZE = 50
 
@@ -100,13 +109,20 @@ function EntityRef({ entity }: { entity: AuditEntityRef }) {
   const { t } = useTranslation()
   const config = PARTNER_CONFIGS[entity.type as keyof typeof PARTNER_CONFIGS]
   const name = entity.name ?? t('common.none')
-  if (entity.type === 'production_batch' || entity.type === 'order' || entity.type === 'preparation') {
+  if (
+    entity.type === 'production_batch' ||
+    entity.type === 'order' ||
+    entity.type === 'preparation' ||
+    entity.type === 'inventory_clear'
+  ) {
     const to =
       entity.type === 'order'
         ? paths.order(entity.id)
         : entity.type === 'preparation'
           ? paths.preparation(entity.id)
-          : paths.productionBatch(entity.id)
+          : entity.type === 'inventory_clear'
+            ? paths.inventoryClear(entity.id)
+            : paths.productionBatch(entity.id)
     return (
       <span className="block">
         <span className="block text-xs text-stone-400">{t(`audit.entityTypes.${entity.type}`)}</span>
@@ -176,6 +192,29 @@ function InventoryAdjust({ details }: { details: Record<string, unknown> }) {
   )
 }
 
+/** "4-Piece Packs −20 → Wasted, String −1.500 kg removed — “reason”", for an inventory.clear entry. */
+function InventoryClearDetails({ details }: { details: Record<string, unknown> }) {
+  const { t } = useTranslation()
+  const localized = useLocalized()
+  const format = useQuantityFormat()
+  const lines = Array.isArray(details.lines)
+    ? (details.lines as { name_en: string; name_km: string; quantity: string; unit: QuantityUnit; moved_to: string | null }[])
+    : []
+  return (
+    <span className="block text-sm text-stone-700">
+      {lines
+        .map(
+          (line) =>
+            `${localized(line)} −${format(line.quantity, line.unit)} ${t(
+              line.moved_to ? 'inventory.clear.toWasted' : 'inventory.clear.removed',
+            )}`,
+        )
+        .join(', ')}
+      {typeof details.reason === 'string' && <span className="text-stone-500"> — “{details.reason}”</span>}
+    </span>
+  )
+}
+
 /** "+1.000 kg" / "−0.250 kg — Broken", with the balance after. */
 function MaterialStock({ details, removed }: { details: Record<string, unknown>; removed: boolean }) {
   const { t } = useTranslation()
@@ -231,6 +270,9 @@ function Details({ log }: { log: AuditLog }) {
   }
   if (log.action === 'inventory.adjust') {
     return <InventoryAdjust details={d} />
+  }
+  if (log.action === 'inventory.clear') {
+    return <InventoryClearDetails details={d} />
   }
   if (log.action === 'production_plan.confirm') {
     return (
