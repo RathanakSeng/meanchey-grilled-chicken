@@ -63,6 +63,7 @@ async def test_gm_gets_all_phase1_partner_and_production_permissions(client, sup
             "attendance.correct",
             "attendance.workplace_view",
             "attendance.requests_review",
+            "attendance.checkin_alerts",
         }
     )
 

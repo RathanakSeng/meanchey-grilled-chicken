@@ -276,7 +276,8 @@
       "attendance_shifts": "កាលវិភាគ",
       "attendance_requests": "សំណើវត្តមាន",
       "audit_log": "កំណត់ហេតុសកម្មភាព",
-      "inventory_clear": "សម្អាតស្តុក"
+      "inventory_clear": "សម្អាតស្តុក",
+      "attendance_checkin_alerts": "ការជូនដំណឹងវត្តមាន"
     },
     "legendRecord": "កត់ត្រា៖ អាចចាប់ផ្តើមបាច់ និងបំពេញជំហាន ប៉ុន្តែមិនអាចបើកជំហានដែលបានបញ្ចប់ឡើងវិញបានទេ។",
     "gmHint": "ការបិទគណនីអ្នកប្រើ ការកំណត់ពាក្យសម្ងាត់ឡើងវិញ ការគ្រប់គ្រងការចូលប្រើ និងការលុបចោលបាច់ ត្រូវកំណត់នៅក្នុង សិទ្ធិ (កម្រិតខ្ពស់)។",
@@ -917,7 +918,14 @@
     "holidayWork": "អ្នកធ្វើការនៅថ្ងៃ {{holiday}} ({{date}})៖ {{shifts}}។",
     "holidayOff": "អ្នកឈប់សម្រាកនៅថ្ងៃ {{holiday}} ({{date}})។",
     "inventoryCleared": "{{name}} បានសម្អាតស្តុក {{code}}៖ {{items}} — “{{reason}}”។",
-    "clearAffects": "ប៉ះពាល់ដល់ {{list}}។"
+    "clearAffects": "ប៉ះពាល់ដល់ {{list}}។",
+    "checkedIn": "{{name}} បានចុះវត្តមាន — {{shift}} ម៉ោង {{time}}{{extra}}{{workplace}}",
+    "checkedOut": "{{name}} បានចុះចេញ — {{shift}} ម៉ោង {{time}}{{extra}}{{workplace}}",
+    "alertLate": " · មកយឺត {{minutes}} នាទី",
+    "alertEarly": " · មកមុន {{minutes}} នាទី",
+    "alertOvertime": " · ថែមម៉ោង +{{minutes}} នាទី",
+    "shiftAbsent": "{{shift}} {{date}}{{workplace}} — មិនបានចុះវត្តមាន (អវត្តមាន)៖ {{names}}",
+    "shiftForgotCheckout": "{{shift}} {{date}}{{workplace}} — ភ្លេចចុះចេញ៖ {{names}}"
   },
   "telegramLink": {
     "title": "Telegram",
@@ -1664,7 +1672,8 @@
       "employees": "បុគ្គលិក",
       "peopleCount": "{{count}} នាក់ · ករណីមិនប្រក្រតីមុន",
       "scheduled": "កំណត់ {{from}}–{{to}}",
-      "noCheckIn": "មិនទាន់ចុះវត្តមាន"
+      "noCheckIn": "មិនទាន់ចុះវត្តមាន",
+      "onlyShift": "តែ{{shift}}ប៉ុណ្ណោះ"
     },
     "kpi": {
       "present": "ទាន់ពេល",

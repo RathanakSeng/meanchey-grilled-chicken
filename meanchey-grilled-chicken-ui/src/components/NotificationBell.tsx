@@ -3,12 +3,13 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
+import { usePermission } from '@/auth/usePermission'
 import { useIsMobileLayout } from '@/layouts/useIsMobileLayout'
 import { api } from '@/lib/api'
 import { useCalendarNames, useFormatDate } from '@/lib/format'
 import { paths } from '@/lib/paths'
 import { useQuantityFormat } from '@/lib/quantity'
-import { useDuration } from '@/pages/attendance/api'
+import { useDuration, useShiftName } from '@/pages/attendance/api'
 import { useDayName, useWeekdaysText } from '@/pages/attendance/scheduling/shared'
 import { boxCountsText } from '@/pages/workstation/orders/badges'
 import {
@@ -58,6 +59,19 @@ function isScheduleAlert(n: AppNotification): boolean {
   )
 }
 
+/** General managers' attendance alerts: check-ins / check-outs as they happen, and one per shift
+ *  listing who was absent or forgot to check out. */
+const ATTENDANCE_EMOJI: Partial<Record<AppNotification['type'], string>> = {
+  'attendance.checked_in': '🟢',
+  'attendance.checked_out': '🔵',
+  'attendance.shift_absent': '🔴',
+  'attendance.shift_forgot_checkout': '🟠',
+}
+
+function isAttendanceAlert(n: AppNotification): boolean {
+  return n.type in ATTENDANCE_EMOJI
+}
+
 const REQUEST_EMOJI: Partial<Record<AppNotification['type'], string>> = {
   'attendance.request_submitted': '📝',
   'attendance.request_approved': '✅',
@@ -71,6 +85,7 @@ function emoji(n: AppNotification): string {
   if (isOrderAlert(n)) return ORDER_EMOJI[n.type] ?? '🧾'
   if (isRequestAlert(n)) return REQUEST_EMOJI[n.type] ?? '📝'
   if (isScheduleAlert(n)) return '📅'
+  if (isAttendanceAlert(n)) return ATTENDANCE_EMOJI[n.type] ?? '🕒'
   if (n.type === 'preparation.finished') return '🧂'
   if (n.type === 'inventory.cleared') return '🧹'
   if (n.type === 'production.processing_finished') return '✅'
@@ -85,9 +100,36 @@ export function useNotificationText() {
   const weekdaysText = useWeekdaysText()
   const dayName = useDayName()
   const formatQuantity = useQuantityFormat()
+  const shiftName = useShiftName()
   return (n: AppNotification): { text: string; comment: string | null } => {
     const p = n.payload
     const again = p.repeat ? t('notifications.again') : ''
+    if (isAttendanceAlert(n)) {
+      // "Dara checked in — Morning shift, 07:12 · late 12 min" / "Morning shift Tue 13 Oct 2026 —
+      // didn't check in (absent): Dara, Sok" (+ " · Branch 2" with several workplaces).
+      const shift = shiftName(String(p.shift_code ?? ''))
+      const workplace = p.workplace ? ` · ${p.workplace}` : ''
+      if (n.type === 'attendance.checked_in' || n.type === 'attendance.checked_out') {
+        const late = Number(p.late_minutes ?? 0)
+        const early = Number(p.early_minutes ?? 0)
+        const overtime = Number(p.overtime_minutes ?? 0)
+        const extra =
+          n.type === 'attendance.checked_in'
+            ? late
+              ? t('notifications.alertLate', { minutes: late })
+              : early
+                ? t('notifications.alertEarly', { minutes: early })
+                : ''
+            : overtime
+              ? t('notifications.alertOvertime', { minutes: overtime })
+              : ''
+        const key = n.type === 'attendance.checked_in' ? 'notifications.checkedIn' : 'notifications.checkedOut'
+        return { text: t(key, { name: p.name, shift, time: p.time, extra, workplace }), comment: null }
+      }
+      const names = (Array.isArray(p.names) ? (p.names as string[]) : []).join(', ')
+      const key = n.type === 'attendance.shift_absent' ? 'notifications.shiftAbsent' : 'notifications.shiftForgotCheckout'
+      return { text: t(key, { shift, date: dayName(String(p.date ?? '')), workplace, names }), comment: null }
+    }
     if (n.type === 'inventory.cleared') {
       // "Dara cleared stock CL-…: 4-Piece Packs 20, Liver (processed) 1.500 kg — “…”. Affects 2 orders."
       const items = (Array.isArray(p.items) ? (p.items as ClearAlertItem[]) : [])
@@ -248,6 +290,21 @@ export function useNotificationText() {
 }
 
 function targetOf(n: AppNotification): string {
+  if (n.type === 'attendance.checked_in' || n.type === 'attendance.checked_out') {
+    return paths.attendanceEmployee(String(n.payload.user_id))
+  }
+  if (n.type === 'attendance.shift_absent' || n.type === 'attendance.shift_forgot_checkout') {
+    // The Today view for that date, filtered to that shift and status (and its workplace when
+    // there are several).
+    const p = n.payload
+    const params = new URLSearchParams({
+      date: String(p.date ?? ''),
+      status: n.type === 'attendance.shift_absent' ? 'absent' : 'forgot_checkout',
+      shift: String(p.shift_code ?? ''),
+    })
+    if (p.workplace && p.workplace_id) params.set('workplace', String(p.workplace_id))
+    return `${paths.attendanceToday}?${params}`
+  }
   if (n.type === 'attendance.request_reminder') return paths.attendanceRequests
   if (isScheduleAlert(n)) return paths.myAttendance
   if (isRequestAlert(n)) return `${paths.attendanceRequests}?request=${n.entity_id}`
@@ -265,6 +322,7 @@ function Items({ onDone }: { onDone(): void }) {
   const queryClient = useQueryClient()
   const formatDate = useFormatDate()
   const textOf = useNotificationText()
+  const canViewAttendance = usePermission('attendance.view')
 
   const list = useQuery({
     queryKey: notificationKeys.list(LIST_PARAMS),
@@ -289,6 +347,8 @@ function Items({ onDone }: { onDone(): void }) {
 
   const open = (n: AppNotification) => {
     if (!n.read_at) read.mutate(n.id)
+    // Attendance alerts open attendance pages: without Attendance (view), just mark them read.
+    if (isAttendanceAlert(n) && !canViewAttendance) return
     onDone()
     navigate(targetOf(n))
   }

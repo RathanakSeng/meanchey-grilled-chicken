@@ -157,6 +157,7 @@ async def test_permission_catalog(client, superadmin) -> None:
         "attendance.workplace_manage",
         "attendance.scheduling",
         "attendance.requests_review",
+        "attendance.checkin_alerts",
     ]
     assert [p["code"] for p in preparation["permissions"]] == [
         "preparation.view",

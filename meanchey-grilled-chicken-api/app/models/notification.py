@@ -30,6 +30,10 @@ NOTIFICATION_TYPES = (
     "attendance.holiday_work",
     "attendance.holiday_off",
     "inventory.cleared",
+    "attendance.checked_in",
+    "attendance.checked_out",
+    "attendance.shift_absent",
+    "attendance.shift_forgot_checkout",
 )
 TELEGRAM_STATUSES = ("pending", "sent", "failed", "not_linked", "bot_off")
 

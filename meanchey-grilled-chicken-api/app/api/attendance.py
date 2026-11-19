@@ -152,6 +152,7 @@ async def _check(
 ) -> CheckResultOut:
     record = await svc.check(session, user, action, body)
     background.add_task(send_confirmation, record.id, action, request.app.state.telegram)
+    background.add_task(deliver, take_queued(session), request.app.state.telegram)
     (out,) = await svc.records_out(session, [record])
     return CheckResultOut(action=action, record=out, today=await svc.me_today(session, user))  # type: ignore[arg-type]
 

@@ -68,6 +68,7 @@ async def test_superadmin_sees_the_gm_at_full_access(client, superadmin, make_us
                 "attendance_workplace",
                 "attendance_scheduling",
                 "attendance_requests",
+                "attendance_checkin_alerts",
             ],
         ),
         # Staff access is for supervisors only; Business info and the audit log for the GM only.

@@ -24,7 +24,7 @@ from aiogram import Bot
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from sqlalchemy import select
 
-from app.bot.i18n import t
+from app.bot.i18n import TEXTS, t
 from app.bot.runtime import TelegramRuntime
 from app.bot.setup import create_bot
 from app.config import get_settings
@@ -32,6 +32,8 @@ from app.db import SessionLocal
 from app.models import Language, Notification, Role, User, utcnow
 from app.models.order import BOX_COLORS
 from app.services.notification_service import (
+    CHECKED_IN,
+    CHECKED_OUT,
     COMPLETED,
     HOLIDAY_OFF,
     HOLIDAY_WORK,
@@ -47,6 +49,8 @@ from app.services.notification_service import (
     REQUEST_REMINDER,
     REQUEST_SUBMITTED,
     SCHEDULE_CHANGED,
+    SHIFT_ABSENT,
+    SHIFT_FORGOT_CHECKOUT,
 )
 
 log = logging.getLogger(__name__)
@@ -344,14 +348,61 @@ def clear_message(lang: Language, p: dict[str, Any], actor_name: str | None) -> 
     return text
 
 
+ATTENDANCE_ALERT_TYPES = (CHECKED_IN, CHECKED_OUT, SHIFT_ABSENT, SHIFT_FORGOT_CHECKOUT)
+
+
+def _shift_title(lang: Language, code: str) -> str:
+    """ "Morning shift" / "វេនព្រឹក" (unknown codes as they are)."""
+    key = f"shift_{code}"
+    name = t(lang, key) if key in TEXTS else code
+    return name[:1].upper() + name[1:]
+
+
+def attendance_alert_message(row: Notification, lang: Language) -> str:
+    """The general managers' attendance alerts (names and workplace escaped)."""
+    p: dict[str, Any] = row.payload
+    shift = _shift_title(lang, str(p.get("shift_code", "")))
+    workplace = f" · {escape(str(p['workplace']))}" if p.get("workplace") else ""
+    if row.type in (CHECKED_IN, CHECKED_OUT):
+        extra = ""
+        if row.type == CHECKED_IN and p.get("late_minutes"):
+            extra = t(lang, "alert_late", minutes=p["late_minutes"])
+        elif row.type == CHECKED_IN and p.get("early_minutes"):
+            extra = t(lang, "alert_early", minutes=p["early_minutes"])
+        elif row.type == CHECKED_OUT and p.get("overtime_minutes"):
+            extra = t(lang, "alert_overtime", minutes=p["overtime_minutes"])
+        key = "alert_checked_in" if row.type == CHECKED_IN else "alert_checked_out"
+        return t(
+            lang,
+            key,
+            name=escape(str(p.get("name", ""))),
+            shift=shift,
+            time=escape(str(p.get("time", ""))),
+            extra=extra,
+            workplace=workplace,
+        )
+    key = "alert_shift_absent" if row.type == SHIFT_ABSENT else "alert_shift_forgot_checkout"
+    return t(
+        lang,
+        key,
+        shift=shift,
+        date=day_text(lang, p.get("date") or "2000-01-01"),
+        workplace=workplace,
+        names=t(lang, "list_sep").join(escape(str(n)) for n in p.get("names") or []),
+    )
+
+
 def message_for(
     row: Notification, lang: Language, actor_name: str | None = None
 ) -> tuple[str, InlineKeyboardMarkup | None]:
-    """The alert text (HTML) and its Mini App button, in `lang`. `actor_name`: who acted, for
-    alerts that name them (None: "System")."""
+    """The alert text (HTML) and its Mini App button (none for attendance alerts), in `lang`.
+    `actor_name`: who acted, for alerts that name them (None: "System")."""
     p: dict[str, Any] = row.payload
     again = t(lang, "again") if p.get("repeat") else ""
     code = escape(str(p.get("code", "")))
+    if row.type in ATTENDANCE_ALERT_TYPES:
+        # No button: these come often, the chat stays light.
+        return attendance_alert_message(row, lang), None
     if row.type == INVENTORY_CLEARED:
         text = clear_message(lang, p, actor_name)
         button, path = "open_clear", f"/workstation/inventory/clears/{row.entity_id}"

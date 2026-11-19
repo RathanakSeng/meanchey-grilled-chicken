@@ -8,7 +8,7 @@ import { useIsMobileLayout } from '@/layouts/useIsMobileLayout'
 import { useErrorMessage } from '@/lib/errors'
 import { initials, useFormatDay } from '@/lib/format'
 import { paths } from '@/lib/paths'
-import type { AttendanceDay, AttendanceDayCell, AttendanceDayRow, AttendanceDayShift } from '@/lib/types'
+import type { AttendanceDay, AttendanceDayCell, AttendanceDayRow, AttendanceDayShift, ShiftCode } from '@/lib/types'
 import {
   businessToday,
   clockTime,
@@ -59,7 +59,8 @@ function severity(row: AttendanceDayRow): number {
 
 /** Today (attendance.view): a summary per shift (and per workplace) and one row per employee in
  *  scope, exceptions first (the name opens their attendance history); Fix with attendance.correct;
- *  Export CSV of what the filters show. Filters live in the URL (?date&workplace&status&role&q). */
+ *  Export CSV of what the filters show. Filters live in the URL (?date&workplace&status&role&q;
+ *  ?shift narrows the status to that shift, e.g. from a per-shift alert in the bell). */
 export function TodayPage() {
   const { t } = useTranslation()
   const errorMessage = useErrorMessage()
@@ -75,6 +76,7 @@ export function TodayPage() {
   const role = (params.get('role') ?? '') as RoleFilter
   const q = params.get('q') ?? ''
   const workplaceId = params.get('workplace') ?? ''
+  const shiftCode = params.get('shift') ?? ''
   const day = useAttendanceDay({ date, workplaceId })
   const dayOffText = useDayOffText()
   const [fix, setFix] = useState<FixTarget | null>(null)
@@ -86,7 +88,7 @@ export function TodayPage() {
     setParams(next, { replace: true })
   }
   const setDate = (value: string) => set('date', value === today ? '' : value)
-  const filtered = Boolean(status || role || q || workplaceId)
+  const filtered = Boolean(status || role || q || workplaceId || shiftCode)
 
   const matches = (r: AttendanceDayRow) => {
     const needle = q.trim().toLowerCase()
@@ -100,14 +102,19 @@ export function TodayPage() {
   }
   const rows = useMemo(() => {
     const list = (day.data?.rows ?? []).filter(
-      (r) => matches(r) && (!status || Object.values(r.shifts).some((c) => cellMatches(c, status))),
+      (r) =>
+        matches(r) &&
+        (!status ||
+          (shiftCode
+            ? cellMatches(r.shifts[shiftCode as ShiftCode], status)
+            : Object.values(r.shifts).some((c) => cellMatches(c, status)))),
     )
     return list
       .map((r, i) => ({ r, i, s: severity(r) }))
       .sort((a, b) => a.s - b.s || a.i - b.i)
       .map((x) => x.r)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [day.data, q, role, status])
+  }, [day.data, q, role, status, shiftCode])
 
   const shifts = day.data?.shifts ?? []
   const tz = day.data?.timezone
@@ -279,6 +286,19 @@ export function TodayPage() {
         </div>
       </Card>
 
+      {shiftCode && (
+        <div className="mb-4 flex">
+          <button
+            type="button"
+            onClick={() => set('shift', '')}
+            className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-sm font-medium text-brand-800 ring-1 ring-brand-200 hover:bg-brand-100"
+          >
+            {t('attendance.today.onlyShift', { shift: shiftName(shiftCode) })}
+            <span aria-hidden>×</span>
+            <span className="sr-only">{t('attendance.today.reset')}</span>
+          </button>
+        </div>
+      )}
       {day.isError && <Alert tone="error">{errorMessage(day.error)}</Alert>}
       {day.data?.day_off && (
         <Alert tone="warning" className="mb-4">

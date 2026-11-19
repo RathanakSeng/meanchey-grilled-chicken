@@ -424,6 +424,10 @@ export type NotificationType =
   | 'attendance.holiday_work'
   | 'attendance.holiday_off'
   | 'inventory.cleared'
+  | 'attendance.checked_in'
+  | 'attendance.checked_out'
+  | 'attendance.shift_absent'
+  | 'attendance.shift_forgot_checkout'
 
 export interface AppNotification {
   id: string
@@ -442,7 +446,11 @@ export interface AppNotification {
    * deadline_day + deadline_month (reminder)};
    * attendance.schedule_changed: {effective_from, weekdays, shifts: [{code, start_time, end_time}],
    * custom}; attendance.holiday_work / _off: {holiday, holiday_km, date, shifts (work)};
-   * inventory.cleared: {code, items: ClearAlertItem[], reason, impacts: {order?: n, …}}. */
+   * inventory.cleared: {code, items: ClearAlertItem[], reason, impacts: {order?: n, …}};
+   * attendance.checked_in / _out (general managers): {user_id, name, date, shift_code, time,
+   * workplace (null with one workplace), late_minutes + early_minutes | overtime_minutes};
+   * attendance.shift_absent / _forgot_checkout: {date, shift_code, cutoff, workplace_id,
+   * workplace (null with one workplace), names}. */
   payload: Record<string, unknown>
   actor: UserRef | null
   created_at: string

@@ -276,7 +276,8 @@
       "attendance_shifts": "Schedules",
       "attendance_requests": "Attendance requests",
       "audit_log": "Audit log",
-      "inventory_clear": "Inventory clear"
+      "inventory_clear": "Inventory clear",
+      "attendance_checkin_alerts": "Attendance alerts"
     },
     "legendRecord": "Record: can start batches and fill in steps, but can't reopen finished steps.",
     "gmHint": "Deactivating users, resetting passwords, managing access and cancelling batches are set in Permissions (advanced).",
@@ -917,7 +918,14 @@
     "holidayWork": "You work on {{holiday}} ({{date}}): {{shifts}}.",
     "holidayOff": "You're off on {{holiday}} ({{date}}).",
     "inventoryCleared": "{{name}} cleared stock {{code}}: {{items}} — “{{reason}}”.",
-    "clearAffects": "Affects {{list}}."
+    "clearAffects": "Affects {{list}}.",
+    "checkedIn": "{{name}} checked in — {{shift}}, {{time}}{{extra}}{{workplace}}",
+    "checkedOut": "{{name}} checked out — {{shift}}, {{time}}{{extra}}{{workplace}}",
+    "alertLate": " · late {{minutes}} min",
+    "alertEarly": " · {{minutes}} min early",
+    "alertOvertime": " · +{{minutes}} min overtime",
+    "shiftAbsent": "{{shift}} {{date}}{{workplace}} — didn't check in (absent): {{names}}",
+    "shiftForgotCheckout": "{{shift}} {{date}}{{workplace}} — forgot to check out: {{names}}"
   },
   "telegramLink": {
     "title": "Telegram",
@@ -1664,7 +1672,8 @@
       "employees": "Employees",
       "peopleCount": "{{count}} people · exceptions first",
       "scheduled": "Sched {{from}}–{{to}}",
-      "noCheckIn": "No check-in"
+      "noCheckIn": "No check-in",
+      "onlyShift": "{{shift}} only"
     },
     "kpi": {
       "present": "On time",

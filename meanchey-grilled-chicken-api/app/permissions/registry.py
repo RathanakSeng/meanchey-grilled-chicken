@@ -560,6 +560,21 @@ PERMISSIONS += [
         description_km=("យល់ព្រម កែ ឬបដិសេធសំណើប្រចាំខែរបស់បុគ្គលិកក្នុងដែនគ្រប់គ្រង ដើម្បីជំនួសម៉ោងដែលខ្វះ។"),
         assignable_to=_MANAGERS,
     ),
+    PermissionDef(
+        code="attendance.checkin_alerts",
+        module="attendance",
+        name_en="Attendance alerts",
+        name_km="ការជូនដំណឹងវត្តមាន",
+        description_en=(
+            "Get an alert when an employee checks in or out, and one per shift listing who was "
+            "absent or forgot to check out."
+        ),
+        description_km=(
+            "ទទួលការជូនដំណឹងពេលបុគ្គលិកចុះវត្តមាន ឬចុះចេញ និងមួយសម្រាប់វេននីមួយៗ ដែលរាយឈ្មោះអ្នកអវត្តមាន ឬភ្លេចចុះចេញ។"
+        ),
+        # Given to the general manager by the superadmin only (Attendance alerts feature).
+        assignable_to=_GM_ONLY,
+    ),
     # `attendance.shifts_manage` (each workplace's schedule) was replaced by
     # `attendance.scheduling` (migration 0020 moved its holders). The sync keeps it inactive.
 ]
@@ -922,6 +937,23 @@ FEATURES: list[FeatureDef] = [
         levels=(("off", ()), ("full", ("attendance.requests_review",))),
     ),
     FeatureDef(
+        code="attendance_checkin_alerts",
+        menu="attendance",
+        name_en="Attendance alerts",
+        name_km="ការជូនដំណឹងវត្តមាន",
+        description_en=(
+            "Alerts (bell and Telegram) as employees check in and out, and one message per shift "
+            "listing who was absent or forgot to check out."
+        ),
+        description_km=(
+            "ការជូនដំណឹង (កណ្ដឹង និង Telegram) ពេលបុគ្គលិកចុះវត្តមាន និងចុះចេញ "
+            "ព្រមទាំងសារមួយសម្រាប់វេននីមួយៗ ដែលរាយឈ្មោះអ្នកអវត្តមាន ឬភ្លេចចុះចេញ។"
+        ),
+        # Only the superadmin manages the GM, so only it sets this. Full by default.
+        applies_to=(Role.GENERAL_MANAGER,),
+        levels=(("off", ()), ("full", ("attendance.checkin_alerts",))),
+    ),
+    FeatureDef(
         code="staff_management",
         menu="settings",
         name_en="Staff management",
@@ -1011,13 +1043,14 @@ DEFAULT_PERMISSIONS: dict[Role, frozenset[str]] = {
     | _ORDER_CODES
     # Preparation Record, preparation management Full.
     | {"preparation.view", "preparation.create", "preparation.update", "preparation.cancel"}
-    # Attendance view + corrections + request review; the workplace view only (editing it and
-    # scheduling are the superadmin's to allow).
+    # Attendance view + corrections + request review + check-in alerts; the workplace view only
+    # (editing it and scheduling are the superadmin's to allow).
     | {
         "attendance.view",
         "attendance.correct",
         "attendance.workplace_view",
         "attendance.requests_review",
+        "attendance.checkin_alerts",
     },
     # Workstation features at full access, except the production plan (off: the GM decides who
     # plans). Staff: view them and set their access; adding or editing staff is the GM's call.

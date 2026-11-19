@@ -103,7 +103,7 @@ Home                      everyone
 ├── Attendance            staff, supervisors, attendance.view / .scheduling   /attendance
 │   ├── (check screen)    staff, supervisors /attendance/check
 │   ├── My attendance     staff, supervisors /attendance/me  (?year&month)
-│   ├── Today             attendance.view   /attendance/today  (?date&workplace&status&role&q)
+│   ├── Today             attendance.view   /attendance/today  (?date&workplace&status&role&q&shift)
 │   ├── Scheduling        attendance.view or .scheduling   /attendance/scheduling (workplaces) → /:workplaceId  (?m)
 │   └── (employee)        attendance.view   /attendance/employees/:id  (?year&month; from Today)
 └── Settings              everyone          /settings
@@ -272,8 +272,10 @@ A bell in the top bar (desktop and mobile) with the number of unread notificatio
 | 🧂 | A preparation finished (§6.7) | *"PP-…: preparation finished — 40 satay sachets (2-piece), 25 (4-piece) | Skewer 2.000 kg."* ("again" after a reopen) | the preparation |
 | 🚚 ✅ ↩️ 📦 | An order out for delivery, delivered, returned, return reviewed (§6.6) | e.g. *"OR-…: Dara Shop returned items — 2 × 4-Piece Packs. Review the return."* and the reason | the order |
 | 🧹 | Stock cleared (§6.5) | *"Dara cleared stock CL-…: Liver (processed) 1.500 kg, 4-Piece Packs 20 — “Freezer broke overnight”. Affects 1 order, 1 production batch."* | the clear record |
+| 🟢 🔵 | An employee checked in / out (general managers with **Attendance alerts**, §7) | *"Dara checked in — Morning shift, 07:12 · late 12 min"* (or *"· 20 min early"*), *"Dara checked out — Morning shift, 12:05 · +5 min overtime"*; *"· Branch 2"* with more than one workplace | the employee's attendance |
+| 🔴 🟠 | One per shift: who didn't check in (at the absent cutoff, e.g. 07:45) / who forgot to check out (when the check-out window closes, e.g. 13:00) | *"Morning shift Tue 13 Oct 2026 — didn't check in (absent): Bopha, Dara"*, *"Morning shift Tue 13 Oct 2026 — forgot to check out: Sok"* | Today for that date, filtered to that shift and status (and workplace with several) |
 
-**Who gets them:** production alerts go to everyone with Production plan access, preparation alerts to everyone with **Preparation management**, order alerts to everyone with **Order returns** (general managers, supervisors given access, and the system account), clear alerts to the system account and everyone with **Inventory clear** or **Inventory history** (who can open the record), also on **Telegram** when their Telegram account is linked, with an **Open plan** / **Open batch** / **Open order** button into the Mini App. Staff get none.
+**Who gets them:** production alerts go to everyone with Production plan access, preparation alerts to everyone with **Preparation management**, order alerts to everyone with **Order returns** (general managers, supervisors given access, and the system account), clear alerts to the system account and everyone with **Inventory clear** or **Inventory history** (who can open the record), attendance alerts to general managers with **Attendance alerts** only (on by default; not the system account), also on **Telegram** when their Telegram account is linked, with an **Open plan** / **Open batch** / **Open order** button into the Mini App (attendance alerts come without a button). Staff get none. Attendance alerts open attendance pages: without **Attendance** (view) a tap only marks them read.
 
 ### 6.5 Inventory (ស្តុក)
 
@@ -495,7 +497,7 @@ On **Today**, an employee's name opens their attendance: the same page (period, 
 ### 7.5 Today (`/attendance/today`, `attendance.view`)
 
 - **Header:** the long date (*Wednesday, 14 October 2026 · Today*), a day switcher (‹ date picker ›, never after today), **Today** and **Export CSV** (the primary orange button): downloads the rows the filters show (employee, role, position, workplace, and per shift status, in, out; UTF-8 with BOM so Excel reads Khmer), named `attendance-YYYY-MM-DD.csv`.
-- **Filters** (one card): **Workplace** (shown when there is more than one), **Status** (present, late, absent, not yet, no record, forgot check-out), **Role**, a search box (name, position, Telegram username) and **Reset filters**; all in the address (`?date&workplace&status&role&q`).
+- **Filters** (one card): **Workplace** (shown when there is more than one), **Status** (present, late, absent, not yet, no record, forgot check-out), **Role**, a search box (name, position, Telegram username) and **Reset filters**; all in the address (`?date&workplace&status&role&q`). `?shift=morning|afternoon` (from a per-shift alert in the bell) narrows the status filter to that shift and shows a removable chip *"Morning shift only"*; **Reset filters** clears it too.
 - **Shift summary** (one card, a row per shift): name, phase badge, times, *N expected · M checked out* (and *forgot check-out*), a bar of on time / late / absent over the expected, *x of y attended*, and three **count chips** (on time, late, absent incl. no record) that apply that status filter when clicked (click again to clear; a zero is dashed). With a workplace chosen, its own shift times.
 - **Day off** (the chosen workplace's, else the default's): an amber notice *"Holiday: Pchum Ben at Mean Chey: nobody is expected today."*; the figures count nobody, rows show *Day off* (a kept corrected record still shows), and **By workplace** shows *Day off* instead of the counts for a workplace that's off.
 - **By workplace** (all workplaces, more than one): a table, a row per workplace with its own times per shift and the worst state as one chip (*1 absent*, else *1 late*, else *1 on time*) *of N*; clicking a row filters the page.
@@ -717,6 +719,7 @@ How general managers decide what supervisors and staff can use (and how the supe
 - **Each click saves** immediately, with a spinner on that row. On error the previous level comes back and a translated message is shown.
 - From *Off*, *View only* has a dashed outline as the suggested next step; it still takes a click.
 - **Custom:** if a user's permissions match no level (only possible through the superadmin's detailed permissions), a neutral *Custom* badge is shown and no level is selected. Picking a level replaces it.
+- **Attendance alerts** (Off · Full access, under Attendance) is listed only on a general manager, so only the superadmin sets it; **default Full**. With Full the GM gets the check-in / check-out alerts and the per-shift absent / forgot check-out lists (bell + Telegram, §6.4); *Off* stops them.
 - **Attendance requests** (Off · Full access, under Attendance; GM Full, supervisor Off) is listed for general managers and supervisors like the other Attendance features (the Access tab reads the feature list from the server, so it appears by itself).
 - **Inventory history** (Off · View only, under Workstation) and **Attendance scheduling** (Off · Full access, under Attendance) appear only where the viewer may give them: the superadmin on general managers and supervisors, and a general manager on supervisors **only while that GM has it**. A GM without it never sees the row, with no hint. Both default to Off.
 - **Audit log** (Off · View only, under Settings) is listed only on a general manager, so only the superadmin sets it; default Off. *View only* opens Settings → Audit log for that GM (with its usual filtering); *Off* removes it again.
@@ -873,6 +876,7 @@ Supervisors never see detailed permissions; they see feature levels only on the 
 | Employees' own schedules (Scheduling → Employees) and who works on a holiday | ✅ (staff and supervisors) | Attendance scheduling = Full: staff and supervisors | Attendance scheduling = Full: staff only | ❌ never |
 | Attendance → Requests: send my month's request, read it | ❌ (not tracked) | ❌ (not tracked) | ✅ always | ✅ always |
 | Attendance → Requests: review (approve, approve with changes, reject) | ✅ staff and supervisors | Attendance requests = Full (default) | Attendance requests = Full (default Off): staff | ❌ never |
+| Attendance alerts (check-ins / check-outs, absent and forgot check-out lists per shift) | ❌ never (not sent to the system account) | Attendance alerts = Full (default; set by the superadmin) | ❌ never | ❌ never |
 | Settings → Workplaces → Request deadline | ✅ | ❌ never | ❌ never | ❌ never |
 | User form: choose the workplace of staff / supervisors | ✅ | with Staff management edit | with Staff management Record / Full: staff | ❌ never |
 | User form / Change role: attendance start date of staff / supervisors (editable until it arrives) | ✅ | with Staff management edit | with Staff management Record / Full: staff | ❌ never |

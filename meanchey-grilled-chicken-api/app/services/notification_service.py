@@ -3,7 +3,9 @@
 - **Recipients:** active users holding the alert's permission (effective permissions: granted,
   permission active, still assignable to their role) and the superadmin, who holds everything
   implicitly. Production alerts: `production_plan.view`; order alerts: `orders.review_returns`;
-  preparation alerts: `preparation.update`.
+  preparation alerts: `preparation.update`. Attendance alerts (check-ins / check-outs and the
+  per-shift absent / forgot check-out lists, `app/attendance/alerts.py`): general managers
+  holding `attendance.checkin_alerts` only (`gm_recipients`: not the superadmin).
   Staff can hold neither. The actor is included when they qualify.
 - **Creation:** `notify()` inserts one row per recipient in the caller's transaction (e.g. the step
   2 Finish), so an alert exists exactly when the action committed. The new ids are queued on the
@@ -44,6 +46,11 @@ HOLIDAY_OFF = "attendance.holiday_off"
 INVENTORY_CLEARED = "inventory.cleared"
 INVENTORY_CLEAR_PERMISSION = "inventory.clear"
 REQUEST_REVIEW_PERMISSION = "attendance.requests_review"
+CHECKED_IN = "attendance.checked_in"
+CHECKED_OUT = "attendance.checked_out"
+SHIFT_ABSENT = "attendance.shift_absent"
+SHIFT_FORGOT_CHECKOUT = "attendance.shift_forgot_checkout"
+ATTENDANCE_ALERT_PERMISSION = "attendance.checkin_alerts"
 # Holding any of these brings alerts (bell + Telegram): the app asks unlinked holders to link.
 TELEGRAM_ALERT_PERMISSIONS = frozenset(
     {
@@ -52,6 +59,7 @@ TELEGRAM_ALERT_PERMISSIONS = frozenset(
         PREPARATION_ALERT_PERMISSION,
         REQUEST_REVIEW_PERMISSION,
         INVENTORY_CLEAR_PERMISSION,
+        ATTENDANCE_ALERT_PERMISSION,
     }
 )
 _QUEUE_KEY = "queued_notifications"
@@ -80,6 +88,12 @@ async def recipients(session: AsyncSession, permission: str = ALERT_PERMISSION) 
         .order_by(User.created_at, User.id)
     )
     return list(await session.scalars(stmt))
+
+
+async def gm_recipients(session: AsyncSession, permission: str) -> list[User]:
+    """Active general managers holding `permission`: the holders without the superadmin (who
+    holds everything implicitly but doesn't get these alerts)."""
+    return [u for u in await recipients(session, permission) if u.role == Role.GENERAL_MANAGER]
 
 
 async def notify(

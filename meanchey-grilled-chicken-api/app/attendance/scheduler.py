@@ -25,8 +25,13 @@ follow each person's own times and only the shifts they are expected to work:
   day / shift / kind) makes each one go out once; rows are claimed (`pending → sending`) inside
   the tick, then sent after the commit.
 
+**Alerts to general managers** (`app/attendance/alerts.py`): the absents and forgot check-outs a
+tick records are grouped by workplace / date / shift / cutoff, and each non-empty group becomes
+one message (once: keyed on a uuid5 of the group), created in the tick and sent after the commit.
+
 `rerun` replays passed cutoffs (absent, forgot check-out; never reminders) for given past dates,
-when a holiday is removed or shortened or a day becomes tracked again.
+when a holiday is removed or shortened or a day becomes tracked again. It sends no alerts (a
+manager's change to past days, not something happening now).
 """
 
 import asyncio
@@ -40,7 +45,7 @@ from sqlalchemy import ColumnElement, and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.attendance import clock
+from app.attendance import alerts, clock
 from app.attendance import windows as win
 from app.attendance.days import Days, load_days
 from app.attendance.month_lock import month_locked_sql
@@ -50,6 +55,7 @@ from app.bot.runtime import TelegramRuntime
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import AttendanceRecord, AttendanceReminder, AttendanceWorkplace, User, utcnow
+from app.services import notification_service as notifications
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +71,10 @@ class TickResult:
     skipped: int = 0
     skipped_locked: int = 0  # absents not recreated: a pending / approved request locks the month
     sent: dict[str, int] = field(default_factory=dict)
+    # Who was recorded, per group (for the general managers' alerts).
+    absent_groups: dict[alerts.ShiftKey, set[uuid.UUID]] = field(default_factory=dict)
+    forgot_groups: dict[alerts.ShiftKey, set[uuid.UUID]] = field(default_factory=dict)
+    alerts: list[uuid.UUID] = field(default_factory=list)
 
 
 def _tracked(day: date, *extra: ColumnElement[bool]) -> ColumnElement[bool]:
@@ -90,7 +100,8 @@ async def _mark_absent(
     workplace_id: uuid.UUID,
     at: ColumnElement[bool],
     result: TickResult,
-) -> int:
+) -> list[uuid.UUID]:
+    """Absent records for this shift's tracked employees without one; the users recorded."""
     has_record = (
         select(AttendanceRecord.id)
         .where(
@@ -108,9 +119,9 @@ async def _mark_absent(
         await session.scalar(select(func.count(User.id)).where(due, locked)) or 0
     )
     if not user_ids:
-        return 0
+        return []
     now = utcnow()
-    result = await session.execute(
+    inserted = await session.execute(
         pg_insert(AttendanceRecord)
         .values(
             [
@@ -132,16 +143,16 @@ async def _mark_absent(
             ]
         )
         .on_conflict_do_nothing(constraint="uq_attendance_records_shift")
-        .returning(AttendanceRecord.id)
+        .returning(AttendanceRecord.user_id)
     )
-    return len(result.all())
+    return list(inserted.scalars())
 
 
 async def _mark_forgot(
     session: AsyncSession, w: win.ShiftWindows, records: ColumnElement[bool]
-) -> int:
+) -> list[uuid.UUID]:
     """Open records of this shift among `records` (a workplace's: records keep the workplace
-    they were made at; or a group of employees with their own times)."""
+    they were made at; or a group of employees with their own times). The users marked."""
     result = await session.execute(
         update(AttendanceRecord)
         .where(
@@ -154,9 +165,9 @@ async def _mark_forgot(
             AttendanceRecord.user_id.in_(select(User.id).where(_tracked(w.work_date))),
         )
         .values(checkout_status="forgot_checkout", updated_at=utcnow())
-        .returning(AttendanceRecord.id)
+        .returning(AttendanceRecord.user_id)
     )
-    return len(result.all())
+    return list(result.scalars())
 
 
 async def _queue_reminders(
@@ -278,9 +289,17 @@ async def _cutoffs(
     session: AsyncSession, w: win.ShiftWindows, g: _Group, now: datetime, result: TickResult
 ) -> None:
     if now >= w.check_in_closes:
-        result.absent += await _mark_absent(session, w, g.workplace.id, g.at, result)
+        absent = await _mark_absent(session, w, g.workplace.id, g.at, result)
+        result.absent += len(absent)
+        if absent:
+            key = alerts.ShiftKey(g.workplace.id, w.work_date, w.code, w.check_in_closes)
+            result.absent_groups.setdefault(key, set()).update(absent)
     if now >= w.check_out_closes:
-        result.forgot_checkout += await _mark_forgot(session, w, g.records)
+        forgot = await _mark_forgot(session, w, g.records)
+        result.forgot_checkout += len(forgot)
+        if forgot:
+            key = alerts.ShiftKey(g.workplace.id, w.work_date, w.code, w.check_out_closes)
+            result.forgot_groups.setdefault(key, set()).update(forgot)
 
 
 async def rerun(
@@ -333,6 +352,12 @@ async def tick(session: AsyncSession, now: datetime) -> TickResult | None:
                     await _queue_reminders(session, w, "check_in", now, g.at)
                 if w.check_out_opens <= now < w.check_out_closes:
                     await _queue_reminders(session, w, "check_out", now, g.at)
+    # One grouped message per workplace / date / shift / cutoff, to the general managers.
+    absent = await alerts.shift_alerts(session, notifications.SHIFT_ABSENT, result.absent_groups)
+    forgot = await alerts.shift_alerts(
+        session, notifications.SHIFT_FORGOT_CHECKOUT, result.forgot_groups
+    )
+    result.alerts = [*absent, *forgot]
     # Never sent late: a reminder whose window closed (downtime) is skipped. Turning a
     # workplace's reminders off (or a day off) also skips its employees' waiting ones.
     untracked = (
@@ -376,7 +401,9 @@ async def run_tick(
             from app.services.request_service import queue_reminders  # noqa: PLC0415
 
             request_alerts = await queue_reminders(session, now)
+            request_alerts = [*result.alerts, *request_alerts]
         await session.commit()
+        notifications.discard_queued(session)
     if request_alerts:
         from app.bot.notify import deliver  # noqa: PLC0415
 

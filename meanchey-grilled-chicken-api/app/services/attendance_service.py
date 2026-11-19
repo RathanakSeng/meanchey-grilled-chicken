@@ -24,7 +24,7 @@ from sqlalchemy import and_, delete, false, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.attendance import clock
+from app.attendance import alerts, clock
 from app.attendance import requests as req
 from app.attendance import summary as summ
 from app.attendance import windows as win
@@ -375,7 +375,8 @@ async def check(
     session: AsyncSession, user: User, action: str, location: LocationIn
 ) -> AttendanceRecord:
     """Record a check-in or check-out now. Checks, in order: tracked, workplace set, time window,
-    duplicates / order, distance (the GPS accuracy is only stored). Commits."""
+    duplicates / order, distance (the GPS accuracy is only stored). Queues the general managers'
+    alert (`take_queued`). Commits."""
     attempt = _Attempt(action, location)
     user_id = user.id
     if not is_tracked(user):
@@ -632,6 +633,8 @@ async def check(
             else 0
         )
         record.updated_at = utcnow()
+    # General managers with Attendance alerts: in this transaction, Telegram after the commit.
+    await alerts.event_alert(session, user, record, action)
     await session.commit()
     return record
 

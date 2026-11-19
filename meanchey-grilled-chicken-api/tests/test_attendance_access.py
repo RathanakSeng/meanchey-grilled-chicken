@@ -15,6 +15,7 @@ ALL_ATTENDANCE = {
     "attendance.workplace_manage",
     "attendance.scheduling",
     "attendance.requests_review",
+    "attendance.checkin_alerts",
 }
 
 
@@ -45,6 +46,12 @@ def test_registry() -> None:
         "attendance.correct",
         "attendance.workplace_view",
         "attendance.requests_review",
+        "attendance.checkin_alerts",
+    }
+    assert FEATURES_BY_CODE["attendance_checkin_alerts"].applies_to == (Role.GENERAL_MANAGER,)
+    assert levels["attendance_checkin_alerts"] == {
+        "off": (),
+        "full": ("attendance.checkin_alerts",),
     }
     assert not DEFAULT_PERMISSIONS[Role.SUPERVISOR] & ALL_ATTENDANCE
     assert not DEFAULT_PERMISSIONS[Role.STAFF] & ALL_ATTENDANCE
@@ -62,6 +69,7 @@ async def test_features_on_the_access_tab(client, make_user, superadmin) -> None
         "attendance_workplace": "view",
         "attendance_scheduling": "off",
         "attendance_requests": "full",
+        "attendance_checkin_alerts": "full",
     }
     menus = (await client.get(f"/users/{sup.id}/features", headers=auth(gm))).json()["menus"]
     attendance = next(m for m in menus if m["menu"] == "attendance")

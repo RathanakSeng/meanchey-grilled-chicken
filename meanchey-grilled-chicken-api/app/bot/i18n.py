@@ -290,6 +290,35 @@ TEXTS: dict[str, dict[Language, str]] = {
         Language.KM: "👋 បានចុះចេញ — {shift} ម៉ោង {time}",
         Language.EN: "👋 Checked out — {shift}, {time}",
     },
+    # --- Attendance alerts to general managers (app/attendance/alerts.py) ---
+    "alert_checked_in": {
+        Language.KM: "🟢 <b>{name}</b> បានចុះវត្តមាន — {shift} ម៉ោង {time}{extra}{workplace}",
+        Language.EN: "🟢 <b>{name}</b> checked in — {shift}, {time}{extra}{workplace}",
+    },
+    "alert_checked_out": {
+        Language.KM: "🔵 <b>{name}</b> បានចុះចេញ — {shift} ម៉ោង {time}{extra}{workplace}",
+        Language.EN: "🔵 <b>{name}</b> checked out — {shift}, {time}{extra}{workplace}",
+    },
+    "alert_late": {
+        Language.KM: " · មកយឺត {minutes} នាទី",
+        Language.EN: " · late {minutes} min",
+    },
+    "alert_early": {
+        Language.KM: " · មកមុន {minutes} នាទី",
+        Language.EN: " · {minutes} min early",
+    },
+    "alert_overtime": {
+        Language.KM: " · ថែមម៉ោង +{minutes} នាទី",
+        Language.EN: " · +{minutes} min overtime",
+    },
+    "alert_shift_absent": {
+        Language.KM: "🔴 {shift} {date}{workplace} — មិនបានចុះវត្តមាន (អវត្តមាន)៖ {names}",
+        Language.EN: "🔴 {shift} {date}{workplace} — didn't check in (absent): {names}",
+    },
+    "alert_shift_forgot_checkout": {
+        Language.KM: "🟠 {shift} {date}{workplace} — ភ្លេចចុះចេញ៖ {names}",
+        Language.EN: "🟠 {shift} {date}{workplace} — forgot to check out: {names}",
+    },
     "button_check_in": {
         Language.KM: "📍 ចុះវត្តមាន",
         Language.EN: "📍 Check in",
